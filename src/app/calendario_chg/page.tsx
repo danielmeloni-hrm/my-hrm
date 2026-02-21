@@ -57,38 +57,41 @@ export default function GoogleOnlyCalendar() {
   }, [googleEvents])
 
   const days = useMemo(() => {
-    const result = []
-    const d = new Date(currentDate)
-    if (viewMode === 'week') {
-      const day = d.getDay()
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-      const monday = new Date(d.setDate(diff))
-      for (let i = 0; i < 7; i++) {
-        const nextDay = new Date(monday); nextDay.setDate(monday.getDate() + i)
-        result.push(nextDay)
-      }
-    } else {
-      const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1)
-      const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0)
-      
-      // Calcoliamo quanti giorni del mese precedente mostrare per arrivare al lunedì
-      // getDay(): 0=Dom, 1=Lun, ..., 6=Sab
-      let firstDayIndex = startOfMonth.getDay() 
-      const prefixDays = firstDayIndex === 0 ? 6 : firstDayIndex - 1
+  const result: Date[] = [] // Tipizzazione esplicita
+  const d = new Date(currentDate)
+  
+  if (viewMode === 'week') {
+    const day = d.getDay()
+    const diff = d.getDate() - (day === 0 ? 6 : day - 1)
+    const monday = new Date(d.setDate(diff))
+    for (let i = 0; i < 7; i++) {
+      const nextDay = new Date(monday)
+      nextDay.setDate(monday.getDate() + i)
+      result.push(nextDay)
+    }
+  } else {
+    const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1)
+    const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+    
+    let firstDayIndex = startOfMonth.getDay() 
+    const prefixDays = firstDayIndex === 0 ? 6 : firstDayIndex - 1
 
-      // Aggiungiamo i giorni del mese corrente
-      for (let i = 1 - prefixDays; i <= endOfMonth.getDate(); i++) {
-        result.push(new Date(d.getFullYear(), d.getMonth(), i))
-      }
-      
-      // Opzionale: aggiungiamo giorni del mese successivo per completare l'ultima riga da 7
-      while (result.length % 7 !== 0) {
-        const lastDay = result[result.length - 1]
-        result.push(new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1))
+    for (let i = 1 - prefixDays; i <= endOfMonth.getDate(); i++) {
+      result.push(new Date(d.getFullYear(), d.getMonth(), i))
+    }
+    
+    // CORREZIONE TYPE ERROR:
+    while (result.length % 7 !== 0) {
+      const currentLast = result[result.length - 1];
+      if (currentLast) { // Check di sicurezza per TypeScript
+        const nextDay = new Date(currentLast);
+        nextDay.setDate(currentLast.getDate() + 1);
+        result.push(nextDay);
       }
     }
-    return result
-  }, [currentDate, viewMode])
+  }
+  return result
+}, [currentDate, viewMode])
 
   const getReleasesForDate = useCallback((d: Date) => {
     const target = formatDateKey(d)
