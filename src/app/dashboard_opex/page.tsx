@@ -12,7 +12,7 @@ export default function GeneralDashboard() {
   const supabase = createClient()
   const [tickets, setTickets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedSprint, setSelectedSprint] = useState('Sprint') // Default solo Sprint attivo
+  const [selectedSprint, setSelectedSprint] = useState('Opex') // Default solo Sprint attivo
   const [filterMe, setFilterMe] = useState(false)
 
   const formatDate = (dateString: string) => {
@@ -45,10 +45,10 @@ export default function GeneralDashboard() {
     let query = supabase.from('ticket').select('*, clienti(nome)').order('creato_at', { ascending: false })
 
     // LOGICA FILTRO: Solo quelli in Sprint (esclude Backlog e nulli)
-    if (selectedSprint === 'Sprint') {
-      query = query.eq('sprint', 'Sprint')
+    if (selectedSprint === 'Opex') {
+      query = query.eq('opex', 'Opex')
     } else {
-      query = query.eq('sprint', selectedSprint)
+      query = query.eq('opex', selectedSprint)
     }
 
     if (filterMe && user) query = query.eq('assignee', user.id)
@@ -90,7 +90,7 @@ export default function GeneralDashboard() {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
           <div>
             <h1 className="text-4xl font-black tracking-tighter flex items-center gap-3 text-black italic">
-              <Trello className="text-blue-600" size={36} /> SPRINT BOARD
+              <Trello className="text-blue-600" size={36} /> OPEX BOARD
             </h1>
             <p className="text-[10px] font-bold text-blue-600/50 uppercase tracking-[0.3em]">Solo attività in corso</p>
           </div>
@@ -98,7 +98,7 @@ export default function GeneralDashboard() {
           <div className="flex gap-3">
             {/* Selettore Sprint (rimosso "Tutti" e "Backlog" per pulizia) */}
             <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-gray-100">
-              {['Sprint'].map(s => (
+              {['Opex'].map(s => (
                 <button key={s} onClick={() => setSelectedSprint(s)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${selectedSprint === s ? 'bg-black text-white' : 'text-gray-400'}`}>
                   {s}
                 </button>

@@ -19,9 +19,12 @@ export default function Sidebar() {
   const pathname = usePathname()
 
   const menuItems = [
-    { name: 'Dashboard Hub', icon: <LayoutGrid size={20} />, path: '/dashboard' },
+    { name: 'Sprint Board', icon: <LayoutGrid size={20} />, path: '/dashboard' },
+    { name: 'Opex Board', icon: <Layers size={20} />, path: '/dashboard_opex' },
     { name: 'I miei Ticket', icon: <Ticket size={20} />, path: '/i-miei-ticket' },
-    { name: 'Sprint Board', icon: <Layers size={20} />, path: '/board' }, // La board che abbiamo creato
+    { name: 'Calendario Rilasci', icon: <BarChart3 size={20} />, path: '/calendario' },
+    { name: 'Calendario Rilasci CHG', icon: <BarChart3 size={20} />, path: '/calendario_chg' },
+    
   ]
 
   return (
