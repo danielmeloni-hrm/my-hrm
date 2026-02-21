@@ -21,7 +21,7 @@ export default function Sidebar() {
   const menuItems = [
     { name: 'Dashboard Hub', icon: <LayoutGrid size={20} />, path: '/dashboard' },
     { name: 'I miei Ticket', icon: <Ticket size={20} />, path: '/i-miei-ticket' },
-    { name: 'Sprint Board', icon: <Layers size={20} />, path: '/board' },, // La board che abbiamo creato
+    { name: 'Sprint Board', icon: <Layers size={20} />, path: '/board' }, // La board che abbiamo creato
   ]
 
   return (
@@ -57,7 +57,7 @@ export default function Sidebar() {
         <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto overflow-x-hidden">
         {menuItems.map((item) => {
             // Gestione stato attivo precisa
-            const isActive = pathname === item.path
+            const isActive = pathname === item?.path
             
             return (
             <Link 
