@@ -28,10 +28,10 @@ export default function StoricoTicketPage() {
             titolo, 
             stato, 
             priorita, 
-            creato_at, 
+            ultimo_ping, 
             clienti (nome)
         `)
-        .order('creato_at', { ascending: false }) // Corretto qui
+        .order('ultimo_ping', { ascending: false }) // Corretto qui
         .limit(5);
 
       if (!error && data) setTickets(data)
@@ -112,7 +112,7 @@ export default function StoricoTicketPage() {
                       <td className="px-6 py-4 text-sm text-gray-500">
                         <div className="flex items-center gap-2">
                           <Clock size={14} />
-                          {new Date(t.created_at).toLocaleDateString()}
+                          {new Date(t.ultimo_ping).toLocaleDateString()}
                         </div>
                       </td>
                       <td className="px-6 py-4">
