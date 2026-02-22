@@ -194,26 +194,33 @@ const toggleApplicativo = async (chg: any, app: string) => {
                   <div className="flex flex-col gap-2">
                     <span className="font-mono font-bold text-blue-600 text-sm">{chg.change_id}</span>
                     <div className="flex flex-wrap gap-1">
-                      {/* Badge esistenti */}
-                      {Array.isArray(chg.applicativo) && chg.applicativo.map(app => (
-                        <span key={app} onClick={() => toggleApplicativo(chg, app)} className="px-2 py-0.5 bg-slate-800 text-white rounded text-[9px] font-black uppercase cursor-pointer hover:bg-red-500">
-                          {app}
-                        </span>
-                      ))}
-                      {/* Tasto + per aggiungere */}
-                      <div className="relative">
-                        <select 
-                          value="" 
-                          onChange={(e) => toggleApplicativo(chg, e.target.value)}
-                          className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-xs font-bold appearance-none outline-none cursor-pointer text-center"
-                        >
-                          <option value="">+</option>
-                          {APPLICATIVI_OPTIONS.map(opt => (
-                            <option key={opt} value={opt} disabled={chg.applicativo?.includes(opt)}>{opt}</option>
-                          ))}
-                        </select>
+                        {/* Badge esistenti - FIX: aggiunto tipo esplicito (app: string) */}
+                        {Array.isArray(chg.applicativo) && chg.applicativo.map((app: string) => (
+                          <span 
+                            key={app} 
+                            onClick={() => toggleApplicativo(chg, app)} 
+                            className="px-2 py-0.5 bg-slate-800 text-white rounded text-[9px] font-black uppercase cursor-pointer hover:bg-red-500 transition-colors"
+                          >
+                            {app}
+                          </span>
+                        ))}
+                        
+                        {/* Tasto + per aggiungere */}
+                        <div className="relative">
+                          <select 
+                            value="" 
+                            onChange={(e) => toggleApplicativo(chg, e.target.value)}
+                            className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-xs font-bold appearance-none outline-none cursor-pointer text-center hover:bg-blue-600 hover:text-white transition-all"
+                          >
+                            <option value="">+</option>
+                            {APPLICATIVI_OPTIONS.map((opt: string) => (
+                              <option key={opt} value={opt} disabled={chg.applicativo?.includes(opt)}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                    </div>
                   </div>
                 </td>
 
