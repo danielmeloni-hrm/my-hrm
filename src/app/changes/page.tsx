@@ -50,11 +50,17 @@ export default function ChangesDashboard() {
     if (!error) setChanges(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
   };
 
-  const toggleApplicativo = async (chg: any, app: string) => {
-    const currentApps = Array.isArray(chg.applicativo) ? chg.applicativo : [];
-    const newApps = currentApps.includes(app) ? currentApps.filter(a => a !== app) : [...currentApps, app];
-    await updateField(chg.id, 'applicativo', newApps);
-  };
+const toggleApplicativo = async (chg: any, app: string) => {
+  // Specifichiamo che currentApps è un array di stringhe
+  const currentApps: string[] = Array.isArray(chg.applicativo) ? chg.applicativo : [];
+  
+  // Ora TypeScript sa che 'a' è una stringa e non darà più errore
+  const newApps = currentApps.includes(app) 
+    ? currentApps.filter((a: string) => a !== app) 
+    : [...currentApps, app];
+  
+  await updateField(chg.id, 'applicativo', newApps);
+};
 
 
   const stats = useMemo(() => {
