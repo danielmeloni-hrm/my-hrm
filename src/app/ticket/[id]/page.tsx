@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react' // Aggiunto useMemo
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '../../../lib/supabase'
 import { 
@@ -23,6 +23,26 @@ export default function TicketDettaglioPage() {
   const [nuovoThread, setNuovoThread] = useState('')
   const [dataInvioMail, setDataInvioMail] = useState(new Date().toISOString().split('T')[0])
   const [isLogOpen, setIsLogOpen] = useState(false)
+  
+  
+  // --- LOGICA OVERDUE (15 GIORNI) ---
+  const isOverdue = useMemo(() => {
+    if (!ticketData?.ultimo_ping) return false;
+    const lastPing = new Date(ticketData.ultimo_ping);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    lastPing.setHours(0, 0, 0, 0);
+    
+    const diffTime = today.getTime() - lastPing.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays >= 15;
+  }, [ticketData?.ultimo_ping]);
+  // Calcolo dinamico del numero di mail inviate
+  const emailCount = useMemo(() => {
+    if (!ticketData?.aggiornamento_storia) return 0;
+    const matches = ticketData.aggiornamento_storia.match(/\[MAIL DEL/g);
+    return matches ? matches.length : 0;
+  }, [ticketData?.aggiornamento_storia]);
 
   useEffect(() => {
     async function loadData() {
@@ -38,36 +58,29 @@ export default function TicketDettaglioPage() {
     loadData()
   }, [id, supabase])
 
-const handleUpdate = async (field: string, value: any) => {
-  if (!id) return;
+  const handleUpdate = async (field: string, value: any) => {
+    if (!id) return;
 
-  // Update locale (ottimistico)
-  setTicketData((prev: any) => {
-    const newData = { ...prev, [field]: value };
-    if (field === 'cliente_id') {
-      const c = clienti.find(item => String(item.id) === String(value));
-      newData.clienti = { ...prev.clienti, nome: c?.nome };
-    }
-    return newData;
-  });
+    setTicketData((prev: any) => {
+      const newData = { ...prev, [field]: value };
+      if (field === 'cliente_id') {
+        const c = clienti.find(item => String(item.id) === String(value));
+        newData.clienti = { ...prev.clienti, nome: c?.nome };
+      }
+      return newData;
+    });
 
-  setSaving(true);
+    setSaving(true);
+    const targetId = typeof id === 'string' ? id : id[0]; 
 
-  // PULIZIA: Assicuriamoci che l'ID sia nel formato corretto
-  // Se il tuo ID nel DB è un numero, usa Number(id). Se è UUID, usa String(id).
-  const targetId = typeof id === 'string' ? id : id[0]; 
-
-  const { error } = await supabase
-    .from('ticket')
-    .update({ [field]: value })
-    .eq('id', targetId);
-  
-  if (error) {
-    console.error("ERRORE SUPABASE DIRETTO:", error.message, error.details);
-  }
-
-  setTimeout(() => setSaving(false), 400);
-};
+    const { error } = await supabase
+      .from('ticket')
+      .update({ [field]: value })
+      .eq('id', targetId);
+    
+    if (error) console.error("ERRORE:", error.message);
+    setTimeout(() => setSaving(false), 400);
+  };
 
   const aggiungiThreadEUpdatePing = async () => {
     const testoPulito = nuovoThread.trim();
@@ -135,7 +148,6 @@ const handleUpdate = async (field: string, value: any) => {
             />
 
             <div className="flex flex-wrap items-center gap-y-4 gap-x-6 pt-4 border-t border-gray-50">
-              {/* Cliente */}
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Layers size={10} /> Cliente</span>
                 <select value={ticketData.cliente_id} onChange={(e) => handleUpdate('cliente_id', e.target.value)} className="bg-transparent font-bold text-xs text-blue-600 outline-none appearance-none cursor-pointer">
@@ -143,7 +155,6 @@ const handleUpdate = async (field: string, value: any) => {
                 </select>
               </div>
 
-              {/* Applicativo (Condizionale Esselunga) */}
               {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
                 <div className="flex flex-col gap-1 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Activity size={10} /> Applicativo</span>
@@ -159,7 +170,6 @@ const handleUpdate = async (field: string, value: any) => {
                 </div>
               )}
 
-              {/* Tag (Condizionale Esselunga) */}
               {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
                 <div className="flex flex-col gap-1 px-6 border-l border-gray-100">
                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Hash size={10} /> Tag</span>
@@ -167,7 +177,6 @@ const handleUpdate = async (field: string, value: any) => {
                 </div>
               )}
 
-              {/* Priorità */}
               <div className="flex flex-col gap-1 px-6 border-l border-gray-100">
                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Star size={10} /> Priorità</span>
                 <select value={ticketData.priorita} onChange={(e) => handleUpdate('priorita', e.target.value)} className={`bg-transparent font-black text-xs outline-none appearance-none cursor-pointer ${ticketData.priorita === 'Urgente' ? 'text-red-500' : 'text-gray-900'}`}>
@@ -178,7 +187,6 @@ const handleUpdate = async (field: string, value: any) => {
                 </select>
               </div>
 
-              {/* Owner */}
               <div className="flex flex-col gap-1 px-6 border-l border-gray-100 ml-auto">
                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><User size={10} /> Owner</span>
                 <select value={ticketData.assignee} onChange={(e) => handleUpdate('assignee', e.target.value)} className="bg-transparent font-bold text-xs text-purple-600 outline-none appearance-none cursor-pointer">
@@ -192,7 +200,6 @@ const handleUpdate = async (field: string, value: any) => {
         {/* CONTENT GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* DESCRIPTION */}
           <div className="lg:col-span-8">
             <div className="bg-white border border-gray-100 rounded-[32px] shadow-sm overflow-hidden flex flex-col h-[600px]">
               <div className="px-8 py-4 border-b border-gray-50 flex items-center gap-2">
@@ -207,10 +214,8 @@ const handleUpdate = async (field: string, value: any) => {
             </div>
           </div>
 
-          {/* CONTROLS COLUMN */}
           <div className="lg:col-span-4 space-y-6">
             
-            {/* PROJECT METRICS */}
             <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-sm space-y-6">
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 pb-4">Project Metrics</h3>
               <div className="grid grid-cols-2 gap-4">
@@ -256,33 +261,90 @@ const handleUpdate = async (field: string, value: any) => {
             </div>
             
             {/* MAIL THREAD ENGINE */}
-            <div className="bg-white border border-gray-100 rounded-[24px] shadow-sm overflow-hidden flex flex-col">
+            <div className={`bg-white border transition-all duration-300 rounded-[24px] shadow-sm overflow-hidden flex flex-col ${isOverdue ? 'border-red-200 ring-2 ring-red-50' : 'border-gray-100'}`}>
+              
+              {/* AREA INPUT E HEADER */}
               <div className="p-5 pb-3">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2 text-blue-600 font-black uppercase text-[9px] tracking-[0.15em]"><Mail size={14} /> Thread Mail</div>
-                  <input type="date" value={dataInvioMail} onChange={(e) => setDataInvioMail(e.target.value)} className="text-[10px] font-black text-gray-400 outline-none bg-transparent" />
+                  <div className="flex items-center gap-2">
+                    <div className={`flex items-center gap-2 font-black uppercase text-[9px] tracking-[0.15em] ${isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
+                      {/* Switch dinamico dell'icona */}
+                      {isOverdue ? (
+                        <AlertCircle size={24} className="animate-pulse" />
+                      ) : (
+                        <Mail size={20} />
+                      )}
+                      
+                      <span>Thread Mail</span>
+                      </div>
+                    {/* Badge Conteggio Mail */}
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border transition-colors ${
+                      isOverdue 
+                        ? 'bg-red-50 text-red-600 border-red-100' 
+                        : 'bg-blue-50 text-blue-600 border-blue-100'
+                    }`}>
+                      {emailCount}
+                    </span>
+                  </div>
+                  
+                  {/* Selettore Data Dinamico */}
+                  <div className="flex items-center gap-2">
+                    <Calendar size={12} className="text-gray-300" />
+                    <input 
+                      type="date" 
+                      value={dataInvioMail} 
+                      onChange={(e) => setDataInvioMail(e.target.value)} 
+                      className="text-[10px] font-black text-gray-400 outline-none bg-transparent cursor-pointer hover:text-gray-600 transition-all" 
+                    />
+                  </div>
                 </div>
+                
+                {/* Campo Input Messaggio */}
                 <div className="relative">
                   <textarea 
                     value={nuovoThread} 
                     onChange={(e) => setNuovoThread(e.target.value)} 
-                    placeholder="Incolla thread..." 
-                    className="w-full bg-gray-50 rounded-xl p-4 text-[12px] min-h-[80px] outline-none resize-none font-medium border border-transparent focus:border-blue-100 focus:bg-white transition-all"
+                    placeholder="Incolla qui il contenuto della mail..." 
+                    className="w-full bg-gray-50 rounded-xl p-4 text-[12px] min-h-[100px] outline-none resize-none font-medium border border-transparent focus:border-blue-100 focus:bg-white transition-all placeholder:text-gray-300" 
                   />
-                  <button onClick={aggiungiThreadEUpdatePing} className="absolute bottom-3 right-3 bg-blue-600 text-white p-2 rounded-lg hover:scale-105 active:scale-95 transition-all">
-                    <Send size={14} />
+                  <button 
+                    onClick={aggiungiThreadEUpdatePing} 
+                    disabled={!nuovoThread.trim() || saving}
+                    className={`absolute bottom-3 right-3 p-2.5 rounded-lg shadow-sm transition-all active:scale-95 disabled:opacity-50 ${
+                      isOverdue 
+                        ? 'bg-red-600 text-white hover:bg-red-700 shadow-red-100' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100'
+                    }`}
+                  >
+                    <Send size={14} className={saving ? 'animate-pulse' : ''} />
                   </button>
                 </div>
               </div>
 
-              <button onClick={() => setIsLogOpen(!isLogOpen)} className="w-full py-3 bg-gray-50/50 border-t border-gray-50 flex items-center justify-center gap-2 text-[9px] font-black text-gray-400 uppercase hover:text-gray-600 transition-all">
-                {isLogOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {isLogOpen ? 'Nascondi Storico' : 'Vedi Storico'}
+              {/* TOGGLE STORICO */}
+              <button 
+                onClick={() => setIsLogOpen(!isLogOpen)} 
+                className="w-full py-3 bg-gray-50/50 border-t border-gray-50 flex items-center justify-center gap-2 text-[9px] font-black text-gray-400 uppercase hover:text-gray-600 hover:bg-gray-100/50 transition-all"
+              >
+                {isLogOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />} 
+                {isLogOpen ? 'Chiudi Log Storico' : `Vedi Storico Completo (${emailCount})`}
               </button>
               
-              <div className={`transition-all duration-300 ease-in-out bg-[#FDFDFD] ${isLogOpen ? 'max-h-[250px] p-5 border-t border-gray-50 opacity-100 overflow-y-auto' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-                <div className="font-mono text-[10px] text-gray-400 whitespace-pre-wrap leading-relaxed">
-                  {ticketData.aggiornamento_storia || 'Nessun thread salvato.'}
-                </div>
+              {/* AREA LOG ESPANDIBILE */}
+              <div className={`transition-all duration-500 ease-in-out bg-[#FDFDFD] ${
+                isLogOpen 
+                  ? 'max-h-[300px] p-5 border-t border-gray-50 opacity-100 overflow-y-auto' 
+                  : 'max-h-0 opacity-0 overflow-hidden'
+              }`}>
+                {ticketData.aggiornamento_storia ? (
+                  <div className="font-mono text-[10px] text-gray-500 whitespace-pre-wrap leading-relaxed">
+                    {ticketData.aggiornamento_storia}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-gray-300 italic text-center py-4">
+                    Nessun thread registrato per questo ticket.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -290,7 +352,6 @@ const handleUpdate = async (field: string, value: any) => {
             <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-sm space-y-6">
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 pb-4">Release Pipeline</h3>
               <div className="space-y-4">
-                {/* Collaudo */}
                 <div className={`p-4 rounded-3xl border transition-all ${ticketData.rilascio_collaudo_eseguito ? 'bg-purple-50/50 border-purple-100 shadow-sm' : 'bg-gray-50/50 border-gray-100'}`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -304,7 +365,6 @@ const handleUpdate = async (field: string, value: any) => {
                   <input type="date" value={ticketData.rilascio_in_collaudo || ''} onChange={(e) => handleUpdate('rilascio_in_collaudo', e.target.value)} className="w-full text-xs font-black bg-white/80 border border-gray-100 p-3 rounded-2xl outline-none text-purple-700" />
                 </div>
 
-                {/* Produzione */}
                 <div className={`p-4 rounded-3xl border transition-all ${ticketData.rilascio_produzione_eseguito ? 'bg-green-50/50 border-green-100 shadow-sm' : 'bg-gray-50/50 border-gray-100'}`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">

@@ -5,7 +5,7 @@ import { createClient } from '../../lib/supabase'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import { 
   Rocket, ChevronLeft, ChevronRight, 
-  AlertCircle, Filter
+  AlertCircle, Filter, Info, Calendar as CalendarIcon
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -41,45 +41,42 @@ export default function ReleaseCalendar() {
     return Array.from(new Set(nomi)).sort()
   }, [tickets])
 
-  // LOGICA GIORNI: Lunedì come primo giorno + riempimento mese
   const days = useMemo(() => {
-  const result: Date[] = [] // Tipizzazione esplicita
-  const d = new Date(currentDate)
-  
-  if (viewMode === 'week') {
-    const day = d.getDay()
-    const diff = d.getDate() - (day === 0 ? 6 : day - 1)
-    const monday = new Date(d.setDate(diff))
-    for (let i = 0; i < 7; i++) {
-      const nextDay = new Date(monday)
-      nextDay.setDate(monday.getDate() + i)
-      result.push(nextDay)
-    }
-  } else {
-    const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1)
-    const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+    const result: Date[] = []
+    const d = new Date(currentDate)
     
-    let firstDayIndex = startOfMonth.getDay() 
-    const prefixDays = firstDayIndex === 0 ? 6 : firstDayIndex - 1
+    if (viewMode === 'week') {
+      const day = d.getDay()
+      const diff = d.getDate() - (day === 0 ? 6 : day - 1)
+      const monday = new Date(d.getFullYear(), d.getMonth(), diff)
+      for (let i = 0; i < 7; i++) {
+        const nextDay = new Date(monday)
+        nextDay.setDate(monday.getDate() + i)
+        result.push(nextDay)
+      }
+    } else {
+      const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1)
+      const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+      let firstDayIndex = startOfMonth.getDay() 
+      const prefixDays = firstDayIndex === 0 ? 6 : firstDayIndex - 1
 
-    for (let i = 1 - prefixDays; i <= endOfMonth.getDate(); i++) {
-      result.push(new Date(d.getFullYear(), d.getMonth(), i))
-    }
-    
-    // CORREZIONE TYPE ERROR:
-    while (result.length % 7 !== 0) {
-      const currentLast = result[result.length - 1];
-      if (currentLast) { // Check di sicurezza per TypeScript
-        const nextDay = new Date(currentLast);
-        nextDay.setDate(currentLast.getDate() + 1);
-        result.push(nextDay);
+      for (let i = 1 - prefixDays; i <= endOfMonth.getDate(); i++) {
+        result.push(new Date(d.getFullYear(), d.getMonth(), i))
+      }
+      
+      while (result.length % 7 !== 0) {
+        const currentLast = result[result.length - 1];
+        if (currentLast) {
+          const nextDay = new Date(currentLast);
+          nextDay.setDate(currentLast.getDate() + 1);
+          result.push(nextDay);
+        }
       }
     }
-  }
-  return result
-}, [currentDate, viewMode])
+    return result
+  }, [currentDate, viewMode])
 
-  const getReleasesForDate = (d: Date) => {
+  const getReleasesForDate = useCallback((d: Date) => {
     const target = formatDateKey(d)
     const results: any[] = []
     tickets.forEach(t => {
@@ -88,7 +85,7 @@ export default function ReleaseCalendar() {
       if (t.rilascio_in_produzione === target) results.push({ ...t, type: 'PROD', dndId: `${t.id}:PROD` })
     })
     return results
-  }
+  }, [tickets, clienteFilter])
 
   const onDragEnd = async (result: any) => {
     const { destination, draggableId } = result
@@ -113,14 +110,13 @@ export default function ReleaseCalendar() {
 
   const stats = useMemo(() => {
     return days.reduce((acc, day) => {
-      // Calcoliamo le statistiche solo per il mese corrente per coerenza visiva
       if (day.getMonth() !== currentDate.getMonth() && viewMode === 'month') return acc;
       getReleasesForDate(day).forEach(r => {
         if (r.type === 'PROD') acc.prod++; else acc.coll++
       })
       return acc
     }, { prod: 0, coll: 0 })
-  }, [days, tickets, clienteFilter, currentDate, viewMode])
+  }, [days, getReleasesForDate, currentDate, viewMode])
 
   return (
     <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8 text-black">
@@ -132,19 +128,16 @@ export default function ReleaseCalendar() {
             <h1 className="text-4xl font-black tracking-tighter flex items-center gap-3 italic underline decoration-blue-500/20 uppercase">
               <Rocket className="text-blue-600" size={36} /> RILASCI - {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
             </h1>
-            <div className="flex items-center gap-4 mt-2">
+            <div className="flex flex-wrap items-center gap-4 mt-3">
               
-              <div className="flex gap-4 mt-3">
-              <div className="flex items-center gap-2 bg-red-50 px-3 py-1 rounded-full border border-red-100">
+              <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-full border border-red-100">
                 <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                <span className="text-[10px] font-black text-red-600 uppercase tracking-widest">PROD: {stats.prod}</span>
+                <span className="text-[10px] font-black text-red-600 uppercase">PROD: {stats.prod}</span>
               </div>
-              <div className="flex items-center gap-2 bg-purple-50 px-3 py-1 rounded-full border border-purple-100">
+              <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
                 <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">COLLAUDO: {stats.coll}</span>
-              
-            </div>
-          </div>
+                <span className="text-[10px] font-black text-purple-600 uppercase">COLLAUDO: {stats.coll}</span>
+              </div>
             </div>
           </div>
 
@@ -158,14 +151,14 @@ export default function ReleaseCalendar() {
             </div>
             <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm">
               {['week', 'month'].map(mode => (
-                <button key={mode} onClick={() => setViewMode(mode as any)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === mode ? 'bg-black text-white' : 'text-gray-400'}`}>
+                <button key={mode} onClick={() => setViewMode(mode as any)} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === mode ? 'bg-black text-white' : 'text-gray-400'}`}>
                   {mode === 'week' ? 'Settimana' : 'Mese'}
                 </button>
               ))}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => navigate(-1)} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 transition-colors shadow-sm"><ChevronLeft size={18}/></button>
-              <button onClick={() => navigate(1)} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 transition-colors shadow-sm"><ChevronRight size={18}/></button>
+              <button onClick={() => navigate(-1)} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 shadow-sm"><ChevronLeft size={18}/></button>
+              <button onClick={() => navigate(1)} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 shadow-sm"><ChevronRight size={18}/></button>
             </div>
           </div>
         </div>
@@ -179,7 +172,6 @@ export default function ReleaseCalendar() {
                   const dateId = formatDateKey(day)
                   const isToday = dateId === formatDateKey(new Date())
                   const isSelected = selectedDate && formatDateKey(selectedDate) === dateId
-                  // NUOVO: Controllo se il giorno appartiene al mese corrente
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth()
 
                   return (
@@ -190,13 +182,13 @@ export default function ReleaseCalendar() {
                           onClick={() => setSelectedDate(day)}
                           className={`min-h-[200px] p-4 rounded-[2.5rem] border transition-all duration-300 ${
                             snapshot.isDraggingOver ? 'bg-blue-50/50 border-blue-300 scale-[1.02]' :
-                            isSelected ? 'border-black bg-white ring-4 ring-black/5 shadow-xl z-10' : 
-                            isToday ? 'bg-blue-50/30 border-blue-100' : 'bg-white border-gray-100'
-                          } ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30 grayscale-[0.5] bg-gray-50/50' : 'opacity-100'}`}
+                            isSelected ? 'border-black bg-white shadow-2xl z-10' : 
+                            isToday ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-gray-100'
+                          } ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30 grayscale-[0.8] bg-gray-50/50' : 'opacity-100'}`}
                         >
                           <div className="flex flex-col mb-4">
                             <span className="text-[9px] font-black text-gray-300 uppercase italic">{day.toLocaleDateString('it-IT', { weekday: 'short' })}</span>
-                            <span className={`text-xl font-black ${isToday ? 'text-blue-600' : isCurrentMonth ? 'text-black' : 'text-gray-300'}`}>{day.getDate()}</span>
+                            <span className={`text-2xl font-black ${isToday ? 'text-blue-600' : isCurrentMonth ? 'text-black' : 'text-gray-300'}`}>{day.getDate()}</span>
                           </div>
 
                           <div className="space-y-2">
@@ -204,10 +196,23 @@ export default function ReleaseCalendar() {
                               <Draggable key={rel.dndId} draggableId={rel.dndId} index={rIdx}>
                                 {(p) => (
                                   <div ref={p.innerRef} {...p.draggableProps} {...p.dragHandleProps}
-                                    className={`flex items-center gap-2 p-2 rounded-xl transition-all group bg-white border border-transparent shadow-sm ${!isCurrentMonth ? 'opacity-50' : ''}`}
+                                    className={`flex flex-col gap-1.5 p-3 rounded-[1.2rem] transition-all group bg-white border border-gray-100 shadow-sm hover:shadow-md ${!isCurrentMonth ? 'opacity-50' : ''}`}
                                   >
-                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${rel.type === 'PROD' ? 'bg-red-500' : 'bg-purple-500'}`} />
-                                    <span className="text-[8px] font-black uppercase truncate text-gray-700">{rel.clienti?.nome}</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${rel.type === 'PROD' ? 'bg-red-500' : 'bg-purple-500'}`} />
+                                      <span className="text-[7px] font-black uppercase text-gray-400 tracking-tighter truncate">
+                                        {rel.clienti?.nome}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* TITOLO GRANDE NELLA GRIGLIA */}
+                                    <h5 className="text-[12px] font-[700] leading-[1.1] uppercase  text-black line-clamp-2">
+                                      #{rel.n_tag}
+                                    </h5>
+                                    
+                                    {rel.n_tag && (
+                                      <span className="text-[10px] font-bold text-blue-500/100 mt-0">{rel.titolo}</span>
+                                    )}
                                   </div>
                                 )}
                               </Draggable>
@@ -232,25 +237,34 @@ export default function ReleaseCalendar() {
 
                 <div className="space-y-4">
                   {selectedDate && getReleasesForDate(selectedDate).map((t, i) => (
-                    <div key={i} className="p-5 rounded-[2rem] border border-gray-50 bg-[#FBFBFB] hover:border-blue-100 transition-all">
-                      <div className="flex justify-between mb-4">
-                        <span className={`text-[8px] font-black px-2 py-1 rounded-lg uppercase ${t.type === 'PROD' ? 'bg-red-50 text-red-600' : 'bg-purple-50 text-purple-600'}`}>
+                    <div key={i} className="p-6 rounded-[2.2rem] border border-gray-50 bg-[#FBFBFB] hover:border-blue-100 transition-all shadow-sm">
+                      <div className="flex justify-between items-center mb-4">
+                        <span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${t.type === 'PROD' ? 'bg-red-100 text-red-600' : 'bg-purple-100 text-purple-600'}`}>
                           {t.type}
                         </span>
-                        <Link href={`/ticket/${t.id}`} className="p-2 bg-white rounded-xl shadow-sm border border-gray-100 hover:bg-black hover:text-white transition-all">
+                        <Link href={`/ticket/${t.id}`} className="p-2 bg-white rounded-full shadow-sm border border-gray-100 hover:bg-black hover:text-white transition-all">
                           <ChevronRight size={14}/>
                         </Link>
                       </div>
-                      <h4 className="text-[13px] font-black uppercase mb-1 text-black">{t.clienti?.nome}</h4>
-                      <p className="text-[11px] text-gray-500 italic mb-4 line-clamp-3">"{t.titolo}"</p>
-                      <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+
+                      <h4 className="text-[11px] font-black uppercase text-gray-400 mb-2 tracking-widest">{t.clienti?.nome}</h4>
+                      
+                      {/* TITOLO EXTRA LARGE NELLA SIDEBAR */}
+                      <h2 className="text-[18px] font-black leading-tight text-black italic uppercase mb-4">
+                        "{t.titolo}"
+                      </h2>
+
+                      <div className="flex justify-between items-center pt-4 border-t border-dashed border-gray-200">
                          <span className="text-[9px] font-black text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded-md">{t.stato}</span>
                          <span className="text-[9px] font-bold text-gray-300 tracking-widest">#{t.n_tag}</span>
                       </div>
                     </div>
                   ))}
                   {selectedDate && getReleasesForDate(selectedDate).length === 0 && (
-                    <div className="py-20 text-center text-[10px] font-black opacity-10 uppercase italic">Nessun rilascio</div>
+                    <div className="py-20 text-center opacity-20">
+                      <AlertCircle className="mx-auto mb-2" size={32} />
+                      <p className="text-[10px] font-black uppercase italic">Nessun rilascio</p>
+                    </div>
                   )}
                 </div>
               </div>
