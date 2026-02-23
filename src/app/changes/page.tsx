@@ -63,6 +63,12 @@ const toggleApplicativo = async (chg: any, app: string) => {
   
   await updateField(chg.id, 'applicativo', newApps);
 };
+interface Change {
+  id: string;
+  note_hrm?: string;
+  // aggiungi qui altri campi se necessari per evitare altri errori
+  [key: string]: any; 
+}
   const generatePreview = () => {
   const pendingChanges = filteredChanges.filter((chg: Change) => {
     const nota = chg.note_hrm?.toUpperCase() || "";
