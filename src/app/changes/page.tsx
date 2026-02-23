@@ -16,6 +16,8 @@ export default function ChangesDashboard() {
 
   const APPLICATIVI_OPTIONS = ["APPECOM", "ECOM35", "EOL", "ESB", "IST35", "GCW", "Parafarmacia"];
 
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [emailText, setEmailText] = useState("");
   const fetchChanges = async () => {
     const { data } = await supabase
       .from('changes')
@@ -61,7 +63,30 @@ const toggleApplicativo = async (chg: any, app: string) => {
   
   await updateField(chg.id, 'applicativo', newApps);
 };
+  const generatePreview = () => {
+  const pendingChanges = filteredChanges.filter((chg: Change) => {
+    const nota = chg.note_hrm?.toUpperCase() || "";
+    return nota !== "COMPLETATA" && nota !== "CHIUSO SENZA TICKET PROD";
+  });
 
+  if (pendingChanges.length === 0) {
+    alert("Nessuna change pendente trovata con i filtri attuali.");
+    return;
+  }
+
+  const draft = pendingChanges.map((chg: Change) => {
+    return `${chg.change_id}` + " - " + `${Array.isArray(chg.applicativo) ? chg.applicativo.join(", ") : "N/D"}\n` +
+           `DESCRIZIONE: ${chg.breve_descrizione}\n` +
+           `STATO: ${chg.stato}\n` +
+           `------------------------------------------`;
+  }).join("\n\n");
+
+  const header = `REPORTE AGGIORNAMENTO CHANGE - ${new Date().toLocaleDateString('it-IT')}\n` +
+                 `Elementi in elenco: ${pendingChanges.length}\n\n`;
+  
+  setEmailText(header + draft);
+  setIsPreviewOpen(true);
+};
 
   const stats = useMemo(() => {
   return {
@@ -86,7 +111,57 @@ const toggleApplicativo = async (chg: any, app: string) => {
               Visualizzate: {filteredChanges.length} di {changes.length}
             </p>
           </div>
+          <div className="flex items-center gap-4">
+  {/* Qui ci sono i tuoi select Stato e App */}
           
+          <button 
+            onClick={generatePreview}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-blue-600 transition-all shadow-md active:scale-95"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            Anteprima Email
+          </button>
+          {isPreviewOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+              
+              {/* Header Modale */}
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+                <h3 className="font-black text-slate-900 uppercase tracking-tight">Anteprima Bozza Email</h3>
+                <button onClick={() => setIsPreviewOpen(false)} className="text-slate-400 hover:text-red-500 font-bold">✕</button>
+              </div>
+
+              {/* Corpo Email (Questa parte mancava nel tuo snippet) */}
+              <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+                <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap bg-white p-5 rounded-2xl border border-slate-200 shadow-inner">
+                  {emailText}
+                </pre>
+              </div>
+
+              {/* Footer (I tuoi bottoni sistemati) */}
+              <div className="p-6 border-t border-slate-100 flex gap-3 bg-white">
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(emailText);
+                    alert("Copiato!");
+                  }}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black uppercase text-xs hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                >
+                  Copia negli appunti
+                </button>
+                <button 
+                  onClick={() => setIsPreviewOpen(false)}
+                  className="px-6 py-3 bg-slate-200 text-slate-600 rounded-xl font-black uppercase text-xs hover:bg-slate-300 transition-all"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        </div>
           {/* Barra di Ricerca Testuale */}
           <input 
             type="text"
@@ -273,3 +348,4 @@ const toggleApplicativo = async (chg: any, app: string) => {
     </div>
   );
 }
+
