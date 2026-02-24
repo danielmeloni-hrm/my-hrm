@@ -19,6 +19,7 @@ export default function Sidebar() {
   const pathname = usePathname()
 
   const menuItems = [
+    { name: 'Note Board', icon: <LayoutGrid size={20} />, path: '/note_board' },
     { name: 'Sprint Board', icon: <LayoutGrid size={20} />, path: '/dashboard' },
     { name: 'Opex Board', icon: <Layers size={20} />, path: '/dashboard_opex' },
     { name: 'I miei Ticket', icon: <Ticket size={20} />, path: '/i-miei-ticket' },
