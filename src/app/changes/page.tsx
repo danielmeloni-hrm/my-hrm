@@ -3,21 +3,51 @@ import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
 import Link from 'next/link';
 
+interface Change {
+  id: string;
+  change_id: string;
+  breve_descrizione?: string;
+  applicativo?: string[];
+  stato?: string;
+  rilascio_in_produzione?: string;
+  data_collaudo?: string;
+  ticket_analisi?: boolean;
+  ticket_test?: boolean;
+  ticket_rilascio?: boolean;
+  note_hrm?: string;
+  [key: string]: any;
+}
+
 export default function ChangesDashboard() {
   const supabase = useMemo(() => createClient(), []);
-  const [changes, setChanges] = useState<any[]>([]);
+  const [changes, setChanges] = useState<Change[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Stati per i filtri
   const [filterStato, setFilterStato] = useState<string>('');
   const [filterApp, setFilterApp] = useState<string>('');
-  const [searchTerm, setSearchTerm] = useState<string>(''); // Barra di ricerca
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  
+  const [filterAnalisi, setFilterAnalisi] = useState<boolean | null>(null);
+  const [filterTest, setFilterTest] = useState<boolean | null>(null);
+  const [filterRilascio, setFilterRilascio] = useState<boolean | null>(null);
+
+  // STATO PER PERSONALIZZAZIONE COLONNE
+  const [showColSettings, setShowColSettings] = useState(false);
+  const [visibleCols, setVisibleCols] = useState({
+    idApp: true,
+    descrizione: true,
+    info: true,
+    stato: true,
+    collaudo: true,
+    produzione: true,
+    ticket: true
+  });
 
   const APPLICATIVI_OPTIONS = ["APPECOM", "ECOM35", "EOL", "ESB", "IST35", "GCW", "Parafarmacia"];
-
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [emailText, setEmailText] = useState("");
+
   const fetchChanges = async () => {
     const { data } = await supabase
       .from('changes')
@@ -29,237 +59,169 @@ export default function ChangesDashboard() {
 
   useEffect(() => { fetchChanges(); }, [supabase]);
 
-  // --- LOGICA DI FILTRO (Il cuore del funzionamento) ---
   const filteredChanges = useMemo(() => {
     return changes.filter(chg => {
       const matchesStato = filterStato === '' || chg.stato === filterStato;
-      
-      // Filtro per applicativo (cerca nell'array)
       const matchesApp = filterApp === '' || (Array.isArray(chg.applicativo) && chg.applicativo.includes(filterApp));
-      
-      // Filtro ricerca testuale (opzionale)
       const matchesSearch = searchTerm === '' || 
         chg.breve_descrizione?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         chg.change_id?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesAnalisi = filterAnalisi === null || chg.ticket_analisi === filterAnalisi;
+      const matchesTest = filterTest === null || chg.ticket_test === filterTest;
+      const matchesRilascio = filterRilascio === null || chg.ticket_rilascio === filterRilascio;
 
-      return matchesStato && matchesApp && matchesSearch;
+      return matchesStato && matchesApp && matchesSearch && matchesAnalisi && matchesTest && matchesRilascio;
     });
-  }, [changes, filterStato, filterApp, searchTerm]);
+  }, [changes, filterStato, filterApp, searchTerm, filterAnalisi, filterTest, filterRilascio]);
 
-  // Aggiornamento campi (stessa logica di prima)
   const updateField = async (id: string, field: string, value: any) => {
     const { error } = await supabase.from('changes').update({ [field]: value }).eq('id', id);
     if (!error) setChanges(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
   };
 
-const toggleApplicativo = async (chg: any, app: string) => {
-  // Specifichiamo che currentApps è un array di stringhe
-  const currentApps: string[] = Array.isArray(chg.applicativo) ? chg.applicativo : [];
-  
-  // Ora TypeScript sa che 'a' è una stringa e non darà più errore
-  const newApps = currentApps.includes(app) 
-    ? currentApps.filter((a: string) => a !== app) 
-    : [...currentApps, app];
-  
-  await updateField(chg.id, 'applicativo', newApps);
-};
-interface Change {
-  id: string;
-  note_hrm?: string;
-  // aggiungi qui altri campi se necessari per evitare altri errori
-  [key: string]: any; 
-}
+  const toggleApplicativo = async (chg: Change, app: string) => {
+    const currentApps: string[] = Array.isArray(chg.applicativo) ? chg.applicativo : [];
+    const newApps = currentApps.includes(app) 
+      ? currentApps.filter((a: string) => a !== app) 
+      : [...currentApps, app];
+    await updateField(chg.id, 'applicativo', newApps);
+  };
+
   const generatePreview = () => {
-  const pendingChanges = filteredChanges.filter((chg: Change) => {
-    const nota = chg.note_hrm?.toUpperCase() || "";
-    return nota !== "COMPLETATA" && nota !== "CHIUSO SENZA TICKET PROD";
-  });
+    const selectedChanges = filteredChanges.filter((chg: Change) => selectedIds.includes(chg.id));
+    if (selectedChanges.length === 0) {
+      alert("Seleziona almeno una riga tramite checkbox.");
+      return;
+    }
 
-  if (pendingChanges.length === 0) {
-    alert("Nessuna change pendente trovata con i filtri attuali.");
-    return;
-  }
+    const draft = selectedChanges.map((chg: Change) => {
+      const flags = [
+        chg.ticket_analisi ? "[A]" : "",
+        chg.ticket_test ? "[T]" : "",
+        chg.ticket_rilascio ? "[R]" : ""
+      ].filter(Boolean).join(" ");
 
-  const draft = pendingChanges.map((chg: Change) => {
-    return `${chg.change_id}` + " - " + `${Array.isArray(chg.applicativo) ? chg.applicativo.join(", ") : "N/D"}\n` +
-           `DESCRIZIONE: ${chg.breve_descrizione}\n` +
-           `STATO: ${chg.stato}\n` +
-           `------------------------------------------`;
-  }).join("\n\n");
+      return `${chg.change_id} ${flags} - ${Array.isArray(chg.applicativo) ? chg.applicativo.join(", ") : "N/D"}\n` +
+             `DESCRIZIONE: ${chg.breve_descrizione}\n` +
+             `STATO: ${chg.stato}\n` +
+             `DATA COLLAUDO: ${chg.data_collaudo || 'N/D'}\n` +
+             `------------------------------------------`;
+    }).join("\n\n");
 
-  const header = `REPORTE AGGIORNAMENTO CHANGE - ${new Date().toLocaleDateString('it-IT')}\n` +
-                 `Elementi in elenco: ${pendingChanges.length}\n\n`;
-  
-  setEmailText(header + draft);
-  setIsPreviewOpen(true);
-};
+    setEmailText(`REPORT CHANGE SELEZIONATE - ${new Date().toLocaleDateString('it-IT')}\n\n` + draft);
+    setIsPreviewOpen(true);
+  };
 
-  const stats = useMemo(() => {
-  return {
+  const stats = useMemo(() => ({
     produzione: filteredChanges.filter(c => c.stato === 'In Produzione').length,
     collaudo: filteredChanges.filter(c => c.stato === 'In Collaudo').length,
     attesa: filteredChanges.filter(c => c.stato === 'In Attesa').length,
-    totale: filteredChanges.length
-  };
-}, [filteredChanges]);
+    regressione: filteredChanges.filter(c => c.stato === 'In Produzione + Regressione').length,
+  }), [filteredChanges]);
 
-  if (loading) return <div className="p-10 text-center font-bold text-slate-500 uppercase">Caricamento...</div>;
+  if (loading) return <div className="p-10 text-center font-bold text-slate-500 uppercase animate-pulse">Caricamento...</div>;
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen pb-24">
+    <div className="p-6 bg-slate-50 min-h-screen pb-24 text-slate-900">
       
-      {/* SEZIONE TITOLO E FILTRI */}
+      {/* HEADER E FILTRI */}
       <div className="flex flex-col gap-6 mb-8">
         <div className="flex justify-between items-end">
           <div>
-            <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Gestione Change</h1>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-              Visualizzate: {filteredChanges.length} di {changes.length}
+            <h1 className="text-3xl font-black uppercase tracking-tight text-slate-900">Gestione Change</h1>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+              Filtri attivi: {filteredChanges.length} / {changes.length}
             </p>
           </div>
-          <div className="flex items-center gap-4">
-  {/* Qui ci sono i tuoi select Stato e App */}
-          
-          <button 
-            onClick={generatePreview}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-blue-600 transition-all shadow-md active:scale-95"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            Anteprima Email
-          </button>
-          {isPreviewOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-              
-              {/* Header Modale */}
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-                <h3 className="font-black text-slate-900 uppercase tracking-tight">Anteprima Bozza Email</h3>
-                <button onClick={() => setIsPreviewOpen(false)} className="text-slate-400 hover:text-red-500 font-bold">✕</button>
-              </div>
+          <div className="flex gap-2 relative">
+            <button 
+              onClick={() => setShowColSettings(!showColSettings)}
+              className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
+            >
+              ⚙️ Colonne
+            </button>
 
-              {/* Corpo Email (Questa parte mancava nel tuo snippet) */}
-              <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
-                <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap bg-white p-5 rounded-2xl border border-slate-200 shadow-inner">
-                  {emailText}
-                </pre>
+            {showColSettings && (
+              <div className="absolute top-12 right-0 w-48 bg-white border border-slate-200 shadow-xl rounded-2xl p-4 z-[110] flex flex-col gap-2">
+                <p className="text-[9px] font-black uppercase text-slate-400 mb-1">Visibilità Colonne</p>
+                {Object.keys(visibleCols).map((col) => (
+                  <label key={col} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors">
+                    <input 
+                      type="checkbox" 
+                      checked={visibleCols[col as keyof typeof visibleCols]} 
+                      onChange={() => setVisibleCols(prev => ({...prev, [col]: !prev[col as keyof typeof visibleCols]}))}
+                      className="accent-blue-600 w-3 h-3"
+                    />
+                    <span className="text-[10px] font-bold uppercase text-slate-600">{col}</span>
+                  </label>
+                ))}
               </div>
+            )}
 
-              {/* Footer (I tuoi bottoni sistemati) */}
-              <div className="p-6 border-t border-slate-100 flex gap-3 bg-white">
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(emailText);
-                    alert("Copiato!");
-                  }}
-                  className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black uppercase text-xs hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
-                >
-                  Copia negli appunti
-                </button>
-                <button 
-                  onClick={() => setIsPreviewOpen(false)}
-                  className="px-6 py-3 bg-slate-200 text-slate-600 rounded-xl font-black uppercase text-xs hover:bg-slate-300 transition-all"
-                >
-                  Annulla
-                </button>
-              </div>
-            </div>
+            <button onClick={generatePreview} className="px-5 py-2.5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-blue-600 transition-all shadow-lg">
+              Anteprima Email
+            </button>
           </div>
-        )}
         </div>
-          {/* Barra di Ricerca Testuale */}
+
+        <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-slate-200">
           <input 
             type="text"
             placeholder="Cerca ID o Descrizione..."
-            className="px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-64 shadow-sm"
+            className="px-4 py-2 rounded-xl border border-slate-100 text-xs outline-none focus:ring-2 focus:ring-blue-500 w-64 bg-slate-50"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+
+          <select 
+            value={filterApp}
+            onChange={(e) => setFilterApp(e.target.value)}
+            className="text-[10px] font-black uppercase bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 outline-none cursor-pointer"
+          >
+            <option value="">Tutte le App</option>
+            {APPLICATIVI_OPTIONS.map(app => <option key={app} value={app}>{app}</option>)}
+          </select>
+
+          <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-100">
+            <button onClick={() => setFilterAnalisi(filterAnalisi === true ? null : true)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${filterAnalisi === true ? 'bg-green-500 text-white' : 'text-slate-400 hover:bg-slate-200'}`}>Analisi</button>
+            <button onClick={() => setFilterTest(filterTest === true ? null : true)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${filterTest === true ? 'bg-blue-500 text-white' : 'text-slate-400 hover:bg-slate-200'}`}>Test</button>
+            <button onClick={() => setFilterRilascio(filterRilascio === true ? null : true)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${filterRilascio === true ? 'bg-purple-500 text-white' : 'text-slate-400 hover:bg-slate-200'}`}>Rilascio</button>
+          </div>
+
+          <div className="flex-1" />
+
+          <div className="flex gap-2">
+            {Object.entries(stats).map(([key, val]) => (
+              <button 
+                key={key} 
+                onClick={() => setFilterStato(filterStato.toLowerCase().includes(key) ? '' : key === 'produzione' ? 'In Produzione' : key === 'collaudo' ? 'In Collaudo' : key === 'regressione' ? 'In Produzione + Regressione' : 'In Attesa')}
+                className={`px-3 py-2 rounded-2xl border text-[9px] font-black uppercase transition-all ${filterStato.toLowerCase().includes(key) ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 border-slate-200'}`}
+              >
+                {key}: {val}
+              </button>
+            ))}
+          </div>
         </div>
-
-        {/* SEZIONE FILTRI + CONTATORI (Nello stesso rigo) */}
-<div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 bg-white p-3 rounded-3xl shadow-sm border border-slate-200">
-  
-  {/* FILTRI (Allineati a sinistra) */}
-  <div className="flex items-center gap-4">
-    
-
-    <div className="flex items-center gap-2 px-3">
-      <span className="text-[10px] font-black text-slate-400 uppercase">Applicativo:</span>
-      <select 
-        value={filterApp}
-        onChange={(e) => setFilterApp(e.target.value)}
-        className="text-xs font-bold bg-transparent border-none outline-none text-slate-700 cursor-pointer"
-      >
-        <option value="">Tutti</option>
-        {APPLICATIVI_OPTIONS.map(app => <option key={app} value={app}>{app}</option>)}
-      </select>
-    </div>
-  </div>
-
-  {/* CONTATORI NEL RETTANGOLO ROSSO (Allineati a destra) */}
-  <div className="flex items-center gap-2">
-    {/* Risultati Totali */}
-    <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-      <span className="text-[10px] font-black text-slate-400 uppercase">Risultati:</span>
-      <span className="text-sm font-black text-slate-900">{stats.totale}</span>
-    </div>
-
-    {/* In Produzione */}
-    <button 
-      onClick={() => setFilterStato(filterStato === 'In Produzione' ? '' : 'In Produzione')}
-      className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all ${
-        filterStato === 'In Produzione' ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:border-emerald-300'
-      }`}
-    >
-      <span className="text-[10px] font-black uppercase">Produzione</span>
-      <span className="text-sm font-black">{stats.produzione}</span>
-    </button>
-
-    {/* In Collaudo */}
-    <button 
-      onClick={() => setFilterStato(filterStato === 'In Collaudo' ? '' : 'In Collaudo')}
-      className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all ${
-        filterStato === 'In Collaudo' ? 'bg-amber-500 text-white border-amber-600' : 'bg-amber-50 text-amber-700 border-amber-100 hover:border-amber-300'
-      }`}
-    >
-      <span className="text-[10px] font-black uppercase">Collaudo</span>
-      <span className="text-sm font-black">{stats.collaudo}</span>
-    </button>
-
-    {/* In Attesa */}
-    <button 
-      onClick={() => setFilterStato(filterStato === 'In Attesa' ? '' : 'In Attesa')}
-      className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all ${
-        filterStato === 'In Attesa' ? 'bg-sky-500 text-white border-sky-600' : 'bg-sky-50 text-sky-700 border-sky-100 hover:border-sky-300'
-      }`}
-    >
-      <span className="text-[10px] font-black uppercase">Attesa</span>
-      <span className="text-sm font-black">{stats.attesa}</span>
-    </button>
-  </div>
-</div>
-               
       </div>
 
+      {/* TABELLA */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
               <th className="px-4 py-5 w-10 text-center">#</th>
-              <th className="px-6 py-5">ID / Applicativi</th>
-              <th className="px-6 py-5 w-1/3">Breve Descrizione</th>
-              <th className="px-6 py-5">Stato</th>
-              <th className="px-6 py-5 text-center">Data Prod</th>
-              <th className="px-6 py-5 text-center">Ticket</th>
+              {visibleCols.idApp && <th className="px-6 py-5 w-44">ID / Applicativi</th>}
+              {visibleCols.descrizione && <th className="px-6 py-5">Breve Descrizione</th>}
+              {visibleCols.info && <th className="px-6 py-5 ">Info</th>}
+              {visibleCols.stato && <th className="px-6 py-5 w-40">Stato</th>}
+              {visibleCols.collaudo && <th className="px-6 py-5 text-center w-40">Rilascio in Collaudo</th>}
+              {visibleCols.produzione && <th className="px-6 py-5 text-center w-40">Rilascio in Produzione</th>}
+              {visibleCols.ticket && <th className="px-6 py-5 text-center w-40">Ticket</th>}
               <th className="px-6 py-5 text-right">Azioni</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {/* MOLTO IMPORTANTE: Qui usiamo filteredChanges, 
-               non l'array originale changes! 
-            */}
             {filteredChanges.map((chg) => (
               <tr key={chg.id} className="hover:bg-slate-50/50 transition-all">
                 <td className="px-4 py-4 text-center">
@@ -267,91 +229,135 @@ interface Change {
                     type="checkbox" 
                     checked={selectedIds.includes(chg.id)} 
                     onChange={() => setSelectedIds(prev => prev.includes(chg.id) ? prev.filter(i => i !== chg.id) : [...prev, chg.id])} 
-                    className="w-4 h-4 rounded accent-blue-600" 
+                    className="accent-blue-600 cursor-pointer" 
                   />
                 </td>
                 
-                <td className="px-6 py-4">
-                  <div className="flex flex-col gap-2">
-                    <span className="font-mono font-bold text-blue-600 text-sm">{chg.change_id}</span>
-                    <div className="flex flex-wrap gap-1">
-                        {/* Badge esistenti - FIX: aggiunto tipo esplicito (app: string) */}
-                        {Array.isArray(chg.applicativo) && chg.applicativo.map((app: string) => (
-                          <span 
-                            key={app} 
-                            onClick={() => toggleApplicativo(chg, app)} 
-                            className="px-2 py-0.5 bg-slate-800 text-white rounded text-[9px] font-black uppercase cursor-pointer hover:bg-red-500 transition-colors"
-                          >
+                {visibleCols.idApp && (
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="font-mono font-bold text-blue-600 text-xs tracking-tight">{chg.change_id}</span>
+                      <div className="flex flex-wrap gap-1">
+                        {chg.applicativo?.map((app: string) => (
+                          <span key={app} onClick={() => toggleApplicativo(chg, app)} className="px-1.5 py-0.5 bg-slate-800 text-white rounded text-[7px] font-black uppercase cursor-pointer hover:bg-red-500 transition-colors">
                             {app}
                           </span>
                         ))}
-                        
-                        {/* Tasto + per aggiungere */}
-                        <div className="relative">
-                          <select 
-                            value="" 
-                            onChange={(e) => toggleApplicativo(chg, e.target.value)}
-                            className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-xs font-bold appearance-none outline-none cursor-pointer text-center hover:bg-blue-600 hover:text-white transition-all"
-                          >
-                            <option value="">+</option>
-                            {APPLICATIVI_OPTIONS.map((opt: string) => (
-                              <option key={opt} value={opt} disabled={chg.applicativo?.includes(opt)}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        <select value="" onChange={(e) => toggleApplicativo(chg, e.target.value)} className="w-4 h-4 bg-slate-200 rounded-full text-[8px] font-bold outline-none cursor-pointer text-center hover:bg-slate-300">
+                          <option value="">+</option>
+                          {APPLICATIVI_OPTIONS.map(opt => <option key={opt} value={opt} disabled={chg.applicativo?.includes(opt)}>{opt}</option>)}
+                        </select>
                       </div>
-                  </div>
-                </td>
+                    </div>
+                  </td>
+                )}
 
-                <td className="px-6 py-4">
-                  <textarea 
-                    rows={1}
-                    className="w-full text-sm text-slate-700 bg-transparent border-none focus:ring-1 focus:ring-blue-100 rounded resize-none"
-                    value={chg.breve_descrizione || ''}
-                    onChange={(e) => updateField(chg.id, 'breve_descrizione', e.target.value)}
-                  />
-                </td>
+                {visibleCols.descrizione && (
+                  <td className="px-6 py-4">
+                    <textarea 
+                      rows={1}
+                      className="w-full text-xs text-slate-700 bg-transparent border-none focus:ring-1 focus:ring-blue-100 rounded resize-none p-1 min-h-[32px]"
+                      value={chg.breve_descrizione || ''}
+                      onChange={(e) => updateField(chg.id, 'breve_descrizione', e.target.value)}
+                    />
+                  </td>
+                )}
 
-                <td className="px-6 py-4">
-                  <select 
-                    value={chg.stato || ''}
-                    onChange={(e) => updateField(chg.id, 'stato', e.target.value)}
-                    className="text-[10px] font-black uppercase tracking-wider border rounded-full px-3 py-1 outline-none cursor-pointer"
-                  >
-                    <option value="In Attesa">In Attesa</option>
-                    <option value="In Collaudo">In Collaudo</option>
-                    <option value="In Produzione">In Produzione</option>
-                  </select>
-                </td>
+                {visibleCols.info && (
+                  <td className="px-6 py-4">
+                    <input 
+                      type="text"
+                      value={chg.note_hrm || ''}
+                      onChange={(e) => updateField(chg.id, 'note_hrm', e.target.value)}
+                      placeholder="Note HRM..."
+                      className="w-full text-xs text-slate-700 bg-transparent border-none focus:ring-1 focus:ring-blue-100 rounded resize-none p-1 min-h-[32px]"
+                    />
+                  </td>
+                )}
 
-                <td className="px-6 py-4 text-center">
-                  <input 
-                    type="date"
-                    value={chg.rilascio_in_produzione || ''}
-                    onChange={(e) => updateField(chg.id, 'rilascio_in_produzione', e.target.value)}
-                    className="text-xs font-mono bg-slate-50 px-2 py-1 rounded border-none"
-                  />
-                </td>
+                {visibleCols.stato && (
+                  <td className="px-6 py-4">
+                    <select 
+                      value={chg.stato || ''}
+                      onChange={(e) => updateField(chg.id, 'stato', e.target.value)}
+                      className="text-[9px] font-black uppercase border rounded-full px-3 py-1.5 outline-none bg-white shadow-sm w-full cursor-pointer"
+                    >
+                      <option value="In Attesa">In Attesa</option>
+                      <option value="In Collaudo">In Collaudo</option>
+                      <option value="In Produzione">In Produzione</option>
+                      <option value="In Produzione + Regressione">In Produzione + Regressione</option>
+                    </select>
+                  </td>
+                )}
 
-                <td className="px-6 py-4">
-                   <div className="flex justify-center gap-2">
-                    <button onClick={() => updateField(chg.id, 'ticket_analisi', !chg.ticket_analisi)} className={`w-3 h-3 rounded-full ${chg.ticket_analisi ? 'bg-green-500' : 'bg-slate-200'}`} />
-                    <button onClick={() => updateField(chg.id, 'ticket_test', !chg.ticket_test)} className={`w-3 h-3 rounded-full ${chg.ticket_test ? 'bg-blue-500' : 'bg-slate-200'}`} />
-                    <button onClick={() => updateField(chg.id, 'ticket_rilascio', !chg.ticket_rilascio)} className={`w-3 h-3 rounded-full ${chg.ticket_rilascio ? 'bg-purple-500' : 'bg-slate-200'}`} />
-                  </div>
-                </td>
+                {visibleCols.collaudo && (
+                  <td className="px-6 py-4 text-center">
+                    <input 
+                      type="date"
+                      value={chg.data_collaudo || ''}
+                      onChange={(e) => updateField(chg.id, 'data_collaudo', e.target.value)}
+                      className="text-[10px] font-mono bg-amber-50 px-2 py-1 rounded border border-amber-100 text-amber-700"
+                    />
+                  </td>
+                )}
+
+                {visibleCols.produzione && (
+                  <td className="px-6 py-4 text-center">
+                    <input 
+                      type="date"
+                      value={chg.rilascio_in_produzione || ''}
+                      onChange={(e) => updateField(chg.id, 'rilascio_in_produzione', e.target.value)}
+                      className="text-[10px] font-mono bg-emerald-50 px-2 py-1 rounded border border-emerald-100 text-emerald-700"
+                    />
+                  </td>
+                )}
+
+                {visibleCols.ticket && (
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex justify-center gap-1.5">
+                      {['Analisi', 'Test', 'Rilascio'].map((label) => {
+                        const field = `ticket_${label.toLowerCase()}`;
+                        const active = chg[field];
+                        const colors = label === 'Analisi' ? 'bg-green-500' : label === 'Test' ? 'bg-blue-500' : 'bg-purple-500';
+                        return (
+                          <button key={label} title={label} onClick={() => updateField(chg.id, field, !active)} className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${active ? `${colors} border-transparent text-white` : 'bg-transparent border-slate-200 text-slate-300'}`}>
+                            <span className="text-[9px] font-black">{label[0].toUpperCase()}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
+                )}
 
                 <td className="px-6 py-4 text-right">
-                  <Link href={`/changes/${chg.id}`} className="text-slate-400 hover:text-blue-600 font-bold">→</Link>
+                  <Link href={`/changes/${chg.id}`} className="p-2 hover:bg-slate-100 rounded-full inline-block transition-colors">
+                    <span className="text-slate-400 hover:text-blue-600 font-bold">→</span>
+                  </Link>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* MODALE ANTEPRIMA */}
+      {isPreviewOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+              <h3 className="font-black text-slate-900 uppercase tracking-tight">Anteprima Report</h3>
+              <button onClick={() => setIsPreviewOpen(false)} className="text-slate-400 hover:text-red-500 font-bold text-xl">✕</button>
+            </div>
+            <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+              <pre className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap bg-white p-5 rounded-2xl border border-slate-200 shadow-inner">{emailText}</pre>
+            </div>
+            <div className="p-6 border-t border-slate-100 flex gap-3 bg-white">
+              <button onClick={() => { navigator.clipboard.writeText(emailText); alert("Copiato!"); }} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black uppercase text-xs hover:bg-blue-700 transition-all">Copia negli appunti</button>
+              <button onClick={() => setIsPreviewOpen(false)} className="px-6 py-3 bg-slate-200 text-slate-600 rounded-xl font-black uppercase text-xs hover:bg-slate-300 transition-all">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
