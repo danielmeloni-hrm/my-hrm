@@ -381,14 +381,18 @@ export default function TicketsDashboardByAssignee() {
                         style={{ minHeight: maxWorkHeight ? maxWorkHeight + SPRINT_OFFSET_PX : undefined }}
                       >
                         {workTickets.map((t, index) => (
-                          <Draggable key={t.id} draggableId={t.id} index={index}>
-                            {(provided) => (
-                              <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                <TicketCard ticket={t} isDragging={snapshot.isDragging} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
+                            <Draggable key={t.id} draggableId={t.id} index={index}>
+                                {(provided, dragSnapshot) => (
+                                <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                >
+                                    <TicketCard ticket={t} isDragging={dragSnapshot.isDragging} />
+                                </div>
+                                )}
+                            </Draggable>
+                            ))}
                         {provided.placeholder}
                       </div>
                     )}
@@ -409,14 +413,18 @@ export default function TicketsDashboardByAssignee() {
                         }`}
                       >
                         {sprintTickets.map((t, index) => (
-                          <Draggable key={t.id} draggableId={t.id} index={index}>
-                            {(provided) => (
-                              <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                <TicketCard ticket={t} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
+                            <Draggable key={t.id} draggableId={t.id} index={index}>
+                                {(provided, dragSnapshot) => (
+                                <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                >
+                                    <TicketCard ticket={t} isDragging={dragSnapshot.isDragging} />
+                                </div>
+                                )}
+                            </Draggable>
+                            ))}
                         {provided.placeholder}
                       </div>
                     )}
