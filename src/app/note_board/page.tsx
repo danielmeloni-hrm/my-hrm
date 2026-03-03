@@ -12,6 +12,7 @@ interface TicketRecord {
   cliente: string;
   titolo: string;
   in_lavorazione_ora: boolean; 
+  numero_priorita?: number;
 }
 
 interface Tab {
@@ -68,6 +69,7 @@ const fetchData = async () => {
       n_tag,
       titolo,
       in_lavorazione_ora,
+      numero_priorita,
       clienti ( nome )
     `)
     .order('n_tag', { ascending: false });
@@ -77,7 +79,7 @@ const fetchData = async () => {
         n_tag: String(t.n_tag || '').trim(),
         titolo: String(t.titolo || '').trim(),
         in_lavorazione_ora: Boolean(t.in_lavorazione_ora),
-        // Prende il nome dalla tabella relazionata 'clienti'
+        numero_priorita: (t as any).numero_priorita,
         cliente: t.clienti ? String((t.clienti as any).nome).trim() : ''
       }));
       setAllTickets(formattedData);
@@ -392,90 +394,88 @@ const toggleInLavorazioneOra = async (tag: string, nextValue: boolean) => {
           )}
 
           {/* GUTTER CON PALLINI */}
-          {/* GUTTER CON PALLINI */}
-<div
-  className={`w-14 border-r pt-5 flex flex-col items-center shrink-0 select-none ${
-    isDarkMode ? 'bg-[#1e1e1e] border-[#252526]' : 'bg-[#f9f9f9] border-gray-100'
-  }`}
->
-  {lineStates.map((state, i) => {
-    const tag = lineTags[i]; // <-- #TAG della riga (uppercase) oppure null
-    const dbTicket = tag ? allTickets.find(t => t.n_tag.toUpperCase() === tag) : null;
+          <div
+            className={`w-14 border-r pt-5 flex flex-col items-center shrink-0 select-none ${
+              isDarkMode ? 'bg-[#1e1e1e] border-[#252526]' : 'bg-[#f9f9f9] border-gray-100'
+            }`}
+          >
+            {lineStates.map((state, i) => {
+              const tag = lineTags[i]; 
+              // Recuperiamo il ticket dal tuo stato 'allTickets'
+              const dbTicket = tag ? allTickets.find(t => t.n_tag.toUpperCase() === tag) : null;
 
-    const isWorking =
-      tag
-        ? (workingByTag[tag] !== undefined
-            ? workingByTag[tag]
-            : Boolean(dbTicket?.in_lavorazione_ora))
-        : false;
-
-    const isBusy = tag ? Boolean(workingLoadingByTag[tag]) : false;
-
-    // colore base del pallino (verde/giallo/rosso)
-    const dotClass =
-      state === 'success'
-        ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.8)]'
-        : state === 'warning'
-        ? 'bg-yellow-500 shadow-[0_0_4px_yellow]'
-        : 'bg-red-500 shadow-[0_0_4px_red]';
-
-    return (
-      <div
-        key={i}
-        className="flex items-center gap-2 justify-end w-full pr-3"
-        style={{ height: `${fontSize + 10}px` }}
-      >
-        {/* PALLINO DI STATO */}
-          {syncingRows[i] ? (
-            // Pallino Blu Pulsante durante il salvataggio
-            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shadow-[0_0_10px_cyan]" />
-          ) : state !== 'none' ? (
-            <button
-              type="button"
-              disabled={!tag || isBusy}
-              onClick={() => {
-                if (!tag) return;
-                toggleInLavorazioneOra(tag, !isWorking);
-              }}
-              className="relative flex items-center justify-center"
-              style={{ width: 16, height: 16 }}
-              title={
+              const isWorking =
                 tag
-                  ? `#${tag} in_lavorazione_ora: ${isWorking ? 'true' : 'false'}`
-                  : 'Nessun ticket'
-              }
-            >
-              {/* CORONA MULTICOLORE (ON) */}
-              {isWorking && (
-                <span
-                  className="absolute inset-0 rounded-full"
-                  style={{
-                    background:
-                      'conic-gradient(#ff0080, #7928ca, #0070f3, #00dfd8, #00c853, #ffeb3b, #ff6d00, #ff0080)',
-                    WebkitMask:
-                      'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
-                    mask:
-                      'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
-                  }}
-                />
-              )}
+                  ? (workingByTag[tag] !== undefined
+                      ? workingByTag[tag]
+                      : Boolean(dbTicket?.in_lavorazione_ora))
+                  : false;
 
-              {/* PALLINO */}
-              <span
-                className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${
-                  dotClass
-                } ${isWorking ? 'scale-125' : 'scale-110'} ${isBusy ? 'opacity-50' : ''}`}
-              />
-            </button>
-          ) : null}
+              const isBusy = tag ? Boolean(workingLoadingByTag[tag]) : false;
 
-          <span className={`text-[12px] ${state === 'none' ? 'opacity-20' : 'opacity-80'}`}>
-            {i + 1}
-          </span>
-        </div>
-      );
-    })}
-  </div>
+              const dotClass =
+                state === 'success'
+                  ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.8)]'
+                  : state === 'warning'
+                  ? 'bg-yellow-500 shadow-[0_0_4px_yellow]'
+                  : 'bg-red-500 shadow-[0_0_4px_red]';
+
+              return (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 justify-end w-full pr-3"
+                  style={{ height: `${fontSize + 10}px` }}
+                >
+                  {/* PALLINO DI STATO */}
+                  {syncingRows[i] ? (
+                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shadow-[0_0_10px_cyan]" />
+                  ) : state !== 'none' ? (
+                    <button
+                      type="button"
+                      disabled={!tag || isBusy}
+                      onClick={() => {
+                        if (!tag) return;
+                        toggleInLavorazioneOra(tag, !isWorking);
+                      }}
+                      className="relative flex items-center justify-center"
+                      style={{ width: 18, height: 18 }}
+                      title={tag ? `#${tag} - Priorità: ${dbTicket?.numero_priorita || 'N/D'}` : ''}
+                    >
+                      {/* CORONA MULTICOLORE (ON) */}
+                      {isWorking && (
+                        <span
+                          className="absolute inset-0 rounded-full"
+                          style={{
+                            background: 'conic-gradient(#ff0080, #7928ca, #0070f3, #00dfd8, #00c853, #ffeb3b, #ff6d00, #ff0080)',
+                            WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
+                            mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))',
+                          }}
+                        />
+                      )}
+
+                      {/* PALLINO CON NUMERO PRIORITÀ */}
+                      <span
+                        className={`
+                          rounded-full transition-all duration-200 
+                          flex items-center justify-center font-bold text-[8px] text-white
+                          ${dotClass} 
+                          ${isWorking ? 'w-3.5 h-3.5 scale-110' : 'w-3 h-3'} 
+                          ${isBusy ? 'opacity-50' : ''}
+                        `}
+                      >
+                        {/* Usiamo dbTicket che è già definito sopra nel map */}
+                        {(dbTicket as any)?.numero_priorita}
+                      </span>
+                    </button>
+                  ) : null}
+
+                  <span className={`text-[12px] ${state === 'none' ? 'opacity-20' : 'opacity-80'}`}>
+                    {i + 1}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
 
           <div className="relative flex-1 overflow-hidden">
             <div className="absolute inset-0 p-5 pt-5 pointer-events-none whitespace-pre-wrap break-words overflow-y-auto scrollbar-hide" style={{ fontSize: `${fontSize}px`, lineHeight: `${fontSize + 10}px` }}>

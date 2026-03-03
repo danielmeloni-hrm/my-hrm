@@ -28,6 +28,7 @@ export default function Sidebar() {
     { name: 'Tutte le Change', icon: <Ticket size={20} />, path: '/changes' },
     { name: 'Calendario Rilasci', icon: <BarChart3 size={20} />, path: '/calendario' },
     { name: 'Calendario Rilasci CHG', icon: <BarChart3 size={20} />, path: '/calendario_chg' },
+    { name: 'Report', icon: <BarChart3 size={20} />, path: '/report_progetti' },
     
   ]
 

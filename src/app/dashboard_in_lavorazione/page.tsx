@@ -429,6 +429,15 @@ function TicketCard({
             {ticket.applicativo}
           </span>
         ) : null}
+
+        {/* Badge Priorità spostato a DESTRA con ml-auto */}
+        {ticket.numero_priorita !== undefined && (
+          <div className="ml-auto">
+            <span className="flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm">
+              {ticket.numero_priorita}
+            </span>
+          </div>
+        )}
       </div>
 
       <h3 className="text-[13px] font-bold text-gray-800 leading-tight">
