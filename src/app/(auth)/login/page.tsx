@@ -132,6 +132,12 @@ const handleLogin = async (e: React.FormEvent) => {
           >
             {loading ? 'Accesso in corso...' : 'Entra'} <ArrowRight size={18} />
           </button>
+          <p className="mt-6 text-center text-sm text-gray-500">
+            Non hai un account?{' '}
+            <Link href="/register" className="text-[#0150a0] font-bold hover:underline">
+              Registrati ora
+            </Link>
+          </p>
         </form>
 
         
