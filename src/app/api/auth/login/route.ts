@@ -4,6 +4,8 @@ import { createServerClient } from '@supabase/ssr'
 export async function POST(request: NextRequest) {
   const { email, password } = await request.json()
 
+  console.log("📨 Login attempt:", email)
+
   const response = NextResponse.json({ ok: true })
 
   const supabase = createServerClient(
@@ -23,14 +25,23 @@ export async function POST(request: NextRequest) {
     }
   )
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: String(email || '').trim(),
     password: String(password || ''),
   })
 
   if (error) {
-    return NextResponse.json({ ok: false, message: 'Email o password non corretti' }, { status: 401 })
+    console.log("❌ Login FAILED:", error.message)
+
+    return NextResponse.json(
+      { ok: false, message: 'Email o password non corretti' },
+      { status: 401 }
+    )
   }
+
+  console.log("✅ Login SUCCESS")
+  console.log("👤 User:", data.user?.email)
+  console.log("🆔 User ID:", data.user?.id)
 
   return response
 }

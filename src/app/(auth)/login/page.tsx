@@ -22,20 +22,18 @@ const handleLogin = async (e: React.FormEvent) => {
   setLoading(true)
   setError(null)
 
-  const res = await fetch('/api/auth/login', {
+    const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
 
   if (!res.ok) {
-    const data = await res.json().catch(() => null)
-    setError(data?.message || 'Email o password non corretti')
-    setLoading(false)
+    setError("Email o password non corretti")
     return
   }
 
-  router.replace('/')   // ✅ forza homepage
+  router.replace('/dashboard')
   router.refresh()
 }
 
@@ -136,12 +134,7 @@ const handleLogin = async (e: React.FormEvent) => {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
-          Non hai un account?{' '}
-          <Link href="/register" className="text-[#0150a0] font-bold hover:underline">
-            Registrati ora
-          </Link>
-        </p>
+        
       </div>
     </div>
   )

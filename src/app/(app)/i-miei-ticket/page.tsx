@@ -1,48 +1,49 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { createClient } from '../../lib/supabase';
+import { createClient } from '@/lib/supabase';
 import { 
   ArrowLeft, Building2, ChevronRight, Layers, ListTodo, PlayCircle, CheckCircle2, 
   Tag, Search, Loader2, Settings2, Eye, EyeOff, MoveUp, MoveDown, 
-  Calendar, Clock, AlertCircle, Users
+  Calendar, Clock, AlertCircle, ShieldAlert
 } from 'lucide-react';
 
-const STORAGE_KEY = 'columnConfig_storico';
+const STORAGE_KEY = 'miei_ticket_config';
 
 const INITIAL_COLUMNS = [
+  { id: 'id', label: 'ID Ticket', visible: false },
   { id: 'n_tag', label: 'N° Tag', visible: true },
   { id: 'titolo', label: 'Titolo', visible: true },
-  { id: 'assignee', label: 'Assegnatario', visible: true },
+  { id: 'priorita', label: 'Priorità', visible: true },
   { id: 'applicativo', label: 'App', visible: true },
   { id: 'tipo_di_attivita', label: 'Attività', visible: true },
   { id: 'cliente', label: 'Cliente', visible: true },
   { id: 'stato', label: 'Stato', visible: true },
-  { id: 'ultimo_ping', label: 'Ultimo Ping', visible: true },
+  { id: 'descrizione', label: 'Descrizione', visible: false },
   { id: 'created_at', label: 'Data Creazione', visible: false },
+  { id: 'ultimo_ping', label: 'Ultimo Ping', visible: true },
 ];
 
-export default function StoricoTicketPage() {
+export default function MieiTicketPage() {
   const supabase = useMemo(() => createClient(), []);
   
-  // STATI DATI
+  // STATI DATI E UI
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [columnOrder, setColumnOrder] = useState(INITIAL_COLUMNS);
-  
+
   // STATI FILTRI
   const [searchTerm, setSearchTerm] = useState('');
   const [filterApp, setFilterApp] = useState('');
   const [filterAttivita, setFilterAttivita] = useState('');
-  const [filterAssegnatario, setFilterAssegnatario] = useState('');
   const [selectedMacroarea, setSelectedMacroarea] = useState<'todo' | 'progress' | 'complete' | null>(null);
-  const [listaAssegnatari, setListaAssegnatari] = useState<{id: string, nome: string}[]>([]);
 
   const APPLICATIVI = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW"];
   const TIPI_ATTIVITA = ["Preanalisi", "Evolutive GA4", "Evolutive BQ", "Incident Resolution", "Reporting", "Formazione", "Supporto Funzionale Business", "Analisi degli Impatti", "Supporto Tecnico"];
   const TUTTI_GLI_STATI = ["Attività Sospesa", "Non Iniziato", "In stand-by", "In lavorazione", "In attesa Sviluppo", "In attesa risposta Sviluppatore", "Attenzione Business", "Attenzione di Andrea", "Completato - In attesa di chiusura", "Completato"];
+  const PRIORITA_OPZIONI = ["Bassa", "Media", "Alta", "Urgente"];
 
   const MACROAREE = {
     todo: { label: "To-do", icon: <ListTodo size={14} />, stati: ["Attività Sospesa", "Non Iniziato", "In stand-by"] },
@@ -50,22 +51,20 @@ export default function StoricoTicketPage() {
     complete: { label: "Complete", icon: <CheckCircle2 size={14} />, stati: ["Completato - In attesa di chiusura", "Completato"] }
   };
 
-  // --- PERSISTENZA COLONNE ---
+  // PERSISTENZA COLONNE
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { setColumnOrder(JSON.parse(saved)); } catch (e) { console.error(e); }
-    }
+    if (saved) { try { setColumnOrder(JSON.parse(saved)); } catch (e) { console.error(e); } }
   }, []);
 
-  const saveAndSetColumns = (newOrder: typeof INITIAL_COLUMNS) => {
-    setColumnOrder(newOrder);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newOrder));
+  const saveColumns = (newCols: typeof INITIAL_COLUMNS) => {
+    setColumnOrder(newCols);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newCols));
   };
 
   const toggleColumn = (id: string) => {
-    const next = columnOrder.map(col => col.id === id ? { ...col, visible: !col.visible } : col);
-    saveAndSetColumns(next);
+    const next = columnOrder.map(c => c.id === id ? { ...c, visible: !c.visible } : c);
+    saveColumns(next);
   };
 
   const moveColumn = (index: number, direction: 'up' | 'down') => {
@@ -73,58 +72,46 @@ export default function StoricoTicketPage() {
     const target = direction === 'up' ? index - 1 : index + 1;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
-    saveAndSetColumns(next);
+    saveColumns(next);
   };
 
-  // --- LOGICA DATI ---
+  // FETCH DATI
   useEffect(() => {
-    async function fetchData() {
+    async function fetchMyTickets() {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
       const { data, error } = await supabase
         .from('ticket')
-        .select(`*, clienti:cliente_id (nome), profili:assignee (nome_completo)`)
+        .select(`*, clienti:cliente_id (nome)`)
+        .eq('assignee', user.id)
         .order('ultimo_ping', { ascending: false });
-
-      if (!error && data) {
-        setTickets(data);
-        const assegnatariUnici = data
-          .filter(t => t.assignee && t.profili?.nome_completo)
-          .reduce((acc: any[], curr) => {
-            if (!acc.find(i => i.id === curr.assignee)) {
-              acc.push({ id: curr.assignee, nome: curr.profili.nome_completo });
-            }
-            return acc;
-          }, [])
-          .sort((a, b) => a.nome.localeCompare(b.nome));
-        setListaAssegnatari(assegnatariUnici);
-      }
+      if (!error) setTickets(data || []);
       setLoading(false);
     }
-    fetchData();
+    fetchMyTickets();
   }, [supabase]);
 
   const handleUpdate = async (id: string, field: string, value: any) => {
     setUpdatingId(`${id}-${field}`);
     const { error } = await supabase.from('ticket').update({ [field]: value }).eq('id', id);
-    if (!error) {
-      setTickets(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
-    }
+    if (!error) setTickets(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
     setUpdatingId(null);
   };
 
+  // LOGICA FILTRI
   const filteredTickets = useMemo(() => {
     return tickets.filter(t => {
       const matchesSearch = searchTerm === '' || 
         t.titolo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        t.clienti?.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        t.clienti?.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.n_tag?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesApp = filterApp === '' || t.applicativo === filterApp;
       const matchesAttivita = filterAttivita === '' || t.tipo_di_attivita === filterAttivita;
-      const matchesAssegnatario = filterAssegnatario === '' || t.assignee === filterAssegnatario;
       const matchesStatus = !selectedMacroarea || MACROAREE[selectedMacroarea].stati.includes(t.stato);
-      return matchesSearch && matchesApp && matchesAttivita && matchesAssegnatario && matchesStatus;
+      return matchesSearch && matchesApp && matchesAttivita && matchesStatus;
     });
-  }, [tickets, searchTerm, filterApp, filterAttivita, filterAssegnatario, selectedMacroarea]);
+  }, [tickets, searchTerm, filterApp, filterAttivita, selectedMacroarea]);
 
   const isExpired = (dateString: string | null) => {
     if (!dateString) return false;
@@ -132,7 +119,7 @@ export default function StoricoTicketPage() {
     return diff > 15;
   };
 
-  if (loading) return <div className="p-10 text-center font-bold text-slate-500 uppercase tracking-widest animate-pulse">Caricamento database...</div>;
+  if (loading) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse uppercase tracking-widest">Sincronizzazione...</div>;
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen pb-24 text-slate-900 font-sans">
@@ -144,8 +131,8 @@ export default function StoricoTicketPage() {
             <ArrowLeft size={18} strokeWidth={3} />
           </Link>
           <div>
-            <h1 className="text-xl font-black uppercase tracking-tight leading-none">Tutti i Ticket</h1>
-            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Global Editor</span>
+            <h1 className="text-xl font-black uppercase tracking-tight leading-none">I Miei Ticket</h1>
+            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest italic">Personal Dashboard</span>
           </div>
         </div>
 
@@ -153,19 +140,19 @@ export default function StoricoTicketPage() {
           {/* SEARCH */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-            <input type="text" placeholder="Cerca..." className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500 shadow-sm w-44 font-medium" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input type="text" placeholder="Cerca titolo o cliente..." className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500 shadow-sm w-44 font-medium" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
 
-          {/* USERS FILTER */}
+          {/* APP FILTER */}
           <div className="relative">
-            <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
-            <select value={filterAssegnatario} onChange={(e) => setFilterAssegnatario(e.target.value)} className="pl-8 pr-6 py-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest outline-none appearance-none cursor-pointer min-w-[130px]">
-              <option value="">Tutti gli Utenti</option>
-              {listaAssegnatari.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+            <select value={filterApp} onChange={(e) => setFilterApp(e.target.value)} className="pl-8 pr-6 py-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest outline-none appearance-none cursor-pointer">
+              <option value="">Tutte le App</option>
+              {APPLICATIVI.map(app => <option key={app} value={app}>{app}</option>)}
             </select>
           </div>
 
-          {/* ACTIVITY FILTER */}
+          {/* ATTIVITÀ FILTER */}
           <div className="relative">
             <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
             <select value={filterAttivita} onChange={(e) => setFilterAttivita(e.target.value)} className="pl-8 pr-6 py-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest outline-none appearance-none cursor-pointer">
@@ -174,7 +161,7 @@ export default function StoricoTicketPage() {
             </select>
           </div>
 
-          {/* MACROAREAS */}
+          {/* MACROAREE BARS */}
           <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
             {(Object.keys(MACROAREE) as Array<keyof typeof MACROAREE>).map((key) => {
               const area = MACROAREE[key];
@@ -188,25 +175,25 @@ export default function StoricoTicketPage() {
           </div>
 
           <button onClick={() => setShowConfig(!showConfig)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition shadow-sm text-[10px] font-black uppercase tracking-widest ${showConfig ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-            <Settings2 size={14} /> Colonne
+            <Settings2 size={14} /> Personalizza
           </button>
         </div>
       </div>
 
-      {/* CONFIGURAZIONE COLONNE (Persistente e Ordinabile) */}
+      {/* PANNELLO CONFIGURAZIONE COLONNE */}
       {showConfig && (
         <div className="mb-6 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm animate-in fade-in slide-in-from-top-2">
-          <span className="text-[10px] font-black uppercase text-slate-400 block mb-3">Visibilità e Ordine (Global):</span>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <span className="text-[10px] font-black uppercase text-slate-400 block mb-3">Ordine e Visibilità Colonne (Solo per questa pagina):</span>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             {columnOrder.map((col, index) => (
               <div key={col.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100 group">
                 <div className="flex items-center gap-2">
                   <button onClick={() => toggleColumn(col.id)} className={col.visible ? "text-blue-600" : "text-slate-300"}>
                     {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                   </button>
-                  <span className={`text-[9px] font-bold uppercase ${col.visible ? 'text-slate-700' : 'text-slate-300'}`}>{col.label}</span>
+                  <span className={`text-[9px] font-bold uppercase truncate ${col.visible ? 'text-slate-700' : 'text-slate-300'}`}>{col.label}</span>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                   <button onClick={() => moveColumn(index, 'up')} className="text-slate-400 hover:text-blue-600"><MoveUp size={10} /></button>
                   <button onClick={() => moveColumn(index, 'down')} className="text-slate-400 hover:text-blue-600"><MoveDown size={10} /></button>
                 </div>
@@ -230,35 +217,49 @@ export default function StoricoTicketPage() {
               <tr key={t.id} className="hover:bg-slate-50/50 transition-all group">
                 {columnOrder.filter(c => c.visible).map(col => (
                   <td key={col.id} className="px-6 py-4">
-                    {col.id === 'titolo' && (
-                      <input className="font-bold text-slate-900 text-sm bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded px-1 w-full outline-none" value={t.titolo || ''} onChange={(e) => handleUpdate(t.id, 'titolo', e.target.value)} />
-                    )}
+                    {/* ID */}
+                    {col.id === 'id' && <span className="text-[10px] font-mono text-slate-400">#{t.id.slice(0,8)}</span>}
+                    
+                    {/* N TAG */}
                     {col.id === 'n_tag' && (
                       <input className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-black rounded border border-slate-200 w-24 outline-none focus:bg-white transition-colors" value={t.n_tag || ''} onChange={(e) => handleUpdate(t.id, 'n_tag', e.target.value)} />
                     )}
-                    {col.id === 'assignee' && (
-                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-[8px] font-black text-blue-600 border border-blue-100 uppercase">
-                          {t.profili?.nome_completo?.substring(0,2) || '??'}
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-700 uppercase">{t.profili?.nome_completo || 'N/D'}</span>
-                      </div>
+
+                    {/* TITOLO */}
+                    {col.id === 'titolo' && (
+                      <input className="font-bold text-slate-900 text-sm bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded px-1 w-full outline-none" value={t.titolo || ''} onChange={(e) => handleUpdate(t.id, 'titolo', e.target.value)} />
                     )}
+
+                    {/* PRIORITÀ */}
+                    {col.id === 'priorita' && (
+                      <select className="text-[9px] font-black uppercase rounded-lg px-2 py-1 outline-none border border-slate-100 bg-slate-50" value={t.priorita || ''} onChange={(e) => handleUpdate(t.id, 'priorita', e.target.value)}>
+                        <option value="">-</option>
+                        {PRIORITA_OPZIONI.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    )}
+
+                    {/* APPLICATIVO */}
                     {col.id === 'applicativo' && (
                       <select className="text-[10px] font-bold text-blue-600 bg-blue-50/50 border border-blue-100 rounded-lg px-2 py-1 outline-none" value={t.applicativo || ''} onChange={(e) => handleUpdate(t.id, 'applicativo', e.target.value)}>
                         <option value="">-</option>
                         {APPLICATIVI.map(app => <option key={app} value={app}>{app}</option>)}
                       </select>
                     )}
+
+                    {/* TIPO ATTIVITÀ */}
                     {col.id === 'tipo_di_attivita' && (
                       <select className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1 outline-none" value={t.tipo_di_attivita || ''} onChange={(e) => handleUpdate(t.id, 'tipo_di_attivita', e.target.value)}>
                         <option value="">-</option>
                         {TIPI_ATTIVITA.map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
                       </select>
                     )}
+
+                    {/* CLIENTE */}
                     {col.id === 'cliente' && (
                       <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-400"><Building2 size={12} /> {t.clienti?.nome || 'N/D'}</div>
                     )}
+
+                    {/* STATO */}
                     {col.id === 'stato' && (
                       <div className="flex items-center gap-2">
                         {updatingId === `${t.id}-stato` ? <Loader2 size={10} className="animate-spin text-blue-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
@@ -267,9 +268,18 @@ export default function StoricoTicketPage() {
                         </select>
                       </div>
                     )}
+
+                    {/* DESCRIZIONE */}
+                    {col.id === 'descrizione' && (
+                      <input className="text-[10px] text-slate-400 bg-transparent border-none w-full outline-none italic" value={t.descrizione || ''} placeholder="..." onChange={(e) => handleUpdate(t.id, 'descrizione', e.target.value)} />
+                    )}
+
+                    {/* CREATED AT */}
                     {col.id === 'created_at' && (
                       <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase"><Calendar size={10}/> {t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</div>
                     )}
+
+                    {/* ULTIMO PING */}
                     {col.id === 'ultimo_ping' && (
                       (() => {
                         const expired = isExpired(t.ultimo_ping);

@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useState, useEffect } from 'react'
-import { createClient } from '../../lib/supabase'
+import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { FileText, Send, Info, Plus, X, Check, LayoutGrid } from 'lucide-react'
 

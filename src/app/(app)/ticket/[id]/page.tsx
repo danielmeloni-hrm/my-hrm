@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react' // Aggiunto useMemo
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '../../../lib/supabase'
+import { createClient } from '@/lib/supabase'
 import { 
   ArrowLeft, Mail, MessageSquare, 
   Clock, CloudCheck, CloudUpload, History, Send, Calendar,

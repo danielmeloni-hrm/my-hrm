@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '../../lib/supabase'
+import { createClient } from '@/lib/supabase'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import { 
   Trello, User, Users, ChevronRight, Hash, Activity, AppWindow 
