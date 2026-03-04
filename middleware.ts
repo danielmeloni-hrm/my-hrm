@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 export async function middleware(request: NextRequest) {
-
   let response = NextResponse.next()
 
   const supabase = createServerClient(
@@ -13,10 +12,10 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
-        cookiesToSet.forEach(({ name, value, options }) => {
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
+          cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options)
-        })
+          })
         },
       },
     }
@@ -27,27 +26,35 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-const isAuthPage =
-  pathname.startsWith('/login') ||
-  pathname.startsWith('/register') ||
-  pathname.startsWith('/auth/reset-password')
+  // ✅ Pagine pubbliche / auth (DEVONO MATCHARE LE TUE ROUTE REALI)
+  const isAuthRoute =
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname.startsWith('reset-password')  ||
+    pathname.startsWith('/auth/callback')
 
-  const isPublic =
-    isAuthPage ||
+  // ✅ Asset pubblici
+  const isPublicAsset =
     pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon')
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/brand') ||
+    pathname.startsWith('/public')
 
-  // 🔴 NON LOGGATO
+  const isPublic = isAuthRoute || isPublicAsset
+
+  // 🔴 NON LOGGATO: blocca tutto tranne pagine pubbliche
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.searchParams.set('returnTo', pathname)
     return NextResponse.redirect(url)
   }
 
-  // 🟢 GIÀ LOGGATO → blocca accesso al login
-  if (user && isAuthPage) {
+  // 🟢 GIÀ LOGGATO: evita di mostrare login/register/reset/callback
+  if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    url.pathname = '/home' // <-- cambia se la tua home è un'altra
+    url.search = ''
     return NextResponse.redirect(url)
   }
 
