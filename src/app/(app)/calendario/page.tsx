@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { createClient } from '../../lib/supabase'
+import { createClient } from '@/lib/supabase'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import { 
   Rocket, ChevronLeft, ChevronRight, 
