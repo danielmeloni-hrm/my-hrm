@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '../../lib/supabase'
+import { createClient } from '../../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { UserPlus, Mail, Lock, ArrowRight } from 'lucide-react'
