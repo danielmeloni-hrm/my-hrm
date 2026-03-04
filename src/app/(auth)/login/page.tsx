@@ -25,14 +25,17 @@ const handleLogin = async (e: React.FormEvent) => {
     const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // Assicurati che i cookie vengano inviati
     body: JSON.stringify({ email, password }),
   })
 
   if (!res.ok) {
-    setError("Email o password non corretti")
-    return
+  setError("Email o password non corretti")
+  setLoading(false)
+  return
   }
 
+  setLoading(false)
   router.replace('/dashboard')
   router.refresh()
 }
