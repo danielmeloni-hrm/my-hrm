@@ -32,9 +32,13 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  if (error) {
-    return NextResponse.json({ ok: false, message: error.message }, { status: 400 })
-  }
+    if (error) {
+    console.log("REGISTER ERROR:", error)
+    return NextResponse.json(
+        { ok: false, message: error.message },
+        { status: 400 }
+    )
+    }
 
   // Nota: se hai "Confirm email" attivo, user potrebbe essere creato ma session null
   return response

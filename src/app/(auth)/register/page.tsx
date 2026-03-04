@@ -47,7 +47,7 @@ export default function RegisterPage() {
     const j = await res.json().catch(() => null)
 
     if (!res.ok) {
-      setError(j?.message || 'Registrazione non riuscita')
+      setError(j?.message || "Registrazione non riuscita")
       setLoading(false)
       return
     }
