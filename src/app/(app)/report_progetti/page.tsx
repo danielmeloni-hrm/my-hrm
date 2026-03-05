@@ -62,6 +62,7 @@ function parseTitleParts(titolo: string): TitleParts {
 
   return { cliente, attivita, progetto };
 }
+
 /**
  * Supporta:
  * - "dd/mm/yyyy"
@@ -170,8 +171,6 @@ async function fetchSheetTab(tab: SheetName): Promise<RawRow[]> {
   const res = await fetch(url, { cache: "no-store" });
   const text = await res.text();
 
-  
-
   const jsonMatch = text.match(/setResponse\(([\s\S]+)\);\s*$/);
   if (!jsonMatch) throw new Error("Risposta GViz non valida (sheet privato o struttura diversa).");
 
@@ -201,6 +200,7 @@ async function fetchSheetTab(tab: SheetName): Promise<RawRow[]> {
       };
     });
 }
+
 function normalizeKey(s: string): string {
   const label = normalizeLabel(s);
   if (!label) return "";
@@ -223,9 +223,9 @@ function firstPartBeforeDash(titolo: string): string {
 /** Legge SOLO i clienti validi da Voci!A */
 async function fetchValidClients(): Promise<Array<{ key: string; label: string }>> {
   const query = encodeURIComponent("select A");
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?sheet=${encodeURIComponent(
-    "Voci"
-  )}&tq=${query}`+`&headers=1`;
+  const url =
+    `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?sheet=${encodeURIComponent("Voci")}&tq=${query}` +
+    `&headers=1`;
 
   const res = await fetch(url, { cache: "no-store" });
   const text = await res.text();
@@ -243,18 +243,17 @@ async function fetchValidClients(): Promise<Array<{ key: string; label: string }
 
   for (const r of rows) {
     const cell = r?.c?.[0];
-    const raw = String(cell?.f ?? cell?.v ?? ""); // ✅ usa f se v manca
+    const raw = String(cell?.f ?? cell?.v ?? "");
     const label = normalizeLabel(raw);
     if (!label) continue;
 
-    // ✅ scarta l'header se viene incluso
+    // scarta l'header se viene incluso
     if (label.toLowerCase() === "clienti") continue;
 
     const key = normalizeKey(label);
     if (!key) continue;
 
     if (!map.has(key)) map.set(key, label);
-    console.log("RAW:", raw, "LABEL:", label);
   }
 
   return Array.from(map.entries())
@@ -308,6 +307,54 @@ function formatHours(h: number): string {
   return `${v}`.replace(".", ",");
 }
 
+/* -------------------- NEW: aggregazioni e matrici -------------------- */
+
+type Agg = { key: string; label: string; hours: number; events: number };
+
+function topN<T>(arr: T[], n: number) {
+  return arr.slice(0, n);
+}
+
+function groupByKey(rows: any[], keyFn: (r: any) => string, labelFn?: (r: any) => string): Agg[] {
+  const map = new Map<string, Agg>();
+  for (const r of rows) {
+    const key = keyFn(r) || "";
+    if (!key) continue;
+
+    const label = (labelFn ? labelFn(r) : key) || key;
+    const cur = map.get(key) ?? { key, label, hours: 0, events: 0 };
+    cur.hours += Number(r.durataOre || 0);
+    cur.events += 1;
+    map.set(key, cur);
+  }
+  return Array.from(map.values()).sort((a, b) => b.hours - a.hours);
+}
+
+/** matrice: righe = rowKey, colonne = colKey, valore = hours */
+function matrixHours(rows: any[], rowKeyFn: (r: any) => string, colKeyFn: (r: any) => string) {
+  const map = new Map<string, Map<string, number>>();
+  const rowTotals = new Map<string, number>();
+  const colTotals = new Map<string, number>();
+
+  for (const r of rows) {
+    const rk = rowKeyFn(r);
+    const ck = colKeyFn(r);
+    if (!rk || !ck) continue;
+
+    const h = Number(r.durataOre || 0);
+    if (!map.has(rk)) map.set(rk, new Map());
+    const inner = map.get(rk)!;
+    inner.set(ck, (inner.get(ck) ?? 0) + h);
+
+    rowTotals.set(rk, (rowTotals.get(rk) ?? 0) + h);
+    colTotals.set(ck, (colTotals.get(ck) ?? 0) + h);
+  }
+
+  return { map, rowTotals, colTotals };
+}
+
+/* -------------------------------------------------------------------- */
+
 export default function ClientReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -324,9 +371,7 @@ export default function ClientReportsPage() {
 
   const [dateRange, setDateRange] = useState<DateRange>({ from: "", to: "" });
   const [period, setPeriod] = useState<Period>("all");
-
-  const validClientsSet = useMemo(() => new Set(validClients.map((c) => c.key)), [validClients]);
-
+  const [dateMode, setDateMode] = useState<"period" | "range">("period");
   const load = async () => {
     setLoading(true);
     setError(null);
@@ -351,31 +396,31 @@ export default function ClientReportsPage() {
   }, []);
 
   /** Parse titolo -> cliente/attività/progetto + filtro cliente valido */
-    const rowsWithParts = useMemo(() => {
-  // mappa: key -> label (dal foglio Voci colonna A)
-  const validMap = new Map(validClients.map((c) => [c.key, c.label]));
+  const rowsWithParts = useMemo(() => {
+    // mappa: key -> label (dal foglio Voci colonna A)
+    const validMap = new Map(validClients.map((c) => [c.key, c.label]));
 
-  return allRows
-    .map((r) => {
-      // match cliente: prima parte del titolo fino al primo " - "
-      const first = firstPartBeforeDash(r.titolo);
-      const firstKey = normalizeKey(first);
+    return allRows
+      .map((r) => {
+        // match cliente: prima parte del titolo fino al primo " - "
+        const first = firstPartBeforeDash(r.titolo);
+        const firstKey = normalizeKey(first);
 
-      const validLabel = validMap.get(firstKey);
-      if (!validLabel) return null; // cliente NON valido -> scarta evento
+        const validLabel = validMap.get(firstKey);
+        if (!validLabel) return null; // cliente NON valido -> scarta evento
 
-      const p = parseTitleParts(r.titolo);
+        const p = parseTitleParts(r.titolo);
 
-      return {
-        ...r,
-        cliente: validLabel,       // uso label ufficiale dal file
-        clienteKey: firstKey,      // chiave normalizzata per filtri
-        attivita: p.attivita,
-        progetto: p.progetto,
-      };
-    })
-    .filter(Boolean) as any[];
-    }, [allRows, validClients]);
+        return {
+          ...r,
+          cliente: validLabel, // label ufficiale
+          clienteKey: firstKey, // chiave normalizzata per filtri
+          attivita: p.attivita,
+          progetto: p.progetto,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [allRows, validClients]);
 
   /** Clienti SOLO da Voci!A */
   const clients = useMemo(() => validClients, [validClients]);
@@ -423,7 +468,7 @@ export default function ClientReportsPage() {
     }
 
     const useRange = Boolean(dateRange.from || dateRange.to);
-    rows = useRange ? clampDateRange(rows, dateRange) : clampPeriod(rows, period);
+    rows = dateMode === "range" ? clampDateRange(rows, dateRange) : clampPeriod(rows, period);
 
     rows.sort((a, b) => {
       const da = parseEventDate(a.dataInizio)?.getTime() ?? 0;
@@ -433,7 +478,7 @@ export default function ClientReportsPage() {
     });
 
     return rows;
-  }, [rowsWithParts, sheetFilter, clientFilter, attivitaFilter, progettoFilter, search, period, dateRange]);
+  }, [rowsWithParts, sheetFilter, clientFilter, attivitaFilter, progettoFilter, search, period, dateRange, dateMode]);
 
   const selectedClientName = useMemo(() => {
     if (clientFilter === "all") return "Tutti";
@@ -446,9 +491,7 @@ export default function ClientReportsPage() {
     const events = filteredRows.length;
     const avgMin = events ? totalMin / events : 0;
 
-    const dates = filteredRows
-      .map((r: any) => parseEventDate(r.dataInizio))
-      .filter(Boolean) as Date[];
+    const dates = filteredRows.map((r: any) => parseEventDate(r.dataInizio)).filter(Boolean) as Date[];
 
     const first = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
     const last = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
@@ -495,6 +538,67 @@ export default function ClientReportsPage() {
       .sort((a, b) => b.hours - a.hours);
   }, [filteredRows]);
 
+  // NEW: ore per attività
+  const byAttivita = useMemo(() => {
+    return groupByKey(
+      filteredRows as any[],
+      (r) => String(r.attivita || ""),
+      (r) => String(r.attivita || "")
+    );
+  }, [filteredRows]);
+
+  // NEW: ore per progetto
+  const byProgetto = useMemo(() => {
+    return groupByKey(
+      filteredRows as any[],
+      (r) => String(r.progetto || "").trim(),
+      (r) => String(r.progetto || "").trim()
+    ).filter((x) => x.key.length > 0);
+  }, [filteredRows]);
+
+  // NEW: Cliente x Attività (Top 10 x Top 10)
+  const clientXAttivita = useMemo(() => {
+    const { map, rowTotals, colTotals } = matrixHours(
+      filteredRows as any[],
+      (r) => String(r.cliente || ""),
+      (r) => String(r.attivita || "")
+    );
+
+    const topClients = Array.from(rowTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([k]) => k);
+
+    const topActs = Array.from(colTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([k]) => k);
+
+    return { map, topClients, topActs };
+  }, [filteredRows]);
+
+  // NEW: Cliente x Progetto (Top 10 x Top 10)
+  const clientXProgetto = useMemo(() => {
+    const { map, rowTotals, colTotals } = matrixHours(
+      filteredRows as any[],
+      (r) => String(r.cliente || ""),
+      (r) => String(r.progetto || "").trim()
+    );
+
+    const topClients = Array.from(rowTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([k]) => k);
+
+    const topProjects = Array.from(colTotals.entries())
+      .filter(([k]) => k && k.trim().length > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([k]) => k);
+
+    return { map, topClients, topProjects };
+  }, [filteredRows]);
+
   const renderBars = (items: { label: string; value: number }[], valueFormatter?: (n: number) => string) => {
     const max = Math.max(1, ...items.map((i) => i.value));
     return (
@@ -532,12 +636,103 @@ export default function ClientReportsPage() {
             </div>
           );
         })}
-
-        
       </div>
     );
+  };
 
-    
+  const renderMatrix = (
+    title: string,
+    rowsKeys: string[],
+    colsKeys: string[],
+    getVal: (rk: string, ck: string) => number
+  ) => {
+    const max = Math.max(1, ...rowsKeys.flatMap((rk) => colsKeys.map((ck) => getVal(rk, ck))));
+    return (
+      <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{title}</div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <th
+                  style={{
+                    position: "sticky",
+                    left: 0,
+                    background: "#fff",
+                    borderBottom: "1px solid #eee",
+                    padding: "10px 8px",
+                    fontSize: 12,
+                  }}
+                >
+                  Cliente
+                </th>
+                {colsKeys.map((c) => (
+                  <th
+                    key={c}
+                    style={{
+                      borderBottom: "1px solid #eee",
+                      padding: "10px 8px",
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                    }}
+                    title={c}
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rowsKeys.map((rk) => (
+                <tr key={rk}>
+                  <td
+                    style={{
+                      position: "sticky",
+                      left: 0,
+                      background: "#fff",
+                      borderBottom: "1px solid #f1f1f1",
+                      padding: "10px 8px",
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                      fontWeight: 700,
+                    }}
+                    title={rk}
+                  >
+                    {rk}
+                  </td>
+
+                  {colsKeys.map((ck) => {
+                    const v = getVal(rk, ck);
+                    const pct = Math.round((v / max) * 100);
+                    return (
+                      <td
+                        key={ck}
+                        style={{
+                          borderBottom: "1px solid #f1f1f1",
+                          padding: "10px 8px",
+                          fontSize: 12,
+                          minWidth: 140,
+                        }}
+                      >
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <div style={{ background: "#f0f0f0", borderRadius: 999, height: 10, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: "#111" }} />
+                          </div>
+                          <div style={{ textAlign: "right", color: "#333" }}>{v > 0 ? `${formatHours(v)} h` : "—"}</div>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Top 10 righe × Top 10 colonne (ore).</div>
+      </div>
+    );
   };
 
   return (
@@ -551,144 +746,275 @@ export default function ClientReportsPage() {
             </div>
 
             {/* FILTRI */}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Risorsa (tab)</label>
-                <select
-                  value={sheetFilter}
-                  onChange={(e) => setSheetFilter(e.target.value as any)}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10 }}
-                >
-                  <option value="Tutte">Tutte</option>
-                  {SHEETS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
+<div
+  style={{
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "end",
+    padding: 12,
+    border: "1px solid #eee",
+    borderRadius: 16,
+    background: "#fff",
+    boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
+  }}
+>
+  {/* helper per stile input */}
+  {/*
+    NB: uso inline style per restare coerente col tuo file.
+  */}
+  {/* Risorsa */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 160 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Risorsa (tab)</label>
+    <select
+      value={sheetFilter}
+      onChange={(e) => setSheetFilter(e.target.value as any)}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        fontSize: 12,
+        outline: "none",
+      }}
+    >
+      <option value="Tutte">Tutte</option>
+      {SHEETS.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Cliente</label>
-                <select
-                  value={clientFilter}
-                  onChange={(e) => setClientFilter(e.target.value)}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10, maxWidth: 260 }}
-                >
-                  <option value="all">Tutti</option>
-                  {clients.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  {/* Cliente */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Cliente</label>
+    <select
+      value={clientFilter}
+      onChange={(e) => setClientFilter(e.target.value)}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        fontSize: 12,
+        outline: "none",
+      }}
+    >
+      <option value="all">Tutti</option>
+      {clients.map((c) => (
+        <option key={c.key} value={c.key}>
+          {c.label}
+        </option>
+      ))}
+    </select>
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Tipo attività</label>
-                <select
-                  value={attivitaFilter}
-                  onChange={(e) => setAttivitaFilter(e.target.value)}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10, maxWidth: 260 }}
-                >
-                  <option value="Tutte">Tutte</option>
-                  {attivitaOptions.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  {/* Tipo attività */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Tipo attività</label>
+    <select
+      value={attivitaFilter}
+      onChange={(e) => setAttivitaFilter(e.target.value)}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        fontSize: 12,
+        outline: "none",
+      }}
+    >
+      <option value="Tutte">Tutte</option>
+      {attivitaOptions.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Progetto</label>
-                <select
-                  value={progettoFilter}
-                  onChange={(e) => setProgettoFilter(e.target.value)}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10, maxWidth: 260 }}
-                  disabled={progettoOptions.length === 0}
-                  title={progettoOptions.length === 0 ? "Nessun progetto disponibile per i filtri attuali" : ""}
-                >
-                  <option value="Tutti">Tutti</option>
-                  {progettoOptions.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  {/* Progetto */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Progetto</label>
+    <select
+      value={progettoFilter}
+      onChange={(e) => setProgettoFilter(e.target.value)}
+      disabled={progettoOptions.length === 0}
+      title={progettoOptions.length === 0 ? "Nessun progetto disponibile per i filtri attuali" : ""}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: progettoOptions.length === 0 ? "#fafafa" : "#fff",
+        fontSize: 12,
+        outline: "none",
+        color: progettoOptions.length === 0 ? "#999" : "#111",
+      }}
+    >
+      <option value="Tutti">Tutti</option>
+      {progettoOptions.map((p) => (
+        <option key={p} value={p}>
+          {p}
+        </option>
+      ))}
+    </select>
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Cerca</label>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="es. Esselunga, 2FTE, Clarity..."
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10 }}
-                />
-              </div>
+  {/* Cerca */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Cerca</label>
+    <input
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+      placeholder="es. Esselunga, 2FTE, Clarity..."
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        fontSize: 12,
+        outline: "none",
+      }}
+    />
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Data inizio</label>
-                <input
-                  type="date"
-                  value={dateRange.from}
-                  onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10 }}
-                />
-              </div>
+  {/* Modalità data */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 160 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Modalità data</label>
+    <select
+      value={dateMode}
+      onChange={(e) => {
+        const mode = e.target.value as "period" | "range";
+        setDateMode(mode);
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Data fine</label>
-                <input
-                  type="date"
-                  value={dateRange.to}
-                  onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10 }}
-                />
-              </div>
+        // pulizia automatica dell'altra modalità
+        if (mode === "period") setDateRange({ from: "", to: "" });
+        if (mode === "range") setPeriod("all");
+      }}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        fontSize: 12,
+        outline: "none",
+      }}
+    >
+      <option value="period">Periodo</option>
+      <option value="range">Intervallo date</option>
+    </select>
+  </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, color: "#444" }}>Periodo (fallback)</label>
-                <select
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value as Period)}
-                  style={{ padding: "10px 12px", border: "1px solid #d7d7d7", borderRadius: 10 }}
-                  disabled={Boolean(dateRange.from || dateRange.to)}
-                  title={Boolean(dateRange.from || dateRange.to) ? "Disabilitato: stai usando le date" : "Se non metti date, usa questo"}
-                >
-                  <option value="all">Tutto</option>
-                  <option value="thisYear">Anno corrente</option>
-                  <option value="last12">Ultimi 12 mesi</option>
-                  <option value="last90">Ultimi 90 giorni</option>
-                  <option value="last30">Ultimi 30 giorni</option>
-                </select>
-              </div>
+  {/* Date range (attivo solo se dateMode === "range") */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 150 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Da</label>
+    <input
+      type="date"
+      value={dateRange.from}
+      onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))}
+      disabled={dateMode !== "range"}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: dateMode !== "range" ? "#fafafa" : "#fff",
+        fontSize: 12,
+        outline: "none",
+        color: dateMode !== "range" ? "#999" : "#111",
+      }}
+    />
+  </div>
 
-              <button
-                onClick={() => setDateRange({ from: "", to: "" })}
-                style={{ padding: "10px 12px", border: "1px solid #cfcfcf", borderRadius: 10, background: "#fff", cursor: "pointer" }}
-                disabled={loading}
-              >
-                Reset date
-              </button>
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 150 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>A</label>
+    <input
+      type="date"
+      value={dateRange.to}
+      onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))}
+      disabled={dateMode !== "range"}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: dateMode !== "range" ? "#fafafa" : "#fff",
+        fontSize: 12,
+        outline: "none",
+        color: dateMode !== "range" ? "#999" : "#111",
+      }}
+    />
+  </div>
 
-              <button
-                onClick={() => void load()}
-                style={{ padding: "10px 12px", border: "1px solid #cfcfcf", borderRadius: 10, background: "#fff", cursor: "pointer" }}
-                disabled={loading}
-              >
-                {loading ? "Caricamento..." : "Ricarica"}
-              </button>
+  {/* Periodo (attivo solo se dateMode === "period") */}
+  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 170 }}>
+    <label style={{ fontSize: 11, color: "#555" }}>Periodo</label>
+    <select
+      value={period}
+      onChange={(e) => setPeriod(e.target.value as Period)}
+      disabled={dateMode !== "period"}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: dateMode !== "period" ? "#fafafa" : "#fff",
+        fontSize: 12,
+        outline: "none",
+        color: dateMode !== "period" ? "#999" : "#111",
+      }}
+    >
+      <option value="all">Tutto</option>
+      <option value="thisYear">Anno corrente</option>
+      <option value="last12">Ultimi 12 mesi</option>
+      <option value="last90">Ultimi 90 giorni</option>
+      <option value="last30">Ultimi 30 giorni</option>
+    </select>
+  </div>
 
-              <button
-                onClick={() => downloadTextFile("eventi_filtrati.csv", toCSV(filteredRows), "text/csv")}
-                style={{ padding: "10px 12px", border: "1px solid #cfcfcf", borderRadius: 10, background: "#fff", cursor: "pointer" }}
-                disabled={loading}
-              >
-                Esporta CSV (eventi)
-              </button>
-            </div>
+  {/* Pulsanti */}
+  <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+    <button
+      onClick={() => {
+        setSearch("");
+        setSheetFilter("Tutte");
+        setClientFilter("all");
+        setAttivitaFilter("Tutte");
+        setProgettoFilter("Tutti");
+        setDateRange({ from: "", to: "" });
+        setPeriod("all");
+        setDateMode("period");
+      }}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#fff",
+        cursor: "pointer",
+        fontSize: 12,
+      }}
+      disabled={loading}
+      title="Reset filtri"
+    >
+      Reset
+    </button>
+
+    <button
+      onClick={() => void load()}
+      style={{
+        padding: "8px 10px",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        background: "#111",
+        color: "#fff",
+        cursor: "pointer",
+        fontSize: 12,
+      }}
+      disabled={loading}
+    >
+      {loading ? "Caricamento..." : "Ricarica"}
+    </button>
+  </div>
+</div>
           </div>
 
           <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
@@ -761,6 +1087,52 @@ export default function ClientReportsPage() {
               )
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
+          </div>
+
+          {/* NEW: Ore per attività */}
+          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per tipo attività (Top 20)</div>
+            {byAttivita.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#666" }}>Nessun dato nel periodo selezionato.</div>
+            ) : (
+              renderBars(
+                topN(byAttivita, 20).map((a) => ({ label: `${a.label} (${a.events})`, value: a.hours })),
+                (n) => `${formatHours(n)} h`
+              )
+            )}
+          </div>
+
+          {/* NEW: Ore per progetto */}
+          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per progetto (Top 20)</div>
+            {byProgetto.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#666" }}>Nessun progetto nel periodo selezionato.</div>
+            ) : (
+              renderBars(
+                topN(byProgetto, 20).map((p) => ({ label: `${p.label} (${p.events})`, value: p.hours })),
+                (n) => `${formatHours(n)} h`
+              )
+            )}
+            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
+          </div>
+
+          {/* NEW: Matrici */}
+          <div style={{ gridColumn: "span 12" }}>
+            {renderMatrix(
+              "Cliente × Attività (ore)",
+              clientXAttivita.topClients,
+              clientXAttivita.topActs,
+              (rk, ck) => clientXAttivita.map.get(rk)?.get(ck) ?? 0
+            )}
+          </div>
+
+          <div style={{ gridColumn: "span 12" }}>
+            {renderMatrix(
+              "Cliente × Progetto (ore)",
+              clientXProgetto.topClients,
+              clientXProgetto.topProjects,
+              (rk, ck) => clientXProgetto.map.get(rk)?.get(ck) ?? 0
+            )}
           </div>
         </div>
 

@@ -11,6 +11,7 @@ export default function SettingsPage() {
 
   const allMenuItems: MenuItem[] = useMemo(
     () => [
+      { name: 'Nuova Attività', path: '/new_ticket' },
       { name: 'Attività in Lavorazione', path: '/dashboard_in_lavorazione' },
       { name: 'Note Board', path: '/note_board' },
       { name: 'Sprint Board', path: '/dashboard' },
