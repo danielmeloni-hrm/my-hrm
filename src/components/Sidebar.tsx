@@ -79,11 +79,10 @@ export default function Sidebar() {
   }, [menuItems, visiblePaths])
 
   const handleLogout = async () => {
-    // logout server-side (pulisce cookie) + redirect
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null)
-    router.replace('/login')
-    router.refresh()
-  }
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+  router.replace('/login')
+  router.refresh()
+}
 
   return (
     <aside

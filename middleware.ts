@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next()
@@ -12,7 +12,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options?: CookieOptions }>) {
+        setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options)
           })
@@ -26,23 +26,23 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // ✅ Pagine pubbliche / auth (DEVONO MATCHARE LE TUE ROUTE REALI)
+  // ✅ route group (auth) NON è nell’URL: le tue route reali sono /login /register /reset-password
   const isAuthRoute =
     pathname === '/login' ||
     pathname === '/register' ||
-    pathname.startsWith('reset-password')  ||
-    pathname.startsWith('/auth/callback')
+    pathname === '/reset-password' ||
+    pathname === '/auth/callback'
 
-  // ✅ Asset pubblici
+  // ✅ roba pubblica
   const isPublicAsset =
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/brand') ||
-    pathname.startsWith('/public')
+    pathname.startsWith('/images')
 
   const isPublic = isAuthRoute || isPublicAsset
 
-  // 🔴 NON LOGGATO: blocca tutto tranne pagine pubbliche
+  // 🔴 se non loggato, proteggi tutto tranne pubblico
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
@@ -50,10 +50,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // 🟢 GIÀ LOGGATO: evita di mostrare login/register/reset/callback
+  // 🟢 se loggato, blocca accesso alle pagine auth
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/home' // <-- cambia se la tua home è un'altra
+    url.pathname = '/dashboard'
     url.search = ''
     return NextResponse.redirect(url)
   }
@@ -61,6 +61,7 @@ export async function middleware(request: NextRequest) {
   return response
 }
 
+// ⚠️ ESCLUDI /api ALTRIMENTI ROMPI LOGIN/REGISTER/LOGOUT
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 }

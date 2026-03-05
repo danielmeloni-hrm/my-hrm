@@ -22,21 +22,26 @@ const handleLogin = async (e: React.FormEvent) => {
   setLoading(true)
   setError(null)
 
-    const res = await fetch('/api/auth/login', {
+  const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'include', // Assicurati che i cookie vengano inviati
-    body: JSON.stringify({ email, password }),
+    credentials: 'include', // ✅ fondamentale per salvare cookie sessione
+    body: JSON.stringify({ email: email.trim(), password }),
   })
 
+  const j = await res.json().catch(() => null)
+
   if (!res.ok) {
-  setError("Email o password non corretti")
-  setLoading(false)
-  return
+    setError(j?.message || 'Email o password non corretti')
+    setLoading(false)
+    return
   }
 
   setLoading(false)
-  router.replace('/dashboard')
+
+  // se vuoi usare returnTo dal middleware
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo') || '/dashboard'
+  router.replace(returnTo)
   router.refresh()
 }
 
