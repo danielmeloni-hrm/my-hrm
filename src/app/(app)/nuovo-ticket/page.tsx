@@ -3,7 +3,10 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { FileText, Send, Info, Plus, X, Check, LayoutGrid } from 'lucide-react'
+import { 
+  FileText, Send, Info, Plus, X, Check, LayoutGrid, 
+  User, Star, Hash, Activity 
+} from 'lucide-react'
 
 export default function NuovoTicketPage() {
   const router = useRouter()
@@ -17,18 +20,19 @@ export default function NuovoTicketPage() {
   const [isAddingNewCliente, setIsAddingNewCliente] = useState(false)
   const [newClienteName, setNewClienteName] = useState('')
 
+  // STATO FORM
   const [formData, setFormData] = useState({
     titolo: '',
     descrizione: '',
     cliente_id: '',
-    priorita: 'Media',
+    priorita: '10', // Default come da screen
     assignee: '',
     n_tag: '',
-    applicativo: '',
+    applicativo: [] as string[],
     tipo_di_attivita: '',
+    sprint_type: 'sprint' // 'sprint' o 'opex'
   })
 
-  // Controllo se il cliente selezionato è Esselunga
   const isEsselunga = clienti.find(c => c.id === formData.cliente_id)?.nome.toLowerCase().includes('esselunga');
 
   useEffect(() => {
@@ -36,13 +40,10 @@ export default function NuovoTicketPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setCurrentUser({ id: user.id, email: user.email || '' })
-        // Imposta l'assignee di default su se stessi
         setFormData(prev => ({ ...prev, assignee: user.id }))
       }
-      
       const { data: dataClienti } = await supabase.from('clienti').select('*').order('nome')
       if (dataClienti) setClienti(dataClienti)
-      
       const { data: dataColleghi } = await supabase.from('profili').select('id, nome_completo').order('nome_completo')
       if (dataColleghi) setColleghi(dataColleghi)
     }
@@ -54,184 +55,174 @@ export default function NuovoTicketPage() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
-  const handleAddNewCliente = async () => {
-    if (!newClienteName.trim()) return
-    const { data, error } = await supabase.from('clienti').insert([{ nome: newClienteName.trim() }]).select().single()
-    if (data) {
-      setClienti(prev => [...prev, data].sort((a, b) => a.nome.localeCompare(b.nome)))
-      setFormData(prev => ({ ...prev, cliente_id: data.id }))
-      setIsAddingNewCliente(false)
-      setNewClienteName('')
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Devi essere loggato per creare un ticket.");
+      if (!user) throw new Error("Sessione scaduta");
 
-      // Mapping esatto sui nomi delle colonne del tuo DB (public.ticket)
       const ticketToInsert = {
         titolo: formData.titolo,
         descrizione: formData.descrizione,
         priorita: formData.priorita,
         stato: 'Aperto',
-        utente_id: user.id,            // Obbligatorio (FK profili)
-        cliente_id: formData.cliente_id || null, // UUID del cliente
-        assignee: formData.assignee || user.id,  // Collega assegnato
-        // Campi Esselunga (saranno stringhe vuote o valori scelti)
+        utente_id: user.id,
+        cliente_id: formData.cliente_id || null,
+        assignee: formData.assignee || user.id,
+        percentuale_avanzamento: 0,
+        // Logica sprint basata sullo switch o sul cliente
+        sprint: !isEsselunga ? 'sprint' : (formData.sprint_type === 'sprint' ? 'sprint' : 'opex'),
         n_tag: isEsselunga ? formData.n_tag : null,
         applicativo: isEsselunga ? formData.applicativo : null,
         tipo_di_attivita: isEsselunga ? formData.tipo_di_attivita : null,
-        // Default booleani
         i_ping: false,
         escalation_donatello: false,
         attivita_attive: false
       };
 
-      const { error } = await supabase
-        .from('ticket')
-        .insert([ticketToInsert]);
-
+      const { error } = await supabase.from('ticket').insert([ticketToInsert]);
       if (error) throw error;
-
       router.push('/');
       router.refresh(); 
-
     } catch (err: any) {
-      console.error("Errore database:", err);
-      alert(`Errore durante il salvataggio: ${err.message}`);
+      alert(`Errore: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-6 text-black">
+    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 font-sans">
+      <form onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
         
-        {/* Header con pulsante Salva */}
-        <div className="flex justify-between items-center border-b pb-4">
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <FileText className="text-blue-600" /> Nuovo Ticket Operativo
-          </h1>
-          <button 
-            type="submit" 
-            disabled={loading} 
-            className="bg-blue-600 text-white px-8 py-2 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 disabled:opacity-50 transition-all flex items-center gap-2"
-          >
-            {loading ? 'Salvataggio...' : <><Send size={18}/> Crea Ticket</>}
-          </button>
+        {/* HEADER */}
+        <div className="flex justify-between items-center mb-8">
+            <div className="text-[12px] text-gray-400 font-medium">Default: <span className="text-gray-600">Esselunga ✓</span></div>
+            <button type="submit" disabled={loading} className="bg-[#0055A5] text-white px-6 py-2 rounded-lg font-bold text-sm uppercase tracking-wider shadow-md hover:bg-[#004488] transition-all">
+               {loading ? 'Caricamento...' : 'Crea'}
+            </button>
         </div>
 
-        {/* PROPRIETÀ PRINCIPALI */}
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-          <div className="flex items-center gap-2 text-blue-600 font-bold mb-4">
-            <Info size={18} /> <span>Proprietà Principali</span>
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* BOX SINISTRO: DETTAGLI ATTIVITÀ */}
+          <div className="lg:col-span-7">
+            <div className="bg-white p-8 rounded-[24px] shadow-sm border border-gray-100 relative overflow-hidden">
+              <div className="absolute top-6 right-8 w-10 h-10 bg-[#E0F2FE] rounded-full opacity-20"></div>
+              
+              <h2 className="text-xl font-black text-[#0F172A] mb-1">Dettagli Attività</h2>
+              <p className="text-[11px] text-gray-400 mb-8">Crea una nuova riga in tabella "ticket"</p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Cliente */}
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase ml-1">Cliente</label>
-              {!isAddingNewCliente ? (
-                <div className="flex gap-2 items-center bg-gray-50 p-1 rounded-lg border">
-                  <select 
-                    name="cliente_id" 
-                    required 
-                    value={formData.cliente_id} 
-                    onChange={handleChange} 
-                    className="flex-1 p-2 outline-none bg-transparent"
-                  >
-                    <option value="">Seleziona cliente...</option>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-8">
+                
+                {/* Titolo */}
+                <div className="col-span-1 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">Titolo</label>
+                    <span className="text-[9px] text-[#CBD5E1]">obbligatorio</span>
+                  </div>
+                  <input name="titolo" required value={formData.titolo} onChange={handleChange} className="w-full p-4 bg-white border border-[#F1F5F9] rounded-2xl text-sm focus:ring-2 focus:ring-blue-100 outline-none placeholder:text-gray-300" placeholder="Es. Fix checkout - timeout..." />
+                </div>
+
+                {/* Cliente */}
+                <div className="col-span-1 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">Cliente</label>
+                    <span className="text-[9px] text-[#CBD5E1]">FK su tabella clienti</span>
+                  </div>
+                  <select name="cliente_id" required value={formData.cliente_id} onChange={handleChange} className="w-full p-4 bg-white border border-[#F1F5F9] rounded-2xl text-sm font-bold text-[#0F172A] outline-none appearance-none">
+                    <option value="">Seleziona...</option>
                     {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
                   </select>
-                  <button type="button" onClick={() => setIsAddingNewCliente(true)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-md transition"><Plus size={18}/></button>
                 </div>
-              ) : (
-                <div className="flex gap-2 items-center p-1 rounded-lg border border-blue-500 bg-white">
-                  <input autoFocus className="flex-1 p-2 outline-none" placeholder="Nome nuovo cliente..." value={newClienteName} onChange={(e) => setNewClienteName(e.target.value)} />
-                  <button type="button" onClick={handleAddNewCliente} className="p-2 text-green-600 hover:bg-green-50 rounded-md"><Check size={18}/></button>
-                  <button type="button" onClick={() => setIsAddingNewCliente(false)} className="p-2 text-red-600 hover:bg-red-50 rounded-md"><X size={18}/></button>
+
+                {/* SPRINT SWITCH (Come da immagine) */}
+                <div className="col-span-1 space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">Sprint</label>
+                  <div className="flex bg-[#F8FAFC] p-1 rounded-xl border border-[#F1F5F9]">
+                    <button type="button" onClick={() => setFormData(p => ({...p, sprint_type: 'sprint'}))} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formData.sprint_type === 'sprint' ? 'bg-[#0055A5] text-white shadow-sm' : 'text-[#94A3B8]'}`}>
+                      Sprint
+                    </button>
+                    <button type="button" onClick={() => setFormData(p => ({...p, sprint_type: 'opex'}))} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formData.sprint_type === 'opex' ? 'bg-[#0055A5] text-white shadow-sm' : 'text-[#94A3B8]'}`}>
+                      Opex
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Assegnato (Assignee) */}
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase ml-1">Assegnato a</label>
-              <div className="bg-gray-50 p-1 rounded-lg border">
-                <select name="assignee" required value={formData.assignee} onChange={handleChange} className="w-full p-2 outline-none bg-transparent">
-                  <option value={currentUser?.id}>Me ({currentUser?.email})</option>
-                  {colleghi.filter(c => c.id !== currentUser?.id).map(col => (
-                    <option key={col.id} value={col.id}>{col.nome_completo}</option>
-                  ))}
-                </select>
+                {/* Priorità */}
+                <div className="col-span-1 space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">Priorità (Numero)</label>
+                  <input name="priorita" type="number" value={formData.priorita} onChange={handleChange} className="w-full p-4 bg-[#F8FAFC] border border-[#F1F5F9] rounded-2xl text-sm font-bold" />
+                </div>
+
+                {/* Assignee */}
+                <div className="col-span-1 space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">Assignee</label>
+                  <select name="assignee" value={formData.assignee} onChange={handleChange} className="w-full p-4 bg-white border border-[#F1F5F9] rounded-2xl text-sm font-bold outline-none">
+                    <option value="">Senza assegnatario</option>
+                    {colleghi.map(col => <option key={col.id} value={col.id}>{col.nome_completo}</option>)}
+                  </select>
+                </div>
+
+                {/* In Lavorazione (Estetica) */}
+                <div className="col-span-1 space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">In lavorazione ora</label>
+                  <div className="flex items-center justify-between p-4 bg-white border border-[#F1F5F9] rounded-2xl">
+                    <span className="text-sm font-bold text-[#0F172A]">Work</span>
+                    <div className="bg-[#0055A5] text-white text-[9px] font-bold px-3 py-1 rounded-md">TRUE</div>
+                  </div>
+                </div>
+
               </div>
-            </div>
-
-            {/* Titolo Attività */}
-            <div className="md:col-span-2 space-y-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase ml-1">Titolo Attività</label>
-              <input name="titolo" required value={formData.titolo} onChange={handleChange} className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Esempio: Analisi tracciamento checkout" />
-            </div>
-
-            {/* Priorità */}
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase ml-1">Priorità</label>
-              <div className="bg-gray-50 p-1 rounded-lg border">
-                <select name="priorita" value={formData.priorita} onChange={handleChange} className="w-full p-2 outline-none bg-transparent">
-                  <option>Bassa</option><option>Media</option><option>Alta</option><option>Urgente</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Descrizione */}
-            <div className="md:col-span-2 space-y-1">
-              <label className="block text-xs font-bold text-gray-400 uppercase ml-1">Descrizione (Opzionale)</label>
-              <textarea name="descrizione" value={formData.descrizione} onChange={handleChange} className="w-full p-3 border rounded-lg h-24 outline-none bg-gray-50 focus:ring-2 focus:ring-blue-500 transition" placeholder="Aggiungi dettagli tecnici o note sull'attività..." />
             </div>
           </div>
-        </section>
 
-        {/* SEZIONE DINAMICA ESSELUNGA */}
-        {isEsselunga && (
-          <section className="bg-blue-600 p-6 rounded-2xl shadow-xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 text-white">
-            <div className="flex items-center gap-2 font-bold mb-2">
-              <LayoutGrid size={20} /> <span>Dettagli Tecnici Esselunga</span>
+          {/* BOX DESTRO: APPLICATIVI (Condizionale) */}
+          <div className="lg:col-span-5">
+            <div className={`bg-white p-8 rounded-[24px] shadow-sm border border-gray-100 min-h-full transition-opacity ${!isEsselunga ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+              <div className="absolute top-6 right-8 w-10 h-10 bg-[#E0F2FE] rounded-full opacity-20"></div>
+              
+              <h2 className="text-xl font-black text-[#0F172A] mb-1">Applicativi interessati</h2>
+              <p className="text-[11px] text-gray-400 mb-8">Visibile solo per Esselunga</p>
+
+              <div className="space-y-8">
+                {/* N° TAG */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-[#94A3B8] uppercase tracking-tighter">N° TAG</label>
+                  <input name="n_tag" value={formData.n_tag} onChange={handleChange} className="w-full p-3 bg-white border border-[#F1F5F9] rounded-xl text-sm outline-none" placeholder="es. 3" />
+                </div>
+
+                {/* Griglia Applicativi */}
+                <div className="space-y-4">
+                  <label className="text-[11px] font-bold text-[#475569]">Seleziona l'applicativo dell'attività</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['APPECOM','ECOM35','EOL','ESB','IST35','GCW', 'PARAFARMACIA'].map(app => {
+                      const isSelected = formData.applicativo.includes(app);
+                      return (
+                        <button key={app} type="button" onClick={() => {
+                          const nextApps = isSelected ? formData.applicativo.filter(a => a !== app) : [...formData.applicativo, app];
+                          setFormData(p => ({...p, applicativo: nextApps}));
+                        }} className={`py-3 px-4 rounded-xl text-[10px] font-black uppercase border transition-all text-left ${isSelected ? 'bg-white border-[#0055A5] text-[#0055A5] ring-1 ring-[#0055A5]' : 'bg-white border-[#F1F5F9] text-[#94A3B8]'}`}>
+                          {app}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Riassunto Selezionato */}
+                <div className="mt-8 p-6 bg-[#F8FAFC] rounded-2xl border border-[#F1F5F9]">
+                   <label className="text-[9px] font-black text-[#94A3B8] uppercase tracking-widest block mb-2">Selezionato</label>
+                   <div className="text-[12px] font-bold text-[#0F172A]">
+                    {formData.applicativo.length > 0 ? formData.applicativo.join(', ') : '—'}
+                   </div>
+                </div>
+              </div>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold uppercase opacity-80">N° TAG</label>
-                <input name="n_tag" value={formData.n_tag} onChange={handleChange} className="w-full p-2 bg-white/10 border-b border-white/30 outline-none placeholder:text-blue-200" placeholder="TAG-XXX" />
-              </div>
+          </div>
 
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold uppercase opacity-80">Applicativo</label>
-                <select name="applicativo" value={formData.applicativo} onChange={handleChange} className="w-full p-2 bg-white/10 border-b border-white/30 outline-none">
-                  <option value="" className="text-black">Seleziona...</option>
-                  {['APPECOM','ECOM35','IST35','EOL','GCW','ESB','APPIST','PROGETTO'].map(app => (
-                    <option key={app} value={app} className="text-black">{app}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold uppercase opacity-80">Tipo Attività</label>
-                <select name="tipo_di_attivita" value={formData.tipo_di_attivita} onChange={handleChange} className="w-full p-2 bg-white/10 border-b border-white/30 outline-none">
-                  <option value="" className="text-black">Seleziona...</option>
-                  {['Preanalisi','Evolutiva GA4','Evolutiva BQ','Incident Resolution','Reporting','Formazione','Supporto Funzionale Business','Analisi degli Impatti','Supporto Tecnico'].map(tipo => (
-                    <option key={tipo} value={tipo} className="text-black">{tipo}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </section>
-        )}
+        </div>
       </form>
     </div>
   )
