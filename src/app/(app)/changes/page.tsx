@@ -109,7 +109,7 @@ export default function ChangesDashboard() {
 
   // date: se vuoi formato diverso, cambia qui
   const fmtDate = (d?: string) => (d && String(d).trim() ? String(d).trim() : "");
-  const fmtColl = (chg: Change) => `coll ${fmtDate(chg.data_collaudo)}`;
+  const fmtColl = (chg: Change) => `coll ${fmtDate(chg.rilascio_in_collaudo)}`;
   const fmtProd = (chg: Change) => `prod ${fmtDate(chg.rilascio_in_produzione)}`;
 
   // descrizione "pulita" su una riga (niente newline)
@@ -138,7 +138,7 @@ export default function ChangesDashboard() {
     return apps.map((app) => ({
       tipo: norm(chg.tipo_change) || "Non_impattante",
       prodMs: timeOrMax(chg.rilascio_in_produzione),
-      collMs: timeOrMax(chg.data_collaudo),
+      collMs: timeOrMax(chg.rilascio_in_collaudo),
       changeId: norm(chg.change_id),
       app: norm(app) || "N/D",
       line: `• ${norm(chg.change_id)} | ${norm(app) || "N/D"} | ${fmtColl(chg)} | ${fmtProd(chg)} | ${fmtDesc(chg.breve_descrizione)}`,
@@ -466,9 +466,13 @@ export default function ChangesDashboard() {
                   <td className="px-6 py-4 text-center">
                     <input
                       type="date"
-                      value={chg.data_collaudo || ''}
-                      onChange={(e) => updateField(chg.id, 'data_collaudo', e.target.value)}
-                      className="text-[10px] font-mono bg-amber-50 px-2 py-1 rounded border border-amber-100 text-amber-700"
+                      value={chg.rilascio_in_collaudo || ''}
+                      onChange={(e) => updateField(chg.id, 'rilascio_in_collaudo', e.target.value)}
+                      className={`text-[10px] font-mono px-2 py-1 rounded border
+                        ${chg.rilascio_in_collaudo
+                          ? 'bg-amber-50 border-amber-100 text-amber-700'
+                          : 'bg-white border-gray-200 text-gray-600'
+                        }`}
                     />
                   </td>
                 )}
@@ -479,7 +483,11 @@ export default function ChangesDashboard() {
                       type="date"
                       value={chg.rilascio_in_produzione || ''}
                       onChange={(e) => updateField(chg.id, 'rilascio_in_produzione', e.target.value)}
-                      className="text-[10px] font-mono bg-emerald-50 px-2 py-1 rounded border border-emerald-100 text-emerald-700"
+                      className={`text-[10px] font-mono px-2 py-1 rounded border
+                        ${chg.rilascio_in_produzione
+                          ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                          : 'bg-white border-gray-200 text-gray-600'
+                        }`}
                     />
                   </td>
                 )}

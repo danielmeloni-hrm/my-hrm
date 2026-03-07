@@ -14,7 +14,7 @@ type Profile = {
 type Ticket = {
   id: string;
   titolo?: string | null;
-  applicativo?: string | null;
+  applicativo?: string[] | null;
   sprint?: string | null;
   assignee?: string | null;
   numero_priorita?: number | null;
@@ -74,7 +74,7 @@ export default function TicketsDashboardByAssignee() {
       .select(
         `
         id, titolo,
-        applicativo, sprint, assignee, in_lavorazione_ora, numero_priorita,
+        applicativo, sprint, assignee, in_lavorazione_ora, numero_priorita,percentuale_avanzamento,
         clienti:cliente_id ( nome ),
         profili:assignee ( nome_completo )
       `
@@ -97,9 +97,13 @@ export default function TicketsDashboardByAssignee() {
     return tickets.filter((t) => {
       const clienteNome = t.clienti?.nome || "";
       const titolo = (t.titolo || "").toLowerCase();
-      const app = (t.applicativo || "").toLowerCase();
-
-      const matchesSearch = s === "" || titolo.includes(s) || clienteNome.toLowerCase().includes(s) || app.includes(s);
+      const appArray = Array.isArray(t.applicativo) ? t.applicativo : [];
+      const appString = appArray.join(", ").toLowerCase();
+        const matchesSearch = s === "" || 
+            titolo.includes(s) || 
+            clienteNome.toLowerCase().includes(s) || 
+            appString.includes(s);
+      
       const matchesCliente = filterCliente === "" || clienteNome === filterCliente;
       const matchesStato = filterStato === "" || String(t.stato || "") === filterStato;
 
@@ -404,20 +408,39 @@ function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boole
           {ticket.clienti?.nome || "N/D"}
         </span>
 
-        {ticket.applicativo ? (
-          <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
-            <AppWindow size={10} />
-            {ticket.applicativo}
-          </span>
+        {ticket.applicativo && Array.isArray(ticket.applicativo) && ticket.applicativo.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {ticket.applicativo.map((app, idx) => (
+              <span key={idx} className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
+                <AppWindow size={10} />
+                {app}
+              </span>
+            ))}
+          </div>
         ) : null}
 
-        {ticket.numero_priorita !== undefined && (
-          <div className="ml-auto">
-            <span className="flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm">
+        {/* CONTAINER PALLINI (PRIORITÀ E PERCENTUALE) */}
+        <div className="ml-auto flex gap-1.5 items-center">
+          {/* Pallino Percentuale Avanzamento */}
+          {ticket.percentuale_avanzamento !== undefined && ticket.percentuale_avanzamento !== null && (
+            <span 
+              className="flex items-center justify-center min-w-[24px] h-5 px-1.5 text-[9px] font-black text-white bg-emerald-500 rounded-full shadow-sm"
+              title="Avanzamento"
+            >
+              {ticket.percentuale_avanzamento}%
+            </span>
+          )}
+
+          {/* Pallino Priorità */}
+          {ticket.numero_priorita !== undefined && (
+            <span 
+              className="flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm"
+              title="Priorità"
+            >
               {ticket.numero_priorita}
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <h3 className="text-[13px] font-bold text-gray-800 leading-tight">{ticket.titolo || "—"}</h3>

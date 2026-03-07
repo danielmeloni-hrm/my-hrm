@@ -138,65 +138,158 @@ export default function TicketDettaglioPage() {
         </div>
 
         {/* HEADER AREA */}
-        <div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm mb-8">
-          <div className="flex flex-col gap-6">
+<div className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm mb-8">
+  <div className="flex flex-col gap-6">
+    {/* TITOLO TICKET */}
+    <input 
+      type="text" 
+      value={ticketData.titolo || ''} 
+      onChange={(e) => handleUpdate('titolo', e.target.value)} 
+      className="text-3xl font-black bg-transparent outline-none focus:bg-gray-50 rounded-xl w-full tracking-tighter text-gray-900 transition-all py-1"
+      placeholder="Titolo del ticket..."
+    />
+
+    <div className="flex flex-wrap items-center gap-y-4 gap-x-0 pt-4 border-t border-gray-50">
+      
+      {/* CLIENTE */}
+      <div className="flex flex-col gap-1 pr-6">
+        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+          <Layers size={10} /> Cliente
+        </span>
+        <select 
+          value={ticketData.cliente_id || ''} 
+          onChange={(e) => handleUpdate('cliente_id', e.target.value)} 
+          className="bg-transparent font-bold text-xs text-blue-600 outline-none appearance-none cursor-pointer"
+        >
+          <option value="" disabled>Seleziona cliente</option>
+          {clienti.map(c => (
+            <option key={c.id} value={c.id}>{c.nome}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* SEZIONE DINAMICA ESSELUNGA */}
+      {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
+        <>
+          {/* APPLICATIVI MULTIPLI (ARRAY) */}
+          <div className="flex flex-col gap-2 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
+            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+              <Activity size={10} /> Applicativi
+            </span>
+            <div className="flex flex-wrap gap-1.5 max-w-[350px]">
+              {['ECOM35', 'APPECOM', 'EOL', 'ESB', 'GCW', 'IST35'].map((app) => {
+                const currentApps = Array.isArray(ticketData.applicativo) ? ticketData.applicativo : [];
+                const isSelected = currentApps.includes(app);
+
+                return (
+                  <button
+                    key={app}
+                    type="button"
+                    onClick={() => {
+                      const nextApps = isSelected
+                        ? currentApps.filter(a => a !== app)
+                        : [...currentApps, app];
+                      handleUpdate('applicativo', nextApps);
+                    }}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all border ${
+                      isSelected 
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
+                        : 'bg-transparent border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500'
+                    }`}
+                  >
+                    {app}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* TAG */}
+          <div className="flex flex-col gap-1 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
+            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+              <Hash size={10} /> Tag
+            </span>
             <input 
               type="text" 
-              value={ticketData.titolo} 
-              onChange={(e) => handleUpdate('titolo', e.target.value)} 
-              className="text-3xl font-black bg-transparent outline-none focus:bg-gray-50 rounded-xl w-full tracking-tighter text-gray-900 transition-all py-1"
+              value={ticketData.n_tag || ''} 
+              onChange={(e) => handleUpdate('n_tag', e.target.value)} 
+              className="bg-transparent font-bold text-xs text-gray-900 outline-none w-20" 
+              placeholder="N/A" 
             />
+          </div>
+        </>
+      )}
 
-            <div className="flex flex-wrap items-center gap-y-4 gap-x-6 pt-4 border-t border-gray-50">
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Layers size={10} /> Cliente</span>
-                <select value={ticketData.cliente_id} onChange={(e) => handleUpdate('cliente_id', e.target.value)} className="bg-transparent font-bold text-xs text-blue-600 outline-none appearance-none cursor-pointer">
-                  {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                </select>
-              </div>
+      {/* PRIORITÀ */}
+      <div className="flex flex-col gap-1 px-6 border-l border-gray-100">
+        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+          <Star size={10} /> Priorità
+        </span>
+        <select 
+          value={ticketData.priorita || 'Media'} 
+          onChange={(e) => handleUpdate('priorita', e.target.value)} 
+          className={`bg-transparent font-black text-xs outline-none appearance-none cursor-pointer ${
+            ticketData.priorita === 'Urgente' ? 'text-red-500' : 'text-gray-900'
+          }`}
+        >
+          <option value="Bassa">Bassa</option>
+          <option value="Media">Media</option>
+          <option value="Alta">Alta</option>
+          <option value="Urgente">Urgente</option>
+        </select>
+      </div>
 
-              {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
-                <div className="flex flex-col gap-1 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
-                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Activity size={10} /> Applicativo</span>
-                  <select value={ticketData.applicativo || ''} onChange={(e) => handleUpdate('applicativo', e.target.value)} className="bg-transparent font-black text-xs text-blue-600 outline-none appearance-none cursor-pointer">
-                    <option value="" disabled>Seleziona...</option>
-                    <option value="ECOM35">ECOM35</option>
-                    <option value="APPECOM">APPECOM</option>
-                    <option value="EOL">EOL</option>
-                    <option value="ESB">ESB</option>
-                    <option value="GCW">GCW</option>
-                    <option value="IST35">IST35</option>
-                  </select>
-                </div>
-              )}
-
-              {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
-                <div className="flex flex-col gap-1 px-6 border-l border-gray-100">
-                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Hash size={10} /> Tag</span>
-                  <input type="text" value={ticketData.n_tag || ''} onChange={(e) => handleUpdate('n_tag', e.target.value)} className="bg-transparent font-bold text-xs text-gray-900 outline-none w-20" placeholder="N/A" />
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1 px-6 border-l border-gray-100">
-                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Star size={10} /> Priorità</span>
-                <select value={ticketData.priorita} onChange={(e) => handleUpdate('priorita', e.target.value)} className={`bg-transparent font-black text-xs outline-none appearance-none cursor-pointer ${ticketData.priorita === 'Urgente' ? 'text-red-500' : 'text-gray-900'}`}>
-                  <option>Bassa</option>
-                  <option>Media</option>
-                  <option>Alta</option>
-                  <option>Urgente</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1 px-6 border-l border-gray-100 ml-auto">
-                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><User size={10} /> Owner</span>
-                <select value={ticketData.assignee} onChange={(e) => handleUpdate('assignee', e.target.value)} className="bg-transparent font-bold text-xs text-purple-600 outline-none appearance-none cursor-pointer">
-                  {colleghi.map(col => <option key={col.id} value={col.id}>{col.nome_completo}</option>)}
-                </select>
-              </div>
+      {/* SEZIONE DESTRA: AVANZAMENTO + ASSEGNATO */}
+      <div className="flex items-center gap-0 ml-auto border-l border-gray-100">
+        
+        {/* AVANZAMENTO */}
+        <div className="flex flex-col gap-1 px-6">
+          <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+            <Activity size={10} /> Avanzamento
+          </span>
+          <div className="flex items-center gap-1">
+            <input 
+              type="number" 
+              min="0" 
+              max="100"
+              value={ticketData.percentuale_avanzamento ?? 0} 
+              onChange={(e) => {
+                const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
+                handleUpdate('percentuale_avanzamento', val);
+              }} 
+              className="bg-transparent font-black text-xs text-emerald-600 outline-none w-8 text-right"
+            />
+            <span className="text-[10px] font-black text-emerald-600 mr-2">%</span>
+            <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden hidden xl:block">
+              <div 
+                className="h-full bg-emerald-500 transition-all duration-500" 
+                style={{ width: `${ticketData.percentuale_avanzamento ?? 0}%` }}
+              />
             </div>
           </div>
         </div>
 
+        {/* ASSEGNATO (OWNER) */}
+        <div className="flex flex-col gap-1 px-6 border-l border-gray-50">
+          <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+            <User size={10} /> Assegnato
+          </span>
+          <select 
+            value={ticketData.assignee || ''} 
+            onChange={(e) => handleUpdate('assignee', e.target.value)} 
+            className="bg-transparent font-bold text-xs text-blue-600 outline-none appearance-none cursor-pointer"
+          >
+            <option value="">Non assegnato</option>
+            {colleghi.map(col => (
+              <option key={col.id} value={col.id}>{col.nome_completo}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
         {/* CONTENT GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
