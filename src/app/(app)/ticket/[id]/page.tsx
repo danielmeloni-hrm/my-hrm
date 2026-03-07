@@ -172,37 +172,42 @@ export default function TicketDettaglioPage() {
       {ticketData.clienti?.nome?.toLowerCase() === 'esselunga' && (
         <>
           {/* APPLICATIVI MULTIPLI (ARRAY) */}
-          <div className="flex flex-col gap-2 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
-            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
-              <Activity size={10} /> Applicativi
-            </span>
-            <div className="flex flex-wrap gap-1.5 max-w-[350px]">
-              {['ECOM35', 'APPECOM', 'EOL', 'ESB', 'GCW', 'IST35'].map((app) => {
-                const currentApps = Array.isArray(ticketData.applicativo) ? ticketData.applicativo : [];
-                const isSelected = currentApps.includes(app);
+<div className="flex flex-col gap-2 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
+  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+    <Activity size={10} /> Applicativi
+  </span>
+  <div className="flex flex-wrap gap-1.5 max-w-[350px]">
+    {['ECOM35', 'APPECOM', 'EOL', 'ESB', 'GCW', 'IST35'].map((app) => {
+      // Definiamo esplicitamente l'array come string[] per TypeScript
+      const currentApps: string[] = Array.isArray(ticketData.applicativo) 
+        ? ticketData.applicativo 
+        : [];
+      
+      const isSelected = currentApps.includes(app);
 
-                return (
-                  <button
-                    key={app}
-                    type="button"
-                    onClick={() => {
-                      const nextApps = isSelected
-                        ? currentApps.filter(a => a !== app)
-                        : [...currentApps, app];
-                      handleUpdate('applicativo', nextApps);
-                    }}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all border ${
-                      isSelected 
-                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
-                        : 'bg-transparent border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500'
-                    }`}
-                  >
-                    {app}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+      return (
+        <button
+          key={app}
+          type="button"
+          onClick={() => {
+            // Ora TypeScript sa che 'a' è una stringa perché currentApps è string[]
+            const nextApps = isSelected
+              ? currentApps.filter((a: string) => a !== app)
+              : [...currentApps, app];
+            handleUpdate('applicativo', nextApps);
+          }}
+          className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all border ${
+            isSelected 
+              ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
+              : 'bg-transparent border-gray-200 text-gray-400 hover:border-blue-300'
+          }`}
+        >
+          {app}
+        </button>
+      );
+    })}
+  </div>
+</div>
 
           {/* TAG */}
           <div className="flex flex-col gap-1 px-6 border-l border-gray-100 animate-in fade-in slide-in-from-left-2 duration-300">
