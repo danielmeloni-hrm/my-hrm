@@ -2,20 +2,37 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { 
-  ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle, Info
+  ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle, Info, X
 } from 'lucide-react'
 
 export default function GoogleOnlyCalendar() {
   const [enabled, setEnabled] = useState(false)
   const [googleEvents, setGoogleEvents] = useState<any[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date())
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null) // Inizializzato a null per mostrare il calendario espanso
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setEnabled(true)
   }, [])
+
+  // Gestione tasto ESC e blocco Scroll
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedDate(null)
+    }
+    if (selectedDate) {
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', handleEsc)
+    } else {
+      document.body.style.overflow = 'unset'
+    }
+    return () => {
+      document.body.style.overflow = 'unset'
+      window.removeEventListener('keydown', handleEsc)
+    }
+  }, [selectedDate])
 
   const fetchGoogleEvents = useCallback(async () => {
     setLoading(true)
@@ -47,7 +64,6 @@ export default function GoogleOnlyCalendar() {
       .map(e => ({ ...e, dndId: `${e.id}:EXTERNAL` }))
   }, [googleEvents])
 
-  // LOGICA GIORNI: Lunedì primo giorno + Fix Type Error per Vercel
   const days = useMemo(() => {
     const result: Date[] = []
     const d = new Date(currentDate)
@@ -83,11 +99,9 @@ export default function GoogleOnlyCalendar() {
     return result
   }, [currentDate, viewMode])
 
-  // CONTATORI: Solo periodo visibile (e solo mese corrente se in vista Month)
   const stats = useMemo(() => {
     return days.reduce((acc, day) => {
       if (viewMode === 'month' && day.getMonth() !== currentDate.getMonth()) return acc;
-      
       const dayRels = getReleasesForDate(day);
       dayRels.forEach(r => {
         if (r.type === 'PROD') acc.prod++;
@@ -111,7 +125,6 @@ export default function GoogleOnlyCalendar() {
               Rilasci Change - {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
             </h1>
             <div className="flex flex-wrap items-center gap-3 mt-4">
-              
               <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-full border border-red-100">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
                 <span className="text-[10px] font-black text-red-600 uppercase">PROD: {stats.prod}</span>
@@ -135,8 +148,9 @@ export default function GoogleOnlyCalendar() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-          <div className="xl:col-span-3">
+        {/* CALENDARIO */}
+        <div className="grid grid-cols-1 gap-8">
+          <div className="w-full">
             <div className={`grid gap-4 ${viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-7'}`}>
               {days.map((day) => {
                 const dateId = formatDateKey(day);
@@ -150,7 +164,7 @@ export default function GoogleOnlyCalendar() {
                     key={dateId}
                     onClick={() => setSelectedDate(day)}
                     className={`min-h-[200px] p-4 rounded-[2.5rem] border transition-all cursor-pointer relative ${
-                      isSelected ? 'border-black bg-white shadow-2xl scale-[1.02] z-10' : 
+                      isSelected ? 'border-black bg-white shadow-xl scale-[1.02] z-10' : 
                       isToday ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-gray-100 hover:border-gray-300'
                     } ${!isCurrentMonth ? 'opacity-30 grayscale-[0.8] bg-gray-50/50' : ''}`}
                   >
@@ -158,14 +172,11 @@ export default function GoogleOnlyCalendar() {
                       <span className="text-[9px] font-black text-gray-300 uppercase italic">{day.toLocaleDateString('it-IT', { weekday: 'short' })}</span>
                       <span className={`text-2xl font-black ${isToday ? 'text-blue-600' : 'text-black'}`}>{day.getDate()}</span>
                     </div>
-
                     <div className="space-y-2">
                       {dayRels.map((rel, i) => (
                         <div key={i} className="flex flex-col gap-1 p-2.5 rounded-2xl bg-white border border-gray-100 shadow-sm">
                           <div className={`w-full h-1 rounded-full mb-1 ${rel.type === 'PROD' ? 'bg-red-500' : 'bg-purple-500'}`} />
-                          <span className="text-[11px] font-[900] leading-tight uppercase italic text-black line-clamp-2">
-                            {rel.titolo}
-                          </span>
+                          <span className="text-[11px] font-[900] leading-tight uppercase italic text-black line-clamp-2">{rel.titolo}</span>
                         </div>
                       ))}
                     </div>
@@ -174,50 +185,73 @@ export default function GoogleOnlyCalendar() {
               })}
             </div>
           </div>
+        </div>
 
-          {/* SIDEBAR */}
-          <div className="xl:col-span-1">
-            <div className="bg-white border border-gray-100 rounded-[2.5rem] p-8 shadow-sm sticky top-8">
-              <h3 className="text-2xl font-black italic uppercase mb-1">Dettaglio</h3>
-              <p className="text-[10px] font-black text-gray-300 uppercase border-b pb-4 mb-6 tracking-widest">
-                {selectedDate?.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-              
-              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                {selectedDate && getReleasesForDate(selectedDate).map((t, i) => (
-                  <div key={i} className="p-6 rounded-[2.2rem] border border-gray-100 bg-[#FDFDFD] shadow-sm hover:border-blue-200 transition-colors">
+        {/* POPUP MODALE */}
+        {selectedDate && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+            {/* Overlay Sfondo */}
+            <div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300"
+              onClick={() => setSelectedDate(null)} 
+            />
+            
+            {/* Box Popup */}
+            <div className="relative bg-white border border-gray-100 rounded-[3rem] p-8 shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-300">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-3xl font-black italic uppercase leading-none">Dettaglio</h3>
+                  <p className="text-[11px] font-black text-blue-500 uppercase tracking-widest mt-2 flex items-center gap-2">
+                    <CalendarIcon size={12} /> {selectedDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setSelectedDate(null)}
+                  className="p-3 bg-gray-50 hover:bg-gray-100 rounded-full text-black transition-all hover:rotate-90"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Lista Eventi */}
+              <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
+                {getReleasesForDate(selectedDate).map((t, i) => (
+                  <div key={i} className="p-6 rounded-[2.2rem] border border-gray-100 bg-[#FDFDFD] shadow-sm hover:border-blue-100 transition-colors">
                     <div className="flex items-center justify-between mb-4">
-                      <span className={`text-[8px] font-black px-3 py-1 rounded-full uppercase ${t.type === 'PROD' ? 'bg-red-100 text-red-600' : 'bg-purple-100 text-purple-600'}`}>
-                        {t.type}
+                      <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${t.type === 'PROD' ? 'bg-red-100 text-red-600' : 'bg-purple-100 text-purple-600'}`}>
+                        {t.type || 'EVENTO'}
                       </span>
-                      <span className="text-[8px] font-black text-blue-500 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md">
-                        <CalendarIcon size={10} /> GOOGLE
+                      <span className="text-[9px] font-black text-blue-500 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-md">
+                        GOOGLE
                       </span>
                     </div>
-                    <h4 className="text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Titolo:</h4>
-                    <p className="text-[18px] font-black text-black leading-tight italic uppercase">
-                      {t.titolo}
+                    
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase mb-2">Titolo:</h4>
+                    <p className="text-[20px] font-black text-black leading-tight italic uppercase">
+                      {t.titolo || t.summary}
                     </p>
+
                     <div className="mt-6 pt-4 border-t border-dashed border-gray-100 flex items-center gap-3">
                        <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 shadow-inner">
                           <Info size={16} />
                        </div>
-                       <p className="text-[9px] font-black text-gray-400 uppercase leading-none">
+                       <p className="text-[10px] font-black text-gray-400 uppercase leading-none">
                          Sync: Esselunga <br/><span className="text-blue-600">Calendario Esterno</span>
                        </p>
                     </div>
                   </div>
                 ))}
-                {(!selectedDate || getReleasesForDate(selectedDate).length === 0) && (
+
+                {getReleasesForDate(selectedDate).length === 0 && (
                   <div className="py-20 text-center opacity-20">
-                    <AlertCircle className="mx-auto mb-2" size={32} />
-                    <p className="text-[10px] font-black uppercase italic">Nessun evento</p>
+                    <AlertCircle className="mx-auto mb-2" size={48} />
+                    <p className="text-[12px] font-black uppercase italic">Nessun evento registrato</p>
                   </div>
                 )}
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

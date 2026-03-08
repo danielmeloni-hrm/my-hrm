@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Ticket Tracker System",
-  description: "Management Dashboard for Sprints and Tickets",
+  title: "HRM Tracker System",
+  description: "Management Dashboard",
 }
 
 export default function RootLayout({

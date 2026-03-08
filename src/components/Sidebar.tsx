@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutGrid,
+ LayoutGrid,
   Ticket,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +13,13 @@ import {
   BarChart3,
   LogOut,
   Layers,
+  // NUOVE ICONE:
+  PlusCircle,
+  Clock,
+  StickyNote,
+  Kanban,
+  CalendarDays,
+  Inbox
 } from 'lucide-react'
 
 type MenuItem = {
@@ -29,16 +36,16 @@ export default function Sidebar() {
 
   const menuItems: MenuItem[] = useMemo(
     () => [
-      { name: 'Nuova Attività', icon: <LayoutGrid size={20} />, path: '/new_ticket' },
+      { name: 'Nuova Attività', icon: <PlusCircle size={20} />, path: '/new_ticket' },
       { name: 'Attività in Lavorazione', icon: <LayoutGrid size={20} />, path: '/dashboard_in_lavorazione' },
-      { name: 'Note Board', icon: <LayoutGrid size={20} />, path: '/note_board' },
-      { name: 'Sprint Board', icon: <LayoutGrid size={20} />, path: '/dashboard' },
-      { name: 'Opex Board', icon: <Layers size={20} />, path: '/dashboard_opex' },
+      { name: 'Note Board', icon: <StickyNote size={20} />, path: '/note_board' },
+      { name: 'Sprint Board', icon: <Kanban size={20} />, path: '/dashboard' },
+      { name: 'Opex Board', icon: <Kanban size={20} />, path: '/dashboard_opex' },
      
       { name: 'Tutti Ticket', icon: <Ticket size={20} />, path: '/tutti-i-ticket' },
       { name: 'Tutte le Change', icon: <Ticket size={20} />, path: '/changes' },
-      { name: 'Calendario Rilasci', icon: <BarChart3 size={20} />, path: '/calendario' },
-      { name: 'Calendario Rilasci CHG', icon: <BarChart3 size={20} />, path: '/calendario_chg' },
+      { name: 'Calendario Rilasci', icon: <CalendarDays size={20} />, path: '/calendario' },
+      { name: 'Calendario Rilasci CHG', icon: <CalendarDays size={20} />, path: '/calendario_chg' },
       { name: 'Report', icon: <BarChart3 size={20} />, path: '/report_progetti' },
     ],
     []

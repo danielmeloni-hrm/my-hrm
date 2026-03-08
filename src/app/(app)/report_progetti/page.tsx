@@ -1,6 +1,22 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
+const UI = {
+  bg: "#f6f8fb",
+  card: "#ffffff",
+  border: "#e6eaf0",
+  text: "#1f2937",
+  subtext: "#6b7280",
 
+  primary: "#0150a0",
+  primarySoft: "#dbeafe",
+
+  success: "#16a34a",
+  warning: "#f59e0b",
+  danger: "#dc2626",
+
+  bar: "#0150a0",
+  barSoft: "#93c5fd"
+};
 type SheetName = "Andrea" | "Daniel" | "Simone" | "Corrado" | "Alessandro";
 
 type RawRow = {
@@ -651,10 +667,10 @@ const risorsaXCliente = useMemo(() => {
               >
                 {i.label}
               </div>
-              <div style={{ background: "#f0f0f0", borderRadius: 999, height: 10, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: "#111" }} />
+              <div style={{ background: UI.card, borderRadius: 999, height: 10, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${UI.bar}, ${UI.barSoft})` }} />
               </div>
-              <div style={{ fontSize: 12, color: "#333", textAlign: "right" }}>
+              <div style={{ fontSize: 12, color: UI.text, textAlign: "right" }}>
                 {valueFormatter ? valueFormatter(i.value) : i.value}
               </div>
             </div>
@@ -665,102 +681,112 @@ const risorsaXCliente = useMemo(() => {
   };
 
   const renderMatrix = (
-    title: string,
-    rowsKeys: string[],
-    colsKeys: string[],
-    getVal: (rk: string, ck: string) => number
-  ) => {
-    const max = Math.max(1, ...rowsKeys.flatMap((rk) => colsKeys.map((ck) => getVal(rk, ck))));
-    return (
-      <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{title}</div>
+  title: string,
+  rowsKeys: string[],
+  colsKeys: string[],
+  getVal: (rk: string, ck: string) => number
+) => {
+  const max = Math.max(1, ...rowsKeys.flatMap((rk) => colsKeys.map((ck) => getVal(rk, ck))));
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
-            <thead>
-              <tr>
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{title}</div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "4px" }}>
+          <thead>
+            <tr>
+              <th
+                style={{
+                  position: "sticky",
+                  left: 0,
+                  background: "#fff",
+                  borderBottom: "1px solid #eee",
+                  padding: "10px 8px",
+                  fontSize: 12,
+                  zIndex: 10,
+                }}
+              >
+                Risorsa
+              </th>
+              {colsKeys.map((c) => (
                 <th
+                  key={c}
+                  style={{
+                    borderBottom: "1px solid #eee",
+                    padding: "10px 8px",
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    textAlign: "right"
+                  }}
+                  title={c}
+                >
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rowsKeys.map((rk) => (
+              <tr key={rk}>
+                <td
                   style={{
                     position: "sticky",
                     left: 0,
                     background: "#fff",
-                    borderBottom: "1px solid #eee",
+                    borderBottom: "1px solid #f1f1f1",
                     padding: "10px 8px",
                     fontSize: 12,
+                    whiteSpace: "nowrap",
+                    fontWeight: 700,
+                    zIndex: 5,
                   }}
+                  title={rk}
                 >
-                  Cliente
-                </th>
-                {colsKeys.map((c) => (
-                  <th
-                    key={c}
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      padding: "10px 8px",
-                      fontSize: 12,
-                      whiteSpace: "nowrap",
-                    }}
-                    title={c}
-                  >
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rowsKeys.map((rk) => (
-                <tr key={rk}>
-                  <td
-                    style={{
-                      position: "sticky",
-                      left: 0,
-                      background: "#fff",
-                      borderBottom: "1px solid #f1f1f1",
-                      padding: "10px 8px",
-                      fontSize: 12,
-                      whiteSpace: "nowrap",
-                      fontWeight: 700,
-                    }}
-                    title={rk}
-                  >
-                    {rk}
-                  </td>
+                  {rk}
+                </td>
 
-                  {colsKeys.map((ck) => {
-                    const v = getVal(rk, ck);
-                    const pct = Math.round((v / max) * 100);
-                    return (
-                      <td
-                        key={ck}
+                {colsKeys.map((ck) => {
+                  const v = getVal(rk, ck);
+                  const intensity = max > 0 ? v / max : 0;
+
+                  return (
+                    <td key={`${rk}-${ck}`} style={{ padding: 2 }}>
+                      <div
                         style={{
-                          borderBottom: "1px solid #f1f1f1",
-                          padding: "10px 8px",
+                          background: v > 0 
+                            ? `rgba(37, 99, 235, ${0.15 + intensity * 0.75})` 
+                            : "transparent",
+                          borderRadius: 6,
+                          padding: "6px 8px",
+                          textAlign: "right",
+                          fontWeight: 600,
                           fontSize: 12,
-                          minWidth: 140,
+                          color: intensity > 0.6 ? "white" : "#111",
+                          transition: "all 0.2s ease",
+                          minWidth: "60px"
                         }}
                       >
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <div style={{ background: "#f0f0f0", borderRadius: 999, height: 10, overflow: "hidden" }}>
-                            <div style={{ width: `${pct}%`, height: "100%", background: "#111" }} />
-                          </div>
-                          <div style={{ textAlign: "right", color: "#333" }}>{v > 0 ? `${formatHours(v)} h` : "—"}</div>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Top 10 righe × Top 10 colonne (ore).</div>
+                        {v > 0 ? `${formatHours(v)} h` : "—"}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    );
-  };
+
+      <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+        Matrice ore: intensità basata sul massimo valore rilevato.
+      </div>
+    </div>
+  );
+};
 
   return (
-    <div style={{ minHeight: "100vh", background: "#fafafa", color: "#111" }}>
+    <div style={{ minHeight: "100vh", background: UI.bg, color: UI.text }}>
       <div style={{ position: "sticky", top: 0, zIndex: 5, background: "#fff", borderBottom: "1px solid #e9e9e9" }}>
         <div style={{ margin: "0 auto", padding: "20px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
@@ -834,6 +860,7 @@ const risorsaXCliente = useMemo(() => {
       ))}
     </select>
   </div>
+  
       
   {/* Tipo attività */}
   <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
@@ -1112,6 +1139,7 @@ const risorsaXCliente = useMemo(() => {
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
           </div>
+          
 
           {/* NEW: Ore per attività */}
           <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
@@ -1139,6 +1167,14 @@ const risorsaXCliente = useMemo(() => {
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
           </div>
+
+
+            
+
+
+
+
+
           <div style={{ gridColumn: "span 12" }}>
             {renderMatrix(
               "Risorsa × Cliente (ore)",
@@ -1175,9 +1211,36 @@ const risorsaXCliente = useMemo(() => {
 
 function KPI({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ border: "1px solid #efefef", borderRadius: 14, padding: 10, background: "#fcfcfc" }}>
-      <div style={{ fontWeight: 800, fontSize: 18 }}>{value}</div>
-      <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>{label}</div>
+    <div
+      style={{
+        border: `1px solid ${UI.border}`,
+        borderRadius: 16,
+        padding: 14,
+        background: UI.card,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 800,
+          fontSize: 20,
+          color: UI.primary
+        }}
+      >
+        {value}
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          color: UI.subtext,
+          fontWeight: 600
+        }}
+      >
+        {label}
+      </div>
     </div>
   );
 }

@@ -226,6 +226,7 @@ export default function GeneralDashboard() {
                             <Draggable key={ticket.id} draggableId={ticket.id} index={index}>
                               {(provided) => (
                                 <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
+                                  
                                   <div className={`bg-white ${currentStyles.padding} rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all relative overflow-hidden group`}>
                                     
                                     {/* ICONA: IN LAVORAZIONE ORA */}
@@ -234,7 +235,7 @@ export default function GeneralDashboard() {
                                       className="absolute top-2 right-2 z-10"
                                     >
                                       {ticket.in_lavorazione_ora ? (
-                                        <PlayCircle size={18} className="text-red-500 fill-red-50 animate-pulse" />
+                                        <PlayCircle size={18} className="text-red-500 red-50 animate-pulse" />
                                       ) : (
                                         <Circle size={18} className="text-gray-100 hover:text-red-200" />
                                       )}
@@ -251,8 +252,44 @@ export default function GeneralDashboard() {
                                         onBlur={(e) => handleUpdateTicket(ticket.id, { applicativo: e.target.value })}
                                         onChange={(e) => setTickets(prev => prev.map(t => t.id === ticket.id ? {...t, applicativo: e.target.value} : t))}
                                       />
+                                      {/* SELETTORE PERCENTUALE E PALLINO VERDE */}
+                                    <div className="flex items-center justify-center py-1">
+  <div className="relative group">
+    {/* Glow rettangolare dinamico */}
+    <div className={`absolute inset-0 rounded-md transition-all duration-500 ${
+      ticket.percentuale_avanzamento > 0 ? 'bg-emerald-400/20 scale-105 blur-sm' : 'bg-transparent'
+    }`} />
+    
+    <div className="relative flex items-center">
+      <input 
+        type="number"
+        min="0"
+        max="100"
+        value={ticket.percentuale_avanzamento || 0}
+        onChange={(e) => handleUpdateTicket(ticket.id, { 
+          percentuale_avanzamento: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) 
+        })}
+        className={`
+          relative w-12 h-6 text-[10px] font-black text-center
+          rounded-md border transition-all duration-300 outline-none
+          [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
+          ${ticket.percentuale_avanzamento > 0 
+            ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm' 
+            : 'border-gray-200 bg-gray-50 text-gray-400'
+          }
+          focus:scale-105 focus:ring-2 focus:ring-emerald-100 cursor-pointer
+        `}
+      />
+      {ticket.percentuale_avanzamento > 0 && (
+        <span className="absolute right-1.5 text-[8px] font-black text-white/80 pointer-events-none">
+          %
+        </span>
+      )}
+    </div>
+  </div>
+</div>
                                     </div>
-
+                                        
                                     <div className="mb-3">
                                       <textarea 
                                         rows={2}
@@ -273,22 +310,10 @@ export default function GeneralDashboard() {
                                       </div>
                                     </div>
 
-                                    {/* SELETTORE PERCENTUALE E PALLINO VERDE */}
-                                    <div className="flex items-center justify-between gap-2 mb-3 bg-gray-50/50 p-2 rounded-lg border border-gray-100">
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-2 h-2 rounded-full transition-all ${ticket.percentuale_avanzamento > 0 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-gray-300'}`} />
-                                        <span className="text-[8px] font-black text-gray-400 uppercase">Status</span>
-                                      </div>
-                                      <select 
-                                        value={ticket.percentuale_avanzamento || 0}
-                                        onChange={(e) => handleUpdateTicket(ticket.id, { percentuale_avanzamento: parseInt(e.target.value) })}
-                                        className="text-[10px] font-black bg-white border border-gray-200 rounded px-1.5 py-0.5 outline-none cursor-pointer"
-                                      >
-                                        {[0, 10, 25, 50, 75, 90, 100].map(p => <option key={p} value={p}>{p}%</option>)}
-                                      </select>
-                                    </div>
+                                    
 
                                     <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                                      
                                       <div className="flex items-center gap-1">
                                         <Activity size={10} className={pingStyles.icon} />
                                         <span className={`text-[10px] font-black uppercase ${pingStyles.container}`}>
