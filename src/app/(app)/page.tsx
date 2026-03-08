@@ -12,20 +12,34 @@ export default function HomePage() {
   const supabase = createClient()
   const [tickets, setTickets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-
+  const [userProfile, setUserProfile] = useState<{nome: string} | null>(null)
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true)
-      const { data } = await supabase
-        .from('ticket')
-        .select('*, clienti(nome)')
-        .order('ultimo_ping', { ascending: true }) // Mettiamo i più vecchi in cima
-      
-      if (data) setTickets(data)
-      setLoading(false)
+  async function fetchData() {
+    setLoading(true)
+    
+    // 1. Prendi l'utente loggato
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profili')
+        .select('nome')
+        .eq('id', user.id)
+        .single()
+      if (profile) setUserProfile(profile)
     }
-    fetchData()
-  }, [supabase])
+
+    // 2. Prendi i ticket (tua logica esistente)
+    const { data } = await supabase
+      .from('ticket')
+      .select('*, clienti(nome), profili(nome)')
+      .order('ultimo_ping', { ascending: true })
+    
+    if (data) setTickets(data)
+    setLoading(false)
+  }
+  fetchData()
+}, [supabase])
 
   // --- LOGICA DATE ---
   const oggi = new Date()
@@ -67,7 +81,7 @@ export default function HomePage() {
               <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">System Live</span>
             </div>
             <h1 className="text-4xl font-black tracking-tighter text-gray-900">
-              Bentornato<span className="text-blue-600">.</span>
+              Bentornato {userProfile?.nome || 'Utente'}
             </h1>
           </div>
           <div className="text-right">
