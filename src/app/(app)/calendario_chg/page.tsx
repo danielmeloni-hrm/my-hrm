@@ -120,7 +120,7 @@ export default function GoogleOnlyCalendar() {
         {/* HEADER */}
         <div className="mb-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div>
-            <h1 className="text-4xl font-black tracking-tighter flex flex-wrap items-center gap-3 italic underline decoration-blue-500/20 uppercase">
+            <h1 className="text-xl font-black tracking-tighter flex flex-wrap items-center gap-3 italic underline decoration-blue-500/20 uppercase">
               <CalendarIcon className="text-blue-600" size={36} /> 
               Rilasci Change - {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
             </h1>
