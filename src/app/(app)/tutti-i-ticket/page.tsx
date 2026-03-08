@@ -294,8 +294,8 @@ const sortedAndFilteredTickets = useMemo(() => {
           onClick={() => {
             const currentApps = Array.isArray(t.applicativo) ? t.applicativo : [];
             const nextApps = isSelected
-              ? currentApps.filter(a => a !== app) // Rimuovi se già presente
-              : [...currentApps, app];            // Aggiungi se assente
+  ? currentApps.filter((a: string) => a !== app) 
+  : [...currentApps, app];           // Aggiungi se assente
             
             handleUpdate(t.id, 'applicativo', nextApps);
           }}
