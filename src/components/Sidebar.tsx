@@ -34,7 +34,7 @@ export default function Sidebar() {
       { name: 'Note Board', icon: <LayoutGrid size={20} />, path: '/note_board' },
       { name: 'Sprint Board', icon: <LayoutGrid size={20} />, path: '/dashboard' },
       { name: 'Opex Board', icon: <Layers size={20} />, path: '/dashboard_opex' },
-      { name: 'I miei Ticket', icon: <Ticket size={20} />, path: '/i-miei-ticket' },
+     
       { name: 'Tutti Ticket', icon: <Ticket size={20} />, path: '/tutti-i-ticket' },
       { name: 'Tutte le Change', icon: <Ticket size={20} />, path: '/changes' },
       { name: 'Calendario Rilasci', icon: <BarChart3 size={20} />, path: '/calendario' },
@@ -43,6 +43,8 @@ export default function Sidebar() {
     ],
     []
   )
+
+  
 
   // Carica preferenze sidebar (se esistono)
   useEffect(() => {

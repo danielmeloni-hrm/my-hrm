@@ -1,30 +1,26 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import { 
-  Trello, User, Users, ChevronRight, Hash, Activity, AppWindow 
+  Trello, User, Users, ChevronRight, Hash, Activity, 
+  AppWindow, Search, Filter, X, RotateCcw
 } from 'lucide-react'
 import Link from 'next/link'
+import { formatDateShort, getPingStyles, isPingExpired } from '@/lib/ticket-utils'
 
 export default function GeneralDashboard() {
   const supabase = createClient()
   const [tickets, setTickets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedSprint, setSelectedSprint] = useState('Opex') // Default solo Sprint attivo
+  const [selectedSprint, setSelectedSprint] = useState('Opex')
   const [filterMe, setFilterMe] = useState(false)
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '--/--/----';
-    try {
-      const date = new Date(dateString);
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
-      return `${day}/${month}/${year}`;
-    } catch (e) { return dateString; }
-  };
+  
+  // NUOVI STATI PER FILTRI
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCliente, setSelectedCliente] = useState('Tutti')
+  const [filterOnlyExpired, setFilterOnlyExpired] = useState(false)
 
   const boardColumns = [
     { id: 'todo', label: 'To-do / Stand-by', color: 'bg-gray-100 text-gray-500', statuses: ['Non Iniziato', 'In stand-by', 'Attività Sospesa'] },
@@ -37,14 +33,17 @@ export default function GeneralDashboard() {
     { id: 'completato', label: 'Completati', color: 'bg-green-100 text-green-800', statuses: ['Completato'] }
   ]
 
+  // Genera la lista dei clienti in modo dinamico dai ticket caricati
+  const clientiList = useMemo(() => {
+    return Array.from(new Set(tickets.map((t: any) => t.clienti?.nome).filter(Boolean))).sort() as string[];
+  }, [tickets]);
+
   const fetchBoardData = useCallback(async () => {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     
-    // Query base
     let query = supabase.from('ticket').select('*, clienti(nome)').order('creato_at', { ascending: false })
 
-    // LOGICA FILTRO: Solo quelli in Sprint (esclude Backlog e nulli)
     if (selectedSprint === 'Opex') {
       query = query.eq('opex', 'Opex')
     } else {
@@ -60,6 +59,25 @@ export default function GeneralDashboard() {
 
   useEffect(() => { fetchBoardData() }, [fetchBoardData])
 
+  // LOGICA DI FILTRAGGIO LOCALE (Client-side)
+  const filteredTickets = tickets.filter(t => {
+    const matchesSearch = 
+      t.titolo?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (t.n_tag && String(t.n_tag).includes(searchQuery));
+    
+    const matchesCliente = selectedCliente === 'Tutti' || t.clienti?.nome === selectedCliente;
+    
+    const matchesExpired = filterOnlyExpired ? isPingExpired(t.ultimo_ping) : true;
+
+    return matchesSearch && matchesCliente && matchesExpired;
+  })
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSelectedCliente('Tutti');
+    setFilterOnlyExpired(false);
+  };
+
   const onDragEnd = async (result: any) => {
     const { destination, source, draggableId } = result
     if (!destination || (destination.droppableId === source.droppableId && destination.index === source.index)) return
@@ -69,34 +87,96 @@ export default function GeneralDashboard() {
     const nuovoStato = destCol.statuses[0]
     const oraISO = new Date().toISOString()
     
-    const updated = [...tickets]
-    const index = updated.findIndex(t => t.id === draggableId)
-    updated[index].stato = nuovoStato
-    updated[index].ultimo_ping = oraISO
-    setTickets(updated)
+    setTickets(prev => prev.map(t => 
+      t.id === draggableId ? { ...t, stato: nuovoStato, ultimo_ping: oraISO } : t
+    ))
 
     await supabase.from('ticket').update({ stato: nuovoStato, ultimo_ping: oraISO }).eq('id', draggableId)
   }
-
-  const getTicketsByColumn = (col: any) => tickets.filter(t => col.statuses.includes(t.stato))
 
   if (loading) return <div className="p-20 text-center font-black animate-pulse text-gray-300 italic uppercase">Loading Sprint...</div>
 
   return (
     <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
-      <div className="max-w-[2200px] mx-auto">
+      <div className="max-w-[2800px] mx-auto">
         
         {/* HEADER */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-6">
           <div>
-            <h1 className="text-4xl font-black tracking-tighter flex items-center gap-3 text-black italic">
-              <Trello className="text-blue-600" size={36} /> OPEX BOARD
+            <h1 className="text-xl font-black tracking-tighter text-gray-900 uppercase italic leading-none">
+               OPEX BOARD
             </h1>
-            <p className="text-[10px] font-bold text-blue-600/50 uppercase tracking-[0.3em]">Solo attività in corso</p>
+            <p className="text-[10px] font-bold text-blue-600/50 uppercase tracking-[0.3em]">
+              {filterOnlyExpired ? '⚠️ Focus: Da Pingare' : 'Solo attività in corso'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+                {/* Input Cerca */}
+                <div className="flex-1 min-w-[250px] relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <input 
+                  type="text" 
+                  placeholder="Cerca per titolo o tag..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50/50 rounded-xl text-[11px] font-bold outline-none border border-transparent focus:bg-white focus:border-blue-100 transition-all"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+  
+                {/* Select Cliente */}
+              <div className="relative min-w-[180px]">
+                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={12} />
+                <select 
+                  value={selectedCliente} 
+                  onChange={(e) => setSelectedCliente(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2.5 bg-gray-50/50 rounded-xl text-[10px] font-black uppercase outline-none border border-transparent appearance-none cursor-pointer hover:bg-gray-100 focus:bg-white focus:border-blue-100 transition-all"
+                >
+                  <option value="Tutti">Tutti i Clienti</option>
+                  {clientiList.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">
+                  <ChevronRight size={12} className="rotate-90" />
+                </div>
+              </div>
+
+          
+           
+          
+
+          {(searchQuery || selectedCliente !== 'Tutti' || filterOnlyExpired) && (
+            <button 
+              onClick={resetFilters}
+              className="px-4 py-3 text-gray-400 hover:text-blue-600 transition-colors flex items-center gap-2 text-[10px] font-black uppercase"
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+          )}
+       
+
+
+            
+
           </div>
 
-          <div className="flex gap-3">
-            {/* Selettore Sprint (rimosso "Tutti" e "Backlog" per pulizia) */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Tasto Da Pingare */}
+            <button 
+              onClick={() => setFilterOnlyExpired(!filterOnlyExpired)} 
+              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${
+                filterOnlyExpired 
+                  ? 'bg-red-500 text-white border-transparent shadow-lg shadow-red-200' 
+                  : 'bg-white text-gray-500 border-gray-100 hover:border-red-200'
+              }`}
+            >
+              <Activity size={14} className={filterOnlyExpired ? "animate-pulse" : ""} />
+              {filterOnlyExpired ? 'Solo Da Pingare' : 'Da Pingare'}
+            </button>
+
             <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-gray-100">
               {['Opex'].map(s => (
                 <button key={s} onClick={() => setSelectedSprint(s)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${selectedSprint === s ? 'bg-black text-white' : 'text-gray-400'}`}>
@@ -111,11 +191,14 @@ export default function GeneralDashboard() {
           </div>
         </div>
 
+
+        
+
         {/* KANBAN AREA */}
         <DragDropContext onDragEnd={onDragEnd}>
           <div className="flex gap-6 overflow-x-auto pb-10 scrollbar-hide">
             {boardColumns.map((col) => {
-              const columnTickets = getTicketsByColumn(col)
+              const columnTickets = filteredTickets.filter(t => col.statuses.includes(t.stato))
               return (
                 <div key={col.id} className="flex-shrink-0 w-80 flex flex-col gap-4 bg-gray-50/50 p-3 rounded-[2.5rem] min-h-[700px] border border-gray-100">
                   <div className={`flex items-center justify-between px-5 py-4 rounded-2xl ${col.color} shadow-sm`}>
@@ -126,49 +209,55 @@ export default function GeneralDashboard() {
                   <Droppable droppableId={col.id}>
                     {(provided) => (
                       <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 space-y-4">
-                        {columnTickets.map((ticket, index) => (
-                          <Draggable key={ticket.id} draggableId={ticket.id} index={index}>
-                            {(provided) => (
-                              <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all">
-                                  
-                                  <div className="flex flex-wrap gap-2 items-center mb-3">
-                                    <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase italic">
-                                      {ticket.clienti?.nome || 'N/D'}
-                                    </span>
-                                    {ticket.applicativo && (
-                                      <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
-                                        <AppWindow size={10} />
-                                        {ticket.applicativo}
+                        {columnTickets.map((ticket, index) => {
+                          const pingStyle = getPingStyles(ticket.ultimo_ping);
+                          
+                          return (
+                            <Draggable key={ticket.id} draggableId={ticket.id} index={index}>
+                              {(provided) => (
+                                <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
+                                  <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group">
+                                    
+                                    <div className="flex flex-wrap gap-2 items-center mb-3">
+                                      <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase italic">
+                                        {ticket.clienti?.nome || 'N/D'}
                                       </span>
-                                    )}
-                                  </div>
-
-                                  <h3 className="text-[13px] font-bold text-gray-800 leading-tight mb-4">{ticket.titolo}</h3>
-
-                                  <div className="flex items-center gap-4 bg-gray-50/80 p-3 rounded-2xl mb-4 text-[10px] font-bold text-gray-600">
-                                    <div className="flex items-center gap-1.5">
-                                      <Hash size={12} className="text-gray-400" />
-                                      <span>{ticket.n_tag || '---'}</span>
+                                      {ticket.applicativo && (
+                                        <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
+                                          <AppWindow size={10} />
+                                          {ticket.applicativo}
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="h-3 w-[1px] bg-gray-200" />
-                                    <div className="flex items-center gap-1.5">
-                                      <Activity size={12} className="text-gray-400" />
-                                      <span>{formatDate(ticket.ultimo_ping)}</span>
-                                    </div>
-                                  </div>
 
-                                  <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                                    <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{ticket.stato}</span>
-                                    <Link href={`/ticket/${ticket.id}`} className="p-2 bg-black text-white rounded-xl hover:scale-110 transition-transform">
-                                      <ChevronRight size={14} />
-                                    </Link>
+                                    <h3 className="text-[13px] font-bold text-gray-800 leading-tight mb-4 group-hover:text-blue-600 transition-colors line-clamp-2">
+                                      {ticket.titolo}
+                                    </h3>
+
+                                    <div className="flex items-center gap-4 bg-gray-50/80 p-3 rounded-2xl mb-4 text-[10px] font-bold text-gray-600">
+                                      <div className="flex items-center gap-1.5">
+                                        <Hash size={12} className="text-gray-400" />
+                                        <span>{ticket.n_tag || '---'}</span>
+                                      </div>
+                                      <div className="h-3 w-[1px] bg-gray-200" />
+                                      <div className="flex items-center gap-1.5">
+                                        <Activity size={12} className={pingStyle.icon} />
+                                        <span className={pingStyle.container}>{formatDateShort(ticket.ultimo_ping)}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+                                      <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{ticket.stato}</span>
+                                      <Link href={`/ticket/${ticket.id}`} className="p-2 bg-black text-white rounded-xl hover:scale-110 transition-transform">
+                                        <ChevronRight size={14} />
+                                      </Link>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
+                              )}
+                            </Draggable>
+                          );
+                        })}
                         {provided.placeholder}
                       </div>
                     )}

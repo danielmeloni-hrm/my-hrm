@@ -43,7 +43,11 @@ export default function StoricoTicketPage() {
   const APPLICATIVI = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW"];
   const TIPI_ATTIVITA = ["Preanalisi", "Evolutive GA4", "Evolutive BQ", "Incident Resolution", "Reporting", "Formazione", "Supporto Funzionale Business", "Analisi degli Impatti", "Supporto Tecnico"];
   const TUTTI_GLI_STATI = ["Attività Sospesa", "Non Iniziato", "In stand-by", "In lavorazione", "In attesa Sviluppo", "In attesa risposta Sviluppatore", "Attenzione Business", "Attenzione di Andrea", "Completato - In attesa di chiusura", "Completato"];
-
+  // STATI ORDINAMENTO
+const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
+  key: 'ultimo_ping', // Ordinamento predefinito
+  direction: 'desc'
+});
   const MACROAREE = {
     todo: { label: "To-do", icon: <ListTodo size={14} />, stati: ["Attività Sospesa", "Non Iniziato", "In stand-by"] },
     progress: { label: "In Progress", icon: <PlayCircle size={14} />, stati: ["In lavorazione", "In attesa Sviluppo", "In attesa risposta Sviluppatore", "Attenzione Business", "Attenzione di Andrea"] },
@@ -67,7 +71,13 @@ export default function StoricoTicketPage() {
     const next = columnOrder.map(col => col.id === id ? { ...col, visible: !col.visible } : col);
     saveAndSetColumns(next);
   };
-
+  const requestSort = (key: string) => {
+  let direction: 'asc' | 'desc' = 'asc';
+  if (sortConfig.key === key && sortConfig.direction === 'asc') {
+    direction = 'desc';
+  }
+  setSortConfig({ key, direction });
+};
   const moveColumn = (index: number, direction: 'up' | 'down') => {
     const next = [...columnOrder];
     const target = direction === 'up' ? index - 1 : index + 1;
@@ -112,20 +122,34 @@ export default function StoricoTicketPage() {
     setUpdatingId(null);
   };
 
-  const filteredTickets = useMemo(() => {
-    return tickets.filter(t => {
-      const matchesSearch = searchTerm === '' || 
-        t.titolo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        t.clienti?.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        t.n_tag?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesApp = filterApp === '' || t.applicativo === filterApp;
-      const matchesAttivita = filterAttivita === '' || t.tipo_di_attivita === filterAttivita;
-      const matchesAssegnatario = filterAssegnatario === '' || t.assignee === filterAssegnatario;
-      const matchesStatus = !selectedMacroarea || MACROAREE[selectedMacroarea].stati.includes(t.stato);
-      return matchesSearch && matchesApp && matchesAttivita && matchesAssegnatario && matchesStatus;
-    });
-  }, [tickets, searchTerm, filterApp, filterAttivita, filterAssegnatario, selectedMacroarea]);
+const sortedAndFilteredTickets = useMemo(() => {
+  // 1. Filtriamo i ticket (tua logica attuale)
+  const filtered = tickets.filter(t => {
+    const matchesSearch = searchTerm === '' || 
+      t.titolo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      t.clienti?.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      t.n_tag?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesApp = filterApp === '' || (Array.isArray(t.applicativo) && t.applicativo.includes(filterApp));
+    const matchesAttivita = filterAttivita === '' || t.tipo_di_attivita === filterAttivita;
+    const matchesAssegnatario = filterAssegnatario === '' || t.assignee === filterAssegnatario;
+    const matchesStatus = !selectedMacroarea || MACROAREE[selectedMacroarea].stati.includes(t.stato);
+    return matchesSearch && matchesApp && matchesAttivita && matchesAssegnatario && matchesStatus;
+  });
 
+  // 2. Ordiniamo i ticket filtrati
+  return [...filtered].sort((a, b) => {
+    let aValue = a[sortConfig.key];
+    let bValue = b[sortConfig.key];
+
+    // Gestione speciale per colonne relazionali (es. cliente o profilo)
+    if (sortConfig.key === 'cliente') aValue = a.clienti?.nome;
+    if (sortConfig.key === 'assignee') aValue = a.profili?.nome_completo;
+
+    if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+}, [tickets, searchTerm, filterApp, filterAttivita, filterAssegnatario, selectedMacroarea, sortConfig]);
   const isExpired = (dateString: string | null) => {
     if (!dateString) return false;
     const diff = (new Date().getTime() - new Date(dateString).getTime()) / (1000 * 3600 * 24);
@@ -220,13 +244,26 @@ export default function StoricoTicketPage() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-max">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-              {columnOrder.filter(c => c.visible).map(col => <th key={col.id} className="px-6 py-4">{col.label}</th>)}
-              <th className="px-6 py-4 text-right"></th>
-            </tr>
-          </thead>
+  <tr className="bg-slate-50 border-b border-slate-200 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+    {columnOrder.filter(c => c.visible).map(col => (
+      <th 
+        key={col.id} 
+        className="px-6 py-4 cursor-pointer hover:bg-slate-100 transition-colors"
+        onClick={() => requestSort(col.id)}
+      >
+        <div className="flex items-center gap-2">
+          {col.label}
+          {sortConfig.key === col.id && (
+            sortConfig.direction === 'asc' ? <MoveUp size={10} className="text-blue-600" /> : <MoveDown size={10} className="text-blue-600" />
+          )}
+        </div>
+      </th>
+    ))}
+    <th className="px-6 py-4 text-right"></th>
+  </tr>
+</thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredTickets.map((t) => (
+            {sortedAndFilteredTickets.map((t) => (
               <tr key={t.id} className="hover:bg-slate-50/50 transition-all group">
                 {columnOrder.filter(c => c.visible).map(col => (
                   <td key={col.id} className="px-6 py-4">
@@ -244,28 +281,58 @@ export default function StoricoTicketPage() {
                         <span className="text-[10px] font-bold text-slate-700 uppercase">{t.profili?.nome_completo || 'N/D'}</span>
                       </div>
                     )}
+                 
                     {col.id === 'applicativo' && (
-                      <select className="text-[10px] font-bold text-blue-600 bg-blue-50/50 border border-blue-100 rounded-lg px-2 py-1 outline-none" value={t.applicativo || ''} onChange={(e) => handleUpdate(t.id, 'applicativo', e.target.value)}>
-                        <option value="">-</option>
-                        {APPLICATIVI.map(app => <option key={app} value={app}>{app}</option>)}
-                      </select>
-                    )}
+  <div className="flex flex-wrap gap-1.5 max-w-[200px]">
+    {APPLICATIVI.map(app => {
+      // Verifichiamo se l'app è già presente nell'array del ticket
+      const isSelected = Array.isArray(t.applicativo) && t.applicativo.includes(app);
+      
+      return (
+        <button
+          key={app}
+          onClick={() => {
+            const currentApps = Array.isArray(t.applicativo) ? t.applicativo : [];
+            const nextApps = isSelected
+              ? currentApps.filter(a => a !== app) // Rimuovi se già presente
+              : [...currentApps, app];            // Aggiungi se assente
+            
+            handleUpdate(t.id, 'applicativo', nextApps);
+          }}
+          className={`
+            px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter transition-all border
+            ${isSelected 
+              ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
+              : 'bg-white border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-500'}
+          `}
+        >
+          {app}
+        </button>
+      );
+    })}
+  </div>
+)}
+
+
                     {col.id === 'tipo_di_attivita' && (
-                      <select className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1 outline-none" value={t.tipo_di_attivita || ''} onChange={(e) => handleUpdate(t.id, 'tipo_di_attivita', e.target.value)}>
+                      <select 
+                        className="..." 
+                        value={typeof t.tipo_di_attivita === 'string' ? t.tipo_di_attivita : ''} 
+                        onChange={(e) => handleUpdate(t.id, 'tipo_di_attivita', e.target.value)}
+                      >
                         <option value="">-</option>
                         {TIPI_ATTIVITA.map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
                       </select>
                     )}
-                    {col.id === 'cliente' && (
-                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-400"><Building2 size={12} /> {t.clienti?.nome || 'N/D'}</div>
-                    )}
+
                     {col.id === 'stato' && (
-                      <div className="flex items-center gap-2">
-                        {updatingId === `${t.id}-stato` ? <Loader2 size={10} className="animate-spin text-blue-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
-                        <select className="text-[9px] font-black uppercase bg-transparent outline-none cursor-pointer" value={t.stato} onChange={(e) => handleUpdate(t.id, 'stato', e.target.value)}>
-                          {TUTTI_GLI_STATI.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
+                      <select 
+                        className="..." 
+                        value={typeof t.stato === 'string' ? t.stato : ''} 
+                        onChange={(e) => handleUpdate(t.id, 'stato', e.target.value)}
+                      >
+                        {TUTTI_GLI_STATI.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
                     )}
                     {col.id === 'created_at' && (
                       <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase"><Calendar size={10}/> {t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</div>

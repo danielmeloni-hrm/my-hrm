@@ -261,6 +261,8 @@ async function fetchValidClients(): Promise<Array<{ key: string; label: string }
     .sort((a, b) => a.label.localeCompare(b.label, "it"));
 }
 
+
+
 function downloadTextFile(filename: string, content: string, mime = "text/plain") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -547,6 +549,28 @@ export default function ClientReportsPage() {
     );
   }, [filteredRows]);
 
+
+  // NEW: Risorsa x Cliente
+const risorsaXCliente = useMemo(() => {
+  const { map, rowTotals, colTotals } = matrixHours(
+    filteredRows as any[],
+    (r) => String(r.sheet || ""),   // riga = risorsa
+    (r) => String(r.cliente || "")  // colonna = cliente
+  );
+
+  const topRisorse = Array.from(rowTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([k]) => k);
+
+  const topClienti = Array.from(colTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([k]) => k);
+
+  return { map, topRisorse, topClienti };
+}, [filteredRows]);
+
   // NEW: ore per progetto
   const byProgetto = useMemo(() => {
     return groupByKey(
@@ -810,7 +834,7 @@ export default function ClientReportsPage() {
       ))}
     </select>
   </div>
-
+      
   {/* Tipo attività */}
   <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
     <label style={{ fontSize: 11, color: "#555" }}>Tipo attività</label>
@@ -1115,7 +1139,14 @@ export default function ClientReportsPage() {
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
           </div>
-
+          <div style={{ gridColumn: "span 12" }}>
+            {renderMatrix(
+              "Risorsa × Cliente (ore)",
+              risorsaXCliente.topRisorse,
+              risorsaXCliente.topClienti,
+              (rk, ck) => risorsaXCliente.map.get(rk)?.get(ck) ?? 0
+            )}
+          </div>
           {/* NEW: Matrici */}
           <div style={{ gridColumn: "span 12" }}>
             {renderMatrix(
@@ -1136,68 +1167,7 @@ export default function ClientReportsPage() {
           </div>
         </div>
 
-        {/* Tabella eventi */}
-        <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Eventi (filtrati)</div>
-            <div style={{ fontSize: 12, color: "#666" }}>
-              Ordinati per data inizio desc. · Colonne: Tab, Cliente/Attività/Progetto, ID, Titolo, Date, Durata
-            </div>
-          </div>
-
-          <div style={{ overflowX: "auto", marginTop: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
-              <thead>
-                <tr>
-                  {["Tab", "Cliente", "Attività", "Progetto", ...COLS].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        position: "sticky",
-                        top: 0,
-                        background: "#fff",
-                        borderBottom: "1px solid #eee",
-                        textAlign: "left",
-                        fontSize: 12,
-                        color: "#444",
-                        padding: "10px 8px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((r: any, idx: number) => (
-                  <tr key={`${r.sheet}-${r.idEvento}-${idx}`}>
-                    <Td>{r.sheet}</Td>
-                    <Td>{r.cliente}</Td>
-                    <Td>{r.attivita}</Td>
-                    <Td>{r.progetto || "—"}</Td>
-                    <Td>{r.idEvento}</Td>
-                    <Td>{r.titolo}</Td>
-                    <Td>{r.dataInizio}</Td>
-                    <Td>{r.oraInizio}</Td>
-                    <Td>{r.dataFine}</Td>
-                    <Td>{r.oraFine}</Td>
-                    <Td>{r.durataMinuti}</Td>
-                    <Td>{formatHours(r.durataOre)}</Td>
-                  </tr>
-                ))}
-
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td colSpan={4 + COLS.length} style={{ padding: 14, fontSize: 12, color: "#666" }}>
-                      Nessun evento corrispondente ai filtri.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        
       </div>
     </div>
   );
