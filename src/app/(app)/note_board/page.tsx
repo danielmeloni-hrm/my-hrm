@@ -272,31 +272,86 @@ export default function SublimeSupabaseEditor() {
 
   // --- Event Handlers ---
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      const pos = e.target.selectionStart;
-      setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, content: val } : t));
+  const val = e.target.value
+  const pos = e.target.selectionStart
 
-      const lines = val.split('\n');
-      const textBeforeCursor = val.substring(0, pos);
-      const lineIdx = textBeforeCursor.split('\n').length - 1;
+  setTabs(prev =>
+    prev.map(t => (t.id === activeTabId ? { ...t, content: val } : t))
+  )
 
-      // Troviamo l'indice della riga che contiene il cliente (@) più vicino "sopra" di noi
-      let lastClientLineIdx = -1;
-      for (let i = lineIdx; i >= 0; i--) {
-        if (lines[i].includes('@')) {
-          lastClientLineIdx = i;
-          break;
-        }
-      }
+  const lines = val.split('\n')
+  const textBeforeCursor = val.substring(0, pos)
+  const lineIdx = textBeforeCursor.split('\n').length - 1
+  const currentLine = lines[lineIdx] || ''
+  const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1
+  const cursorInLine = pos - currentLineStart
+  const beforeCursorInLine = currentLine.slice(0, cursorInLine)
 
-      // Se abbiamo trovato un blocco cliente, aggiorniamo quello
-      if (lastClientLineIdx !== -1) {
-        if (syncTimeoutRef.current[lastClientLineIdx]) clearTimeout(syncTimeoutRef.current[lastClientLineIdx]);
-        syncTimeoutRef.current[lastClientLineIdx] = setTimeout(() => {
-          syncTicketData(lines, lastClientLineIdx);
-        }, 1000);
-      }
-    };
+  // --- MENU AUTOCOMPLETE ---
+  const slashMatch = beforeCursorInLine.match(/\/([^\s/]*)$/)
+  const clientMatch = beforeCursorInLine.match(/@([^\s@]*)$/)
+  const ticketMatch = beforeCursorInLine.match(/#([^\s#]*)$/)
+  const titleMatch = beforeCursorInLine.match(/"([^"]*)$/)
+
+  if (slashMatch && textAreaRef.current) {
+    const coords = getCursorXY(textAreaRef.current, pos)
+    setMenu({
+      open: true,
+      type: 'param',
+      filter: slashMatch[1] || '',
+      selectedIndex: 0,
+      coords,
+    })
+  } else if (clientMatch && textAreaRef.current) {
+    const coords = getCursorXY(textAreaRef.current, pos)
+    setMenu({
+      open: true,
+      type: 'client',
+      filter: clientMatch[1] || '',
+      selectedIndex: 0,
+      coords,
+    })
+  } else if (ticketMatch && textAreaRef.current) {
+    const coords = getCursorXY(textAreaRef.current, pos)
+    setMenu({
+      open: true,
+      type: 'ticket',
+      filter: ticketMatch[1] || '',
+      selectedIndex: 0,
+      coords,
+    })
+  } else if (titleMatch && textAreaRef.current) {
+    const coords = getCursorXY(textAreaRef.current, pos)
+    setMenu({
+      open: true,
+      type: 'title',
+      filter: titleMatch[1] || '',
+      selectedIndex: 0,
+      coords,
+    })
+  } else {
+    setMenu(prev => ({ ...prev, open: false }))
+  }
+
+  // --- SYNC MULTIRIGA ---
+  let lastClientLineIdx = -1
+  for (let i = lineIdx; i >= 0; i--) {
+    if (lines[i].includes('@')) {
+      lastClientLineIdx = i
+      break
+    }
+  }
+
+  if (lastClientLineIdx !== -1) {
+    if (syncTimeoutRef.current[lastClientLineIdx]) {
+      clearTimeout(syncTimeoutRef.current[lastClientLineIdx])
+    }
+
+    syncTimeoutRef.current[lastClientLineIdx] = setTimeout(() => {
+      syncTicketData(lines, lastClientLineIdx)
+    }, 1000)
+  }
+}
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (menu.open) {
@@ -312,26 +367,55 @@ export default function SublimeSupabaseEditor() {
   };
 
   const insertText = (suggestion: string) => {
-    if (!textAreaRef.current || !activeTab) return;
-    const pos = textAreaRef.current.selectionStart;
-    const before = activeTab.content.substring(0, pos);
-    const symbols: Record<string, string> = { client: '@', ticket: '#', param: '/', title: '"' };
-    const symbol = symbols[menu.type];
-    const lastSymbolPos = before.lastIndexOf(symbol);
-    if (lastSymbolPos === -1) return;
+  if (!textAreaRef.current || !activeTab) return
 
-    const isTitle = menu.type === 'title';
-    const textToInsert = isTitle ? `${suggestion}" ` : `${suggestion} `;
-    const newContent = activeTab.content.substring(0, lastSymbolPos + 1) + textToInsert + activeTab.content.substring(pos).replace(/^"?\s*/, '');
+  const pos = textAreaRef.current.selectionStart
+  const before = activeTab.content.substring(0, pos)
 
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, content: newContent } : t));
-    setMenu(prev => ({ ...prev, open: false }));
-    setTimeout(() => {
-      const newPos = lastSymbolPos + 1 + textToInsert.length;
-      textAreaRef.current?.focus();
-      textAreaRef.current?.setSelectionRange(newPos, newPos);
-    }, 10);
-  };
+  const symbols: Record<string, string> = {
+    client: '@',
+    ticket: '#',
+    param: '/',
+    title: '"',
+  }
+
+  const symbol = symbols[menu.type]
+  const lastSymbolPos = before.lastIndexOf(symbol)
+  if (lastSymbolPos === -1) return
+
+  const isTitle = menu.type === 'title'
+  const isParam = menu.type === 'param'
+
+  let newContent = ''
+
+  if (isParam) {
+    newContent =
+      activeTab.content.substring(0, lastSymbolPos) +
+      `${suggestion} ` +
+      activeTab.content.substring(pos).replace(/^[^\s]*/, '')
+  } else {
+    const textToInsert = isTitle ? `${suggestion}" ` : `${suggestion} `
+    newContent =
+      activeTab.content.substring(0, lastSymbolPos + 1) +
+      textToInsert +
+      activeTab.content.substring(pos).replace(/^"?\s*/, '')
+  }
+
+  setTabs(prev =>
+    prev.map(t => (t.id === activeTabId ? { ...t, content: newContent } : t))
+  )
+
+  setMenu(prev => ({ ...prev, open: false }))
+
+  setTimeout(() => {
+    const newPos = isParam
+      ? lastSymbolPos + suggestion.length + 1
+      : lastSymbolPos + 2 + suggestion.length
+
+    textAreaRef.current?.focus()
+    textAreaRef.current?.setSelectionRange(newPos, newPos)
+  }, 10)
+}
 
   const getCursorXY = (textarea: HTMLTextAreaElement, selectionPoint: number) => {
     const div = document.createElement('div');
