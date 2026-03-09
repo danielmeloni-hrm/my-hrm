@@ -92,7 +92,7 @@ export default function CreateAttivitaOrChangePage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [clienti, setClienti] = useState<Cliente[]>([]);
   const [defaultClienteId, setDefaultClienteId] = useState<string>("");
-
+  const [success, setSuccess] = useState(false);
   const [aForm, setAForm] = useState({
     titolo: "",
     descrizione: "",
@@ -154,46 +154,61 @@ export default function CreateAttivitaOrChangePage() {
   }, [mode, aForm.cliente_id, defaultClienteId]);
 
   const save = async () => {
-    setSaving(true);
-    setError(null);
+  setSaving(true);
+  setError(null);
+  setSuccess(false);
 
-    try {
-      if (mode === "attivita") {
-        const payload = {
-          titolo: aForm.titolo.trim(),
-          descrizione: aForm.descrizione.trim() || null,
-          applicativo: aForm.applicativo.length > 0 ? aForm.applicativo : null,
-          tool: aForm.tool || null,
-          tipo_di_attivita: aForm.tipo_di_attivita || null,
-          sprint: aForm.sprint,
-          assignee: aForm.assignee || null,
-          cliente_id: aForm.cliente_id || null,
-          numero_priorita: aForm.numero_priorita,
-          in_lavorazione_ora: aForm.in_lavorazione_ora,
-          n_tag: aForm.n_tag.trim() || null,
-          stato: 'Aperto'
-        };
-        const { error: err } = await supabase.from("ticket").insert(payload);
-        if (err) throw err;
-      } else {
-        const payload = {
-          ...cForm,
-          change_id: cForm.change_id.trim(),
-          rilascio_in_collaudo: cForm.rilascio_in_collaudo || null,
-          rilascio_in_produzione: cForm.rilascio_in_produzione || null,
-          cliente_id: defaultClienteId || null,
-        };
-        const { error: err } = await supabase.from("changes").insert(payload);
-        if (err) throw err;
-      }
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-      router.refresh();
-      router.push(mode === "attivita" ? "/tickets" : "/changes");
-    } catch (err: any) {
-      setError(err.message);
-      setSaving(false);
+    if (userError || !user) {
+      throw new Error("Utente non autenticato");
     }
-  };
+
+    if (mode === "attivita") {
+      const payload = {
+        titolo: aForm.titolo.trim(),
+        descrizione: aForm.descrizione.trim() || null,
+        applicativo: aForm.applicativo.length > 0 ? aForm.applicativo : null,
+        tool: aForm.tool || null,
+        tipo_di_attivita: aForm.tipo_di_attivita || null,
+        sprint: aForm.sprint,
+        assignee: aForm.assignee || null,
+        cliente_id: aForm.cliente_id || null,
+        numero_priorita: aForm.numero_priorita,
+        in_lavorazione_ora: aForm.in_lavorazione_ora,
+        n_tag: aForm.n_tag.trim() || null,
+        stato: "Aperto",
+        utente_id: user.id
+      };
+
+      const { error: err } = await supabase.from("ticket").insert([payload]);
+      if (err) throw err;
+    } else {
+      const payload = {
+        ...cForm,
+        change_id: cForm.change_id.trim(),
+        rilascio_in_collaudo: cForm.rilascio_in_collaudo || null,
+        rilascio_in_produzione: cForm.rilascio_in_produzione || null,
+        cliente_id: defaultClienteId || null,
+      };
+
+      const { error: err } = await supabase.from("changes").insert([payload]);
+      if (err) throw err;
+    }
+
+    setSuccess(true);
+
+  } catch (err: any) {
+    setError(err.message);
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-black text-slate-300 animate-pulse">CARICAMENTO...</div>;
 
@@ -242,6 +257,11 @@ export default function CreateAttivitaOrChangePage() {
         {error && (
           <div className="mb-8 p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 text-xs font-bold animate-in fade-in slide-in-from-top-4">
               ⚠️ {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-8 p-4 rounded-2xl bg-green-50 border border-green-200 text-green-600 text-xs font-bold">
+            ✅ Evento creato
           </div>
         )}
 

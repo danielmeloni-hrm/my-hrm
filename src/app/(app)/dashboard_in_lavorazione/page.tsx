@@ -19,6 +19,8 @@ type Ticket = {
   assignee?: string | null;
   numero_priorita?: number | null;
   in_lavorazione_ora?: boolean | null;
+  stato?: string | null;
+  percentuale_avanzamento?: number | null;
   clienti?: { nome?: string | null } | null;
   profili?: { nome_completo?: string | null } | null;
   [key: string]: any;
@@ -72,15 +74,24 @@ export default function TicketsDashboardByAssignee() {
     const q = supabase
       .from("ticket")
       .select(
+          `
+          id,
+          titolo,
+          stato,
+          applicativo,
+          sprint,
+          assignee,
+          n_tag,
+          in_lavorazione_ora,
+          numero_priorita,
+          percentuale_avanzamento,
+          clienti:cliente_id ( nome ),
+          profili:assignee ( nome_completo )
         `
-        id, titolo,
-        applicativo, sprint, assignee, in_lavorazione_ora, numero_priorita,percentuale_avanzamento,
-        clienti:cliente_id ( nome ),
-        profili:assignee ( nome_completo )
-      `
-      )
-      .eq("sprint", filterSprint)
-      .order("numero_priorita", { ascending: true });
+        )
+        .eq("sprint", filterSprint)
+        .eq("stato", "In lavorazione")
+        .order("numero_priorita", { ascending: true });
 
     const { data, error } = await q;
     if (!error && data) setTickets(data as Ticket[]);
@@ -300,7 +311,7 @@ export default function TicketsDashboardByAssignee() {
               return (
                 <div
                   key={col.key}
-                  className="flex-shrink-0 w-96 bg-gray-50/50 p-3 rounded-[2.5rem] border border-gray-100 flex flex-col gap-4"
+                  className="flex-shrink-0 w-96 bg-gray-50/50 p-3 rounded-[1rem] border border-gray-100 flex flex-col gap-4"
                 >
                   {/* HEADER DIPENDENTE */}
                   <div className="flex items-center justify-between px-5 py-4 rounded-2xl bg-white shadow-sm border border-gray-100">
@@ -316,7 +327,7 @@ export default function TicketsDashboardByAssignee() {
                   {/* SEZIONE WORK */}
                   <div className="flex flex-col flex-1">
                     <div
-                      className="flex items-center justify-between px-5 py-4 rounded-2xl shadow-sm mb-4"
+                      className="flex items-center justify-between px-5 py-4 rounded-lg shadow-sm mb-4"
                       style={{ background: BRAND_BG, color: BRAND }}
                     >
                       <span className="text-[10px] font-black uppercase tracking-widest">In lavorazione ora</span>
@@ -328,7 +339,7 @@ export default function TicketsDashboardByAssignee() {
                         <div
                           {...provided.droppableProps}
                           ref={provided.innerRef}
-                          className="space-y-4 rounded-[2rem] border border-dashed p-3 transition-all flex-1 min-h-[150px] bg-white/60"
+                          className="space-y-4 rounded-[1rem] border border-dashed p-3 transition-all flex-1 min-h-[150px] bg-white/60"
                           style={{
                             borderColor: snapshot.isDraggingOver ? BRAND_BORDER : "#e5e7eb",
                             background: snapshot.isDraggingOver ? BRAND_BG : "rgba(255,255,255,0.6)",
@@ -362,7 +373,7 @@ export default function TicketsDashboardByAssignee() {
                         <div
                           {...provided.droppableProps}
                           ref={provided.innerRef}
-                          className="space-y-4 rounded-[2rem] border border-dashed p-3 transition-all flex-1 min-h-[150px] bg-white/60"
+                          className="space-y-4 rounded-[1rem] border border-dashed p-3 transition-all flex-1 min-h-[150px] bg-white/60"
                           style={{
                             borderColor: snapshot.isDraggingOver ? "#d1d5db" : "#e5e7eb",
                             background: snapshot.isDraggingOver ? "rgba(243,244,246,0.75)" : "rgba(255,255,255,0.6)",
@@ -395,7 +406,7 @@ export default function TicketsDashboardByAssignee() {
 function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boolean }) {
   const card = (
     <div
-      className={`bg-white p-6 rounded-[2rem] border shadow-sm hover:shadow-xl transition-all cursor-pointer ${
+      className={`bg-white p-6 rounded-[1rem] border shadow-sm hover:shadow-xl transition-all cursor-pointer ${
         isDragging ? "pointer-events-none" : ""
       }`}
       style={{ borderColor: BRAND_BORDER }}
@@ -444,6 +455,7 @@ function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boole
       </div>
 
       <h3 className="text-[13px] font-bold text-gray-800 leading-tight">{ticket.titolo || "—"}</h3>
+      <h4 className="text-[9px] font-bold text-gray-800 leading-tight">{ticket.n_tag || "—"}</h4>
     </div>
   );
 
