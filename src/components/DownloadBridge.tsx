@@ -5,7 +5,48 @@ import { Download } from 'lucide-react';
 export default function DownloadBridge({ userId }: { userId: string }) {
   const downloadPackage = async () => {
     const zip = new JSZip();
+    const startBat = `
+@echo off
+title Sublime Bridge Setup
+echo ========================================
+echo        SUBLIME TO CLOUD BRIDGE
+echo ========================================
+echo.
 
+:: Verifica se Node.js è installato
+where node >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERRORE] Node.js non e' installato!
+    echo.
+    echo Per far funzionare il bridge, devi installare Node.js.
+    echo Sto aprendo la pagina di download per te...
+    timeout /t 3
+    start https://nodejs.org/
+    echo.
+    echo Una volta installato Node.js, riavvia questo file.
+    pause
+    exit
+)
+
+echo [OK] Node.js trovato.
+echo.
+
+:: Verifica dipendenze
+if not exist node_modules (
+    echo [INFO] Installazione dipendenze (solo la prima volta)...
+    call npm install
+    if %errorlevel% neq 0 (
+        echo [ERRORE] Errore durante npm install. Controlla la connessione.
+        pause
+        exit
+    )
+)
+
+echo [OK] Pronto! Avvio sincronizzazione...
+echo.
+node bridge.js
+pause
+`.trim();
     // 1. Il file bridge.js (GIÀ CONFIGURATO!)
     const bridgeCode = `
 const io = require('socket.io-client');
