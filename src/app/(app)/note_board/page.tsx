@@ -41,6 +41,7 @@ const SPECIAL_PARAMS = [
 
 export default function SublimeSupabaseEditor() {
   // --- State ---
+  const [connectedFile, setConnectedFile] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<number>(0);
@@ -197,7 +198,15 @@ export default function SublimeSupabaseEditor() {
 
     socketRef.current.on('connect', () => setLocalStreamStatus('connected'));
     socketRef.current.on('disconnect', () => setLocalStreamStatus('disconnected'));
+    socketRef.current.on('bridge-status', (status: { fileName: string }) => {
+      setConnectedFile(status.fileName);
+    });
 
+    // Resetta se si disconnette
+    socketRef.current.on('disconnect', () => {
+      setLocalStreamStatus('disconnected');
+      setConnectedFile(null);
+    });
     socketRef.current.on('code-update', (newCode: string) => {
       setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newCode } : t)));
       
@@ -415,19 +424,28 @@ export default function SublimeSupabaseEditor() {
     <div className="flex flex-col gap-3">
       <div className="flex items-start gap-2 text-amber-400">
         <AlertCircle size={14} className="shrink-0 mt-0.5" />
-        <p className="text-[9px] leading-tight font-bold uppercase">
+        <p className="text-[9px] leading-tight font-bold uppercase italic">
           Sublime non collegato. Scarica il ponte per iniziare.
         </p>
       </div>
-      {/* Passiamo un userId generato o preso da Supabase Auth */}
       <DownloadBridge userId={userId || "guests_123"} />
     </div>
   ) : (
-    <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg flex items-center gap-3">
-      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
-      <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
-        Live Bridge Attivo
-      </span>
+    <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg flex flex-col gap-1">
+      <div className="flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
+        <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
+          Bridge Sincronizzato
+        </span>
+      </div>
+      {connectedFile && (
+        <div className="flex items-center gap-1.5 mt-1 opacity-80 border-t border-green-500/20 pt-1">
+          <Terminal size={10} className="text-green-500" />
+          <span className="text-[9px] font-mono text-green-200 truncate">
+            File: <span className="underline italic text-white">{connectedFile}</span>
+          </span>
+        </div>
+      )}
     </div>
   )}
 </div>

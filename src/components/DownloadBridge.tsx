@@ -27,7 +27,15 @@ const socket = io(SERVER_URL);
 console.log("🚀 Bridge avviato per l'utente: " + USER_ID);
 console.log("📝 Modifica il file 'lavora-qui.js' su Sublime Text");
 
-socket.on('connect', () => console.log("✅ Connesso al server!"));
+socket.on('connect', () => {
+    console.log("✅ Connesso!");
+    socket.emit('join-room', USER_ID);
+    // Comunica subito quale file sta guardando
+    socket.emit('bridge-status', { 
+      fileName: path.basename(FILE_TO_WATCH),
+      fullPath: FILE_TO_WATCH 
+    });
+});
 
 fs.watch(FILE_TO_WATCH, (event) => {
   if (event === 'change') {
