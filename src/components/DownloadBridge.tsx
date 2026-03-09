@@ -16,42 +16,38 @@ title Sublime Bridge Auto-Setup
 set NODE_URL=https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi
 set NODE_MSI=node_installer.msi
 
+:check_node
 where node >nul 2>nul
 if %errorlevel% neq 0 (
+    if exist "C:\\Program Files\\nodejs\\node.exe" (
+        set "PATH=%PATH%;C:\\Program Files\\nodejs\\"
+        goto node_ok
+    )
     echo ====================================================
-    echo [ATTENZIONE] Node.js non trovato!
-    echo Sto scaricando l'installer automatico per te...
+    echo [ATTENZIONE] Node.js non trovato! Scaricamento...
     echo ====================================================
-    
-    :: Usa PowerShell per scaricare l'MSI
     powershell -Command "Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
-    
-    echo [INFO] Download completato. Avvio installazione...
-    echo IMPORTANTE: Accetta le conferme di Windows e clicca sempre 'Avanti'.
-    
-    :: Avvia l'installazione e aspetta che finisca
+    echo [INFO] Avvio installazione... Attendi il termine.
     msiexec /i %NODE_MSI% /passive /norestart
-    
-    echo [OK] Installazione finita. 
-    echo Per rendere attive le modifiche, devo riavviare questo terminale.
-    echo Premi un tasto, poi riapri AVVIA_BRIDGE.bat
     del %NODE_MSI%
+    echo.
+    echo [IMPORTANTE] Installazione completata. 
+    echo Chiudi questa finestra e riavvia AVVIA_BRIDGE.bat per attivare i comandi.
     pause
     exit
 )
 
-:: Se Node c'e', installa le dipendenze se manca la cartella node_modules
+:node_ok
 if not exist node_modules (
     echo [INFO] Installazione dipendenze bridge...
     call npm install
 )
 
-echo [OK] Pronto! Avvio sincronizzazione...
+echo [OK] Bridge in avvio...
 node bridge.js
 pause
 `.trim();
 
-    // 2. IL CODICE DEL BRIDGE (JS)
     const bridgeCode = `
 const io = require('socket.io-client');
 const fs = require('fs');
