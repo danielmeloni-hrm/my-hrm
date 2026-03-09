@@ -1,7 +1,11 @@
 'use client';
+
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { io, Socket } from 'socket.io-client';
+import { Terminal, Cloud, CloudOff, Zap, ZapOff,AlertCircle, Download} from 'lucide-react';
 
+// --- Inizializzazione Supabase ---
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -37,6 +41,7 @@ const SPECIAL_PARAMS = [
 
 export default function SublimeSupabaseEditor() {
   // --- State ---
+  const [userId, setUserId] = useState<string>("");
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<number>(0);
   const [showLegend, setShowLegend] = useState(true);
@@ -47,7 +52,8 @@ export default function SublimeSupabaseEditor() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [fontSize, setFontSize] = useState(14);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('saved');
-  
+  const [localStreamStatus, setLocalStreamStatus] = useState<'connected' | 'disconnected'>('disconnected');
+
   const [workingRows, setWorkingRows] = useState<Record<number, boolean>>({});
   const [workingLoadingByTag, setWorkingLoadingByTag] = useState<Record<string, boolean>>({});
   const [syncingRows, setSyncingRows] = useState<{ [key: number]: boolean }>({});
@@ -64,21 +70,15 @@ export default function SublimeSupabaseEditor() {
 
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
+  const socketRef = useRef<Socket | null>(null);
 
-  const tokenClass = (base: string, ok: boolean) => {
-    return `${base} ${!ok ? 'underline decoration-red-500 decoration-2 underline-offset-4 bg-red-500/10' : ''}`;
-  };
-
+  // --- Helpers ---
   const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId) || tabs[0] || null, [tabs, activeTabId]);
   const activeLines = useMemo(() => (activeTab?.content || "").split("\n"), [activeTab]);
 
-  const valutateCurrentLineIndex = useCallback(() => {
-    if (!textAreaRef.current) return 0;
-    const pos = textAreaRef.current.selectionStart;
-    return (activeTab?.content || "").substring(0, pos).split('\n').length - 1;
-  }, [activeTab]);
+  const tokenClass = (base: string, ok: boolean) => 
+    `${base} ${!ok ? 'underline decoration-red-500 decoration-2 underline-offset-4 bg-red-500/10' : ''}`;
 
-  // --- Helpers ---
   const isValidDate = (dateStr: string) => {
     const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
     if (!match) return false;
@@ -95,24 +95,7 @@ export default function SublimeSupabaseEditor() {
     return `${y}-${m}-${d}`;
   };
 
-  const getFilteredList = useCallback(() => {
-    if (!menu.open) return [];
-    const filter = menu.filter.toLowerCase();
-    switch (menu.type) {
-      case 'param': return SPECIAL_PARAMS.filter(p => p.label.toLowerCase().includes(filter));
-      case 'client': return clients.filter(c => c.toLowerCase().includes(filter));
-      case 'ticket': return tickets.filter(t => t.toLowerCase().includes(filter));
-      case 'title':
-        const currentLine = activeLines[valutateCurrentLineIndex()] || "";
-        const clientOnLine = currentLine.match(/@([^\s]+)/)?.[1]?.toLowerCase();
-        return Array.from(new Set(
-          allTickets.filter(t => (!clientOnLine || t.cliente.toLowerCase() === clientOnLine) && t.titolo.toLowerCase().includes(filter)).map(t => t.titolo)
-        )).slice(0, 10);
-      default: return [];
-    }
-  }, [menu.open, menu.type, menu.filter, clients, tickets, allTickets, activeLines, valutateCurrentLineIndex]);
-
-  // --- API / Sync ---
+  // --- API / Sync Logic ---
   const fetchData = useCallback(async () => {
     try {
       const { data: cData } = await supabase.from('clienti').select('nome').order('nome');
@@ -137,122 +120,119 @@ export default function SublimeSupabaseEditor() {
     } catch (err) { console.error("Fetch error:", err); }
   }, []);
 
-  const syncTicketData = async (allLines: string[], startIndex: number) => {
-      const firstLine = allLines[startIndex];
-      
-      // 1. Identificatori della riga principale
-      const clientMatch = firstLine.match(/@([^\s]+)/);
-      const tagMatch = firstLine.match(/#([\w\d]+)/);
-      const titleMatch = firstLine.match(/"(.*?)"/);
-      
-      if (!clientMatch) return; // Se la riga non inizia con un cliente, non sincronizziamo
+  const syncTicketData = useCallback(async (allLines: string[], startIndex: number) => {
+    const firstLine = allLines[startIndex];
+    const clientMatch = firstLine.match(/@([^\s]+)/);
+    const tagMatch = firstLine.match(/#([\w\d]+)/);
+    const titleMatch = firstLine.match(/"(.*?)"/);
+    
+    if (!clientMatch) return;
 
-      const clientName = clientMatch[1].toLowerCase();
-      const tag = tagMatch ? tagMatch[1].toUpperCase() : null;
-      const title = titleMatch ? titleMatch[1] : null;
+    const clientName = clientMatch[1].toLowerCase();
+    const tag = tagMatch ? tagMatch[1].toUpperCase() : null;
+    const title = titleMatch ? titleMatch[1] : null;
 
-      // 2. RACCOLTA MULTI-RIGA: Prendi le righe successive finché non trovi un nuovo @
-      let multiLineNote = [];
-      
-      // Puliamo la prima riga dai parametri speciali
-      const firstLineClean = firstLine
-        .replace(/@([^\s]+)/g, '')
-        .replace(/#([\w\d]+)/g, '')
-        .replace(/"(.*?)"/g, '')
-        .replace(/\(coll:.*?\)/g, '')
-        .replace(/\(prod:.*?\)/g, '')
-        .replace(/\[perc:.*?\]/g, '')
-        .trim();
-      
-      if (firstLineClean) multiLineNote.push(firstLineClean);
+    let multiLineNote = [];
+    const firstLineClean = firstLine
+      .replace(/@([^\s]+)/g, '').replace(/#([\w\d]+)/g, '').replace(/"(.*?)"/g, '')
+      .replace(/\(coll:.*?\)/g, '').replace(/\(prod:.*?\)/g, '').replace(/\[perc:.*?\]/g, '').trim();
+    
+    if (firstLineClean) multiLineNote.push(firstLineClean);
 
-      // Ciclo sulle righe successive
-      for (let i = startIndex + 1; i < allLines.length; i++) {
-        if (allLines[i].includes('@')) break; // Ci fermiamo se appare un nuovo cliente
-        const content = allLines[i].trim();
-        if (content) multiLineNote.push(content);
+    for (let i = startIndex + 1; i < allLines.length; i++) {
+      if (allLines[i].includes('@')) break;
+      const content = allLines[i].trim();
+      if (content) multiLineNote.push(content);
+    }
+
+    const finalNote = multiLineNote.join('\n');
+    let queryField = '';
+    let queryValue = '';
+
+    if (clientName === 'esselunga') {
+      if (!tag) return;
+      queryField = 'n_tag'; queryValue = tag;
+    } else {
+      if (!title) return;
+      queryField = 'titolo'; queryValue = title;
+    }
+
+    const updates: any = { note: finalNote };
+    const percMatch = firstLine.match(/\[perc:\s*([^\]]+)\]/);
+    if (percMatch) {
+      const val = percMatch[1].trim().toLowerCase();
+      if (val === 'null') updates.percentuale_avanzamento = null;
+      else {
+        const num = parseInt(val.replace('%', ''));
+        if (!isNaN(num)) updates.percentuale_avanzamento = num;
       }
+    }
 
-      const finalNote = multiLineNote.join('\n'); // Uniamo con a capo
+    const collMatch = firstLine.match(/\(coll:\s*([^)]+)\)/);
+    const prodMatch = firstLine.match(/\(prod:\s*([^)]+)\)/);
+    if (collMatch && isValidDate(collMatch[1])) updates.rilascio_in_collaudo = parseDateToISO(collMatch[1]);
+    if (prodMatch && isValidDate(prodMatch[1])) updates.rilascio_in_produzione = parseDateToISO(prodMatch[1]);
 
-      // 3. Strategia di Associazione
-      let queryField = '';
-      let queryValue = '';
+    setSyncingRows(prev => ({ ...prev, [startIndex]: true }));
+    setSaveStatus('saving');
 
-      if (clientName === 'esselunga') {
-        if (!tag) return;
-        queryField = 'n_tag';
-        queryValue = tag;
-      } else {
-        if (!title) return;
-        queryField = 'titolo';
-        queryValue = title;
+    try {
+      const { error } = await supabase.from('ticket').update(updates).eq(queryField, queryValue);
+      if (!error) {
+        setSaveStatus('saved');
+        setAllTickets(prev => prev.map(t => {
+          const isMatch = queryField === 'n_tag' ? t.n_tag === queryValue : t.titolo === queryValue;
+          return isMatch ? { ...t, ...updates } : t;
+        }));
       }
+    } catch (err) { console.error(err); } 
+    finally {
+      setTimeout(() => setSyncingRows(prev => { const n = { ...prev }; delete n[startIndex]; return n; }), 800);
+    }
+  }, []);
 
-      // 4. Preparazione altri parametri (estrapolati solo dalla riga principale)
-      const updates: any = { note: finalNote };
+  // --- Sublime Stream Effect ---
+  useEffect(() => {
+    socketRef.current = io('http://localhost:4000');
+
+    socketRef.current.on('connect', () => setLocalStreamStatus('connected'));
+    socketRef.current.on('disconnect', () => setLocalStreamStatus('disconnected'));
+
+    socketRef.current.on('code-update', (newCode: string) => {
+      setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newCode } : t)));
       
-      // Percentuale
-      const percMatch = firstLine.match(/\[perc:\s*([^\]]+)\]/);
-      if (percMatch) {
-        const val = percMatch[1].trim().toLowerCase();
-        if (val === 'null') updates.percentuale_avanzamento = null;
-        else {
-          const num = parseInt(val.replace('%', ''));
-          if (!isNaN(num)) updates.percentuale_avanzamento = num;
-        }
-      }
+      // Trigger automatico sync Supabase su ogni riga @ rilevata
+      const lines = newCode.split('\n');
+      lines.forEach((line, idx) => {
+        if (line.includes('@')) syncTicketData(lines, idx);
+      });
+    });
 
-      // Date
-      const collMatch = firstLine.match(/\(coll:\s*([^)]+)\)/);
-      const prodMatch = firstLine.match(/\(prod:\s*([^)]+)\)/);
-      if (collMatch && isValidDate(collMatch[1])) updates.rilascio_in_collaudo = parseDateToISO(collMatch[1]);
-      if (prodMatch && isValidDate(prodMatch[1])) updates.rilascio_in_produzione = parseDateToISO(prodMatch[1]);
-
-      // 5. Invio a Supabase
-      setSyncingRows(prev => ({ ...prev, [startIndex]: true }));
-      setSaveStatus('saving');
-
-      try {
-        const { error } = await supabase.from('ticket').update(updates).eq(queryField, queryValue);
-        if (!error) {
-          setSaveStatus('saved');
-          setAllTickets(prev => prev.map(t => {
-            const isMatch = queryField === 'n_tag' ? t.n_tag === queryValue : t.titolo === queryValue;
-            return isMatch ? { ...t, ...updates } : t;
-          }));
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setTimeout(() => setSyncingRows(prev => { const n = { ...prev }; delete n[startIndex]; return n; }), 600);
-      }
-    };
+    return () => { socketRef.current?.disconnect(); };
+  }, [activeTabId, syncTicketData]);
 
   // --- Lifecycle ---
-  useEffect(() => {
-    const init = async () => {
-      await fetchData();
-      const saved = localStorage.getItem('sublime_tabs');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed.length > 0) { setTabs(parsed); setActiveTabId(parsed[0].id); }
-        } catch (e) { console.error("Local storage corrupt"); }
-      } else {
-        const initial = { id: Date.now(), content: "Nuovo Documento\n@CLIENTE #TICKET \"TITOLO\"" };
-        setTabs([initial]); setActiveTabId(initial.id);
-      }
-      setLoading(false);
-    };
-    init();
-  }, [fetchData]);
+ useEffect(() => {
+  const init = async () => {
+    // 1. Gestione User ID (Recupera o Crea)
+    let storedId = localStorage.getItem('sublime_user_id');
+    if (!storedId) {
+      storedId = "user_" + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('sublime_user_id', storedId);
+    }
+    setUserId(storedId);
+
+    // 2. Il resto del tuo caricamento dati...
+    await fetchData();
+    const savedTabs = localStorage.getItem('sublime_tabs');
+    // ... logica per caricare le tab ...
+    setLoading(false);
+  };
+  init();
+}, [fetchData]);
 
   useEffect(() => {
-    if (!loading) {
-      const timer = setTimeout(() => localStorage.setItem('sublime_tabs', JSON.stringify(tabs)), 800);
-      return () => clearTimeout(timer);
-    }
+    if (!loading) localStorage.setItem('sublime_tabs', JSON.stringify(tabs));
   }, [tabs, loading]);
 
   const lineStates = useMemo(() => {
@@ -270,152 +250,105 @@ export default function SublimeSupabaseEditor() {
     });
   }, [activeLines, allTickets]);
 
-  // --- Event Handlers ---
+  // --- Handlers ---
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-  const val = e.target.value
-  const pos = e.target.selectionStart
+    const val = e.target.value;
+    const pos = e.target.selectionStart;
+    setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: val } : t)));
 
-  setTabs(prev =>
-    prev.map(t => (t.id === activeTabId ? { ...t, content: val } : t))
-  )
+    const lines = val.split('\n');
+    const textBeforeCursor = val.substring(0, pos);
+    const lineIdx = textBeforeCursor.split('\n').length - 1;
+    const currentLine = lines[lineIdx] || '';
+    const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1;
+    const cursorInLine = pos - currentLineStart;
+    const beforeCursorInLine = currentLine.slice(0, cursorInLine);
+   
+    // Autocomplete Logic
+    const slashMatch = beforeCursorInLine.match(/\/([^\s/]*)$/);
+    const clientMatch = beforeCursorInLine.match(/@([^\s@]*)$/);
+    const ticketMatch = beforeCursorInLine.match(/#([^\s#]*)$/);
+    const titleMatch = beforeCursorInLine.match(/"([^"]*)$/);
 
-  const lines = val.split('\n')
-  const textBeforeCursor = val.substring(0, pos)
-  const lineIdx = textBeforeCursor.split('\n').length - 1
-  const currentLine = lines[lineIdx] || ''
-  const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1
-  const cursorInLine = pos - currentLineStart
-  const beforeCursorInLine = currentLine.slice(0, cursorInLine)
-
-  // --- MENU AUTOCOMPLETE ---
-  const slashMatch = beforeCursorInLine.match(/\/([^\s/]*)$/)
-  const clientMatch = beforeCursorInLine.match(/@([^\s@]*)$/)
-  const ticketMatch = beforeCursorInLine.match(/#([^\s#]*)$/)
-  const titleMatch = beforeCursorInLine.match(/"([^"]*)$/)
-
-  if (slashMatch && textAreaRef.current) {
-    const coords = getCursorXY(textAreaRef.current, pos)
-    setMenu({
-      open: true,
-      type: 'param',
-      filter: slashMatch[1] || '',
-      selectedIndex: 0,
-      coords,
-    })
-  } else if (clientMatch && textAreaRef.current) {
-    const coords = getCursorXY(textAreaRef.current, pos)
-    setMenu({
-      open: true,
-      type: 'client',
-      filter: clientMatch[1] || '',
-      selectedIndex: 0,
-      coords,
-    })
-  } else if (ticketMatch && textAreaRef.current) {
-    const coords = getCursorXY(textAreaRef.current, pos)
-    setMenu({
-      open: true,
-      type: 'ticket',
-      filter: ticketMatch[1] || '',
-      selectedIndex: 0,
-      coords,
-    })
-  } else if (titleMatch && textAreaRef.current) {
-    const coords = getCursorXY(textAreaRef.current, pos)
-    setMenu({
-      open: true,
-      type: 'title',
-      filter: titleMatch[1] || '',
-      selectedIndex: 0,
-      coords,
-    })
-  } else {
-    setMenu(prev => ({ ...prev, open: false }))
-  }
-
-  // --- SYNC MULTIRIGA ---
-  let lastClientLineIdx = -1
-  for (let i = lineIdx; i >= 0; i--) {
-    if (lines[i].includes('@')) {
-      lastClientLineIdx = i
-      break
-    }
-  }
-
-  if (lastClientLineIdx !== -1) {
-    if (syncTimeoutRef.current[lastClientLineIdx]) {
-      clearTimeout(syncTimeoutRef.current[lastClientLineIdx])
+    if ((slashMatch || clientMatch || ticketMatch || titleMatch) && textAreaRef.current) {
+      const coords = getCursorXY(textAreaRef.current, pos);
+      setMenu({
+        open: true,
+        type: slashMatch ? 'param' : clientMatch ? 'client' : ticketMatch ? 'ticket' : 'title',
+        filter: (slashMatch || clientMatch || ticketMatch || titleMatch)![1] || '',
+        selectedIndex: 0,
+        coords
+      });
+    } else {
+      setMenu(prev => ({ ...prev, open: false }));
     }
 
-    syncTimeoutRef.current[lastClientLineIdx] = setTimeout(() => {
-      syncTicketData(lines, lastClientLineIdx)
-    }, 1000)
-  }
-}
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menu.open) {
-      const currentList = getFilteredList();
-      if (e.key === 'ArrowDown') { e.preventDefault(); setMenu(prev => ({ ...prev, selectedIndex: (prev.selectedIndex + 1) % (currentList.length || 1) })); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setMenu(prev => ({ ...prev, selectedIndex: (prev.selectedIndex - 1 + currentList.length) % (currentList.length || 1) })); }
-      else if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        const selected = currentList[menu.selectedIndex];
-        if (selected) insertText(typeof selected === 'string' ? selected : selected.value);
-      } else if (e.key === 'Escape') setMenu(prev => ({ ...prev, open: false }));
+    // Sync Delay
+    let lastClientLineIdx = -1;
+    for (let i = lineIdx; i >= 0; i--) { if (lines[i].includes('@')) { lastClientLineIdx = i; break; } }
+    if (lastClientLineIdx !== -1) {
+      if (syncTimeoutRef.current[lastClientLineIdx]) clearTimeout(syncTimeoutRef.current[lastClientLineIdx]);
+      syncTimeoutRef.current[lastClientLineIdx] = setTimeout(() => syncTicketData(lines, lastClientLineIdx), 1500);
     }
+  };
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+  if (menu.open) {
+    const list = getFilteredList();
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMenu(prev => ({ ...prev, selectedIndex: (prev.selectedIndex + 1) % list.length }));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMenu(prev => ({ ...prev, selectedIndex: (prev.selectedIndex - 1 + list.length) % list.length }));
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const selected = list[menu.selectedIndex];
+      if (selected) insertText(typeof selected === 'string' ? selected : (selected as any).value);
+    } else if (e.key === 'Escape') {
+      setMenu(prev => ({ ...prev, open: false }));
+    }
+  }
+};
+
+  const getFilteredList = useCallback(() => {
+    if (!menu.open) return [];
+    const filter = menu.filter.toLowerCase();
+    switch (menu.type) {
+      case 'param': return SPECIAL_PARAMS.filter(p => p.label.toLowerCase().includes(filter));
+      case 'client': return clients.filter(c => c.toLowerCase().includes(filter));
+      case 'ticket': return tickets.filter(t => t.toLowerCase().includes(filter));
+      case 'title':
+        const currentLine = activeLines[valutateCurrentLineIndex()] || "";
+        const clientOnLine = currentLine.match(/@([^\s]+)/)?.[1]?.toLowerCase();
+        return Array.from(new Set(
+          allTickets.filter(t => (!clientOnLine || t.cliente.toLowerCase() === clientOnLine) && t.titolo.toLowerCase().includes(filter)).map(t => t.titolo)
+        )).slice(0, 10);
+      default: return [];
+    }
+  }, [menu.open, menu.type, menu.filter, clients, tickets, allTickets, activeLines]);
+
+  const valutateCurrentLineIndex = () => {
+    if (!textAreaRef.current) return 0;
+    return (activeTab?.content || "").substring(0, textAreaRef.current.selectionStart).split('\n').length - 1;
   };
 
   const insertText = (suggestion: string) => {
-  if (!textAreaRef.current || !activeTab) return
+    if (!textAreaRef.current || !activeTab) return;
+    const pos = textAreaRef.current.selectionStart;
+    const before = activeTab.content.substring(0, pos);
+    const symbols: any = { client: '@', ticket: '#', param: '/', title: '"' };
+    const symbol = symbols[menu.type];
+    const lastSymbolPos = before.lastIndexOf(symbol);
+    if (lastSymbolPos === -1) return;
 
-  const pos = textAreaRef.current.selectionStart
-  const before = activeTab.content.substring(0, pos)
+    const textToInsert = menu.type === 'title' ? `${suggestion}" ` : `${suggestion} `;
+    const newContent = activeTab.content.substring(0, menu.type === 'param' ? lastSymbolPos : lastSymbolPos + 1) + 
+                       textToInsert + activeTab.content.substring(pos).replace(menu.type === 'param' ? /^[^\s]*/ : /^"?\s*/, '');
 
-  const symbols: Record<string, string> = {
-    client: '@',
-    ticket: '#',
-    param: '/',
-    title: '"',
-  }
-
-  const symbol = symbols[menu.type]
-  const lastSymbolPos = before.lastIndexOf(symbol)
-  if (lastSymbolPos === -1) return
-
-  const isTitle = menu.type === 'title'
-  const isParam = menu.type === 'param'
-
-  let newContent = ''
-
-  if (isParam) {
-    newContent =
-      activeTab.content.substring(0, lastSymbolPos) +
-      `${suggestion} ` +
-      activeTab.content.substring(pos).replace(/^[^\s]*/, '')
-  } else {
-    const textToInsert = isTitle ? `${suggestion}" ` : `${suggestion} `
-    newContent =
-      activeTab.content.substring(0, lastSymbolPos + 1) +
-      textToInsert +
-      activeTab.content.substring(pos).replace(/^"?\s*/, '')
-  }
-
-  setTabs(prev =>
-    prev.map(t => (t.id === activeTabId ? { ...t, content: newContent } : t))
-  )
-
-  setMenu(prev => ({ ...prev, open: false }))
-
-  setTimeout(() => {
-    const newPos = isParam
-      ? lastSymbolPos + suggestion.length + 1
-      : lastSymbolPos + 2 + suggestion.length
-
-    textAreaRef.current?.focus()
-    textAreaRef.current?.setSelectionRange(newPos, newPos)
-  }, 10)
-}
+    setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newContent } : t)));
+    setMenu(prev => ({ ...prev, open: false }));
+    setTimeout(() => textAreaRef.current?.focus(), 10);
+  };
 
   const getCursorXY = (textarea: HTMLTextAreaElement, selectionPoint: number) => {
     const div = document.createElement('div');
@@ -423,12 +356,9 @@ export default function SublimeSupabaseEditor() {
     ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'padding', 'border', 'width', 'boxSizing', 'whiteSpace', 'wordWrap'].forEach(prop => { (div.style as any)[prop] = (style as any)[prop]; });
     div.style.position = 'absolute'; div.style.visibility = 'hidden';
     div.textContent = textarea.value.substring(0, selectionPoint);
-    const span = document.createElement('span');
-    span.textContent = textarea.value.substring(selectionPoint) || '.';
-    div.appendChild(span);
-    document.body.appendChild(div);
-    const { offsetLeft, offsetTop } = span;
-    document.body.removeChild(div);
+    const span = document.createElement('span'); span.textContent = textarea.value.substring(selectionPoint) || '.';
+    div.appendChild(span); document.body.appendChild(div);
+    const { offsetLeft, offsetTop } = span; document.body.removeChild(div);
     return { top: offsetTop + (parseInt(style.lineHeight) || fontSize + 10) - textarea.scrollTop + 5, left: Math.min(offsetLeft + 20, textarea.clientWidth - 280) };
   };
 
@@ -439,7 +369,7 @@ export default function SublimeSupabaseEditor() {
     try {
       const { error } = await supabase.from("ticket").update({ in_lavorazione_ora: nextValue }).eq("n_tag", tag);
       if (error) setWorkingRows(prev => ({ ...prev, [rowIndex]: !nextValue }));
-    } catch (err) { setWorkingRows(prev => ({ ...prev, [rowIndex]: !nextValue })); }
+    } catch { setWorkingRows(prev => ({ ...prev, [rowIndex]: !nextValue })); }
     finally { setWorkingLoadingByTag(prev => ({ ...prev, [tag]: false })); }
   };
 
@@ -453,24 +383,23 @@ export default function SublimeSupabaseEditor() {
 
       {/* Sidebar */}
       <div className={`w-64 border-r flex flex-col shrink-0 ${isDarkMode ? 'bg-[#181818] border-[#121212]' : 'bg-[#f3f3f3] border-[#ddd]'}`}>
-        <div className="border-b border-black/10 p-4 py-3 flex justify-between items-center cursor-pointer" onClick={() => setShowLegend(!showLegend)}>
-          <span className="text-[9px] font-black uppercase opacity-50 tracking-widest">Legenda & Stato</span>
-          <span className="text-[10px]">{showLegend ? '▼' : '▲'}</span>
+        <div className="p-4 border-b border-black/10 flex flex-col gap-2">
+           <div className="flex items-center gap-2">
+              {localStreamStatus === 'connected' ? <Zap size={14} className="text-green-500" /> : <ZapOff size={14} className="text-red-500" />}
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Sublime Bridge: {localStreamStatus}</span>
+           </div>
+           <div className="flex items-center gap-2">
+              <Cloud size={14} className="text-blue-400" />
+              <span className="text-[10px] font-bold uppercase tracking-tighter tracking-tighter">Supabase Cloud: OK</span>
+           </div>
         </div>
-        {showLegend && (
-          <div className="px-4 pb-4 flex flex-col gap-3 text-[11px]">
-            <div className="flex justify-between"><span>@ Clienti:</span> <span className="font-bold text-blue-400">{clients.length}</span></div>
-            <div className="flex justify-between"><span># Ticket:</span> <span className="font-bold text-amber-500">{tickets.length}</span></div>
-            <hr className="opacity-10" />
-            <div className="flex flex-col gap-1.5 opacity-70 text-[10px]">
-              <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500" /> <span>Validato</span></div>
-              <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-yellow-500" /> <span>Mismatch / Errore</span></div>
-            </div>
-          </div>
-        )}
+
+        
+        
+
         <div className="flex-1 overflow-y-auto border-t border-black/10">
-          <div className="p-4 py-3 text-[9px] font-black uppercase opacity-50 flex justify-between items-center">
-            Tabs <button onClick={() => { const n = { id: Date.now(), content: "Nuovo\n" }; setTabs([...tabs, n]); setActiveTabId(n.id); }} className="text-amber-500">+</button>
+          <div className="p-4 py-3 text-[12px] font-black uppercase opacity-90 flex justify-between items-center">
+            Tabs <button onClick={() => { const n = { id: Date.now(), content: "Nuova Tab\n" }; setTabs([...tabs, n]); setActiveTabId(n.id); }} className="text-[12px] text-white-500"> +</button>
           </div>
           {tabs.map(t => (
             <div key={t.id} onClick={() => setActiveTabId(t.id)} className={`px-4 py-2 text-[11px] cursor-pointer border-l-2 flex justify-between items-center ${activeTabId === t.id ? 'bg-black/20 border-amber-500 text-amber-500' : 'border-transparent opacity-60'}`}>
@@ -479,10 +408,35 @@ export default function SublimeSupabaseEditor() {
             </div>
           ))}
         </div>
-      </div>
 
+
+          <div className="mt-auto p-4 border-t border-black/10 bg-black/10 flex flex-col gap-3">
+  {localStreamStatus === 'disconnected' ? (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2 text-amber-400">
+        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+        <p className="text-[9px] leading-tight font-bold uppercase">
+          Sublime non collegato. Scarica il ponte per iniziare.
+        </p>
+      </div>
+      {/* Passiamo un userId generato o preso da Supabase Auth */}
+      <DownloadBridge userId={userId || "guests_123"} />
+    </div>
+  ) : (
+    <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg flex items-center gap-3">
+      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
+      <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
+        Live Bridge Attivo
+      </span>
+    </div>
+  )}
+</div>
+
+</div>
+        
+      
       <div className="flex-1 flex flex-col relative min-w-0">
-        {/* Suggerimenti Menu UI */}
+        {/* Autocomplete Menu */}
         {menu.open && (
           <div style={{ top: menu.coords.top, left: menu.coords.left }} className={`absolute z-50 border shadow-2xl rounded w-80 overflow-hidden ${isDarkMode ? 'bg-[#252526] border-[#404040]' : 'bg-white border-gray-300'}`}>
             <div className="bg-black/20 px-2 py-1 text-[8px] opacity-50 font-bold uppercase border-b border-white/5">Suggerimenti {menu.type}</div>
@@ -519,7 +473,7 @@ export default function SublimeSupabaseEditor() {
           </div>
 
           <div className="relative flex-1">
-            {/* Highlighter Overlay */}
+            {/* Highlighter */}
             <div className="absolute inset-0 p-5 pt-5 pointer-events-none whitespace-pre-wrap break-words overflow-y-auto scrollbar-hide" style={{ fontSize, lineHeight: `${fontSize + 10}px` }}>
               {(activeTab?.content || "").split(/(@[^\s]+)|(#[\w\d]+)|(".*?")|(\(coll:.*?\))|(\(prod:.*?\))|(\[perc:.*?\])/g).map((part, i) => {
                   if (!part) return null;
@@ -531,12 +485,10 @@ export default function SublimeSupabaseEditor() {
                     return <span key={i} className={tokenClass(part.startsWith("(coll:") ? "text-purple-400" : "text-red-400", ok)}>{part}</span>;
                   }
                   if (part.startsWith("[perc:")) {
-                    const isNull = part.toLowerCase().includes("null");
-                    return <span key={i} className={`font-bold ${isNull ? 'text-gray-500' : 'text-orange-400'}`}>{part}</span>;
+                    return <span key={i} className={`font-bold ${part.toLowerCase().includes("null") ? 'text-gray-500' : 'text-orange-400'}`}>{part}</span>;
                   }
-                  return <span key={i} className="opacity-80">{part}</span>; // Testo delle note leggermente opaco
+                  return <span key={i} className="opacity-80">{part}</span>;
                 })}
-             
             </div>
             {/* Real Textarea */}
             <textarea
@@ -544,7 +496,6 @@ export default function SublimeSupabaseEditor() {
               spellCheck={false}
               value={activeTab?.content || ""}
               onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
               className="absolute inset-0 w-full h-full bg-transparent p-5 pt-5 outline-none resize-none text-transparent caret-white z-30 font-mono"
               style={{ fontSize, lineHeight: `${fontSize + 10}px` }}
             />
@@ -553,9 +504,16 @@ export default function SublimeSupabaseEditor() {
 
         {/* Footer */}
         <div className={`h-7 flex items-center justify-between px-3 text-[9px] font-black uppercase shrink-0 ${saveStatus === 'saving' ? 'bg-amber-600' : 'bg-[#007acc]'} text-white`}>
-          <div className="flex gap-4">
-            <span>{saveStatus === 'saving' ? 'Syncing...' : '✓ Cloud Ready'}</span>
-            <span className="opacity-50">Lines: {activeLines.length}</span>
+          <div className="flex gap-4 items-center">
+            <span className="flex items-center gap-1">
+               {saveStatus === 'saving' ? <Cloud className="animate-bounce" size={10}/> : <Cloud size={10}/>}
+               {saveStatus === 'saving' ? 'Cloud Syncing...' : 'Cloud Synced'}
+            </span>
+            {localStreamStatus === 'connected' && (
+              <span className="flex items-center gap-1 text-green-300">
+                <Terminal size={10}/> Live from Sublime
+              </span>
+            )}
           </div>
           <div className="flex gap-3">
             <button onClick={() => setIsDarkMode(!isDarkMode)}>{isDarkMode ? '🌙 Dark' : '☀️ Light'}</button>
@@ -568,5 +526,84 @@ export default function SublimeSupabaseEditor() {
         </div>
       </div>
     </div>
+  );
+}
+
+
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+
+function DownloadBridge({ userId }: { userId: string }) {
+  const downloadPackage = async () => {
+    const zip = new JSZip();
+    
+    // Il cuore del sistema: il bridge Node.js personalizzato per l'utente
+    const bridgeCode = `
+const io = require('socket.io-client');
+const fs = require('fs');
+const path = require('path');
+
+const USER_ID = "${userId}"; 
+const SERVER_URL = "https://sublime-bridge-server.onrender.com"; // <-- IL TUO URL RENDER
+const FILE_TO_WATCH = path.join(__dirname, 'lavora-qui.js');
+
+if (!fs.existsSync(FILE_TO_WATCH)) {
+    fs.writeFileSync(FILE_TO_WATCH, "// Apri questo file con Sublime Text...\\n");
+}
+
+const socket = io(SERVER_URL);
+console.log("🚀 Bridge Attivo per: " + USER_ID);
+
+socket.on('connect', () => {
+    console.log("✅ Connesso al Cloud!");
+    socket.emit('join-room', USER_ID);
+});
+
+fs.watch(FILE_TO_WATCH, (event) => {
+  if (event === 'change') {
+    try {
+        const content = fs.readFileSync(FILE_TO_WATCH, 'utf8');
+        socket.emit('code-from-sublime', { userId: USER_ID, code: content });
+        console.log("⚡ Sincronizzato!");
+    } catch(e) {}
+  }
+});`.trim();
+
+    const packageJson = JSON.stringify({
+      name: "sublime-bridge",
+      version: "1.0.0",
+      main: "bridge.js",
+      dependencies: { "socket.io-client": "^4.7.2" }
+    }, null, 2);
+
+    const startBat = `@echo off
+echo Avvio Sublime Bridge...
+IF NOT EXIST node_modules (
+    echo Installazione dipendenze in corso...
+    call npm install
+)
+node bridge.js
+pause`.trim();
+
+    zip.file("bridge.js", bridgeCode);
+    zip.file("package.json", packageJson);
+    zip.file("AVVIA_BRIDGE.bat", startBat);
+    zip.file("lavora-qui.js", "// Inizia a scrivere qui\n");
+
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, `sublime-bridge-${userId.substring(0, 5)}.zip`);
+  };
+
+  return (
+    <button 
+      onClick={downloadPackage}
+      className="group relative flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-black py-3 px-2 rounded-lg font-black text-[10px] transition-all overflow-hidden shadow-lg shadow-amber-500/20"
+    >
+      <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+      <div className="relative flex items-center gap-2">
+        <Download size={14} className="animate-bounce" />
+        SCARICA SUBLIME BRIDGE
+      </div>
+    </button>
   );
 }
