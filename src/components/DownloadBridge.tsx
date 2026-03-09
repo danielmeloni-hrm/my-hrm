@@ -7,43 +7,40 @@ export default function DownloadBridge({ userId }: { userId: string }) {
     const zip = new JSZip();
     const startBat = `
 @echo off
-title Sublime Bridge Setup
-echo ========================================
-echo        SUBLIME TO CLOUD BRIDGE
-echo ========================================
-echo.
+title Sublime Bridge Auto-Setup
+set NODE_URL=https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi
+set NODE_MSI=node_installer.msi
 
-:: Verifica se Node.js è installato
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERRORE] Node.js non e' installato!
-    echo.
-    echo Per far funzionare il bridge, devi installare Node.js.
-    echo Sto aprendo la pagina di download per te...
-    timeout /t 3
-    start https://nodejs.org/
-    echo.
-    echo Una volta installato Node.js, riavvia questo file.
+    echo ====================================================
+    echo [ATTENZIONE] Node.js non trovato!
+    echo Sto scaricando l'installer automatico per te...
+    echo ====================================================
+    
+    :: Usa PowerShell (presente in ogni Windows) per scaricare l'MSI
+    powershell -Command "Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
+    
+    echo [INFO] Download completato. Avvio installazione...
+    echo IMPORTANTE: Accetta le conferme di Windows e clicca sempre 'Avanti'.
+    
+    :: Avvia l'installazione e aspetta che finisca
+    msiexec /i %NODE_MSI% /passive /norestart
+    
+    echo [OK] Installazione finita. 
+    echo Per rendere attive le modifiche, devo riavviare questo terminale.
+    echo Premi un tasto, poi riapri AVVIA_BRIDGE.bat
+    del %NODE_MSI%
     pause
     exit
 )
 
-echo [OK] Node.js trovato.
-echo.
-
-:: Verifica dipendenze
+:: Se Node c'e', procediamo come al solito
 if not exist node_modules (
-    echo [INFO] Installazione dipendenze (solo la prima volta)...
+    echo [INFO] Installazione dipendenze bridge...
     call npm install
-    if %errorlevel% neq 0 (
-        echo [ERRORE] Errore durante npm install. Controlla la connessione.
-        pause
-        exit
-    )
 )
 
-echo [OK] Pronto! Avvio sincronizzazione...
-echo.
 node bridge.js
 pause
 `.trim();
