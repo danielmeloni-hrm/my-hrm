@@ -533,7 +533,7 @@ useEffect(() => {
           <button 
             onClick={() => {
               if (connectedFile) {
-                socketRef.current?.emit('open-external-file', { userId, fullPath: connectedFile });
+                socketRef.current?.emit('open-external-file', { userId: userId, fullPath: connectedFile });
               }
             }}
             className="bg-green-500 hover:bg-green-400 text-black px-2 py-1 rounded text-[8px] font-bold flex items-center gap-1 transition-colors"

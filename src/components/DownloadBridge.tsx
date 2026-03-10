@@ -54,10 +54,16 @@ socket.on('connect', () => {
 // ASCOLTA IL COMANDO DI APERTURA
 socket.on('open-external-file', (data) => {
     console.log("📂 Apertura file: " + data.fullPath);
+    
+    // Per Windows, usiamo explorer /select per evidenziare il file
+    // oppure explorer senza /select per aprirlo con l'app predefinita
     const command = process.platform === 'win32' 
-        ? 'start "" "' + data.fullPath + '"' 
-        : 'open "' + data.fullPath + '"';
-    exec(command);
+        ? `explorer "${data.fullPath}"` 
+        : `open "${data.fullPath}"`;
+        
+    exec(command, (err) => {
+        if (err) console.error("❌ Errore apertura:", err);
+    });
 });
 
 function syncAllFiles() {
@@ -76,19 +82,18 @@ function syncAllFiles() {
     });
 }
 
-fs.watch(folderPath, (event, filename) => {
+fs.watch(__dirname, (event, filename) => {
     if (filename && filename.endsWith('.js') && filename !== 'bridge.js') {
-        const filePath = path.join(folderPath, filename);
+        const filePath = path.join(__dirname, filename);
         if (fs.existsSync(filePath)) {
-            try {
-                const content = fs.readFileSync(filePath, 'utf8');
-                socket.emit('code-from-sublime', { 
-                    userId: USER_ID, 
-                    code: content, 
-                    fileName: filename,
-                    fullPath: filePath 
-                });
-            } catch(e) {}
+            const content = fs.readFileSync(filePath, 'utf8');
+            socket.emit('code-from-sublime', { 
+                userId: USER_ID, 
+                code: content, 
+                fileName: filename,
+                fullPath: filePath 
+            });
+            console.log("⚡ Sincronizzazione riuscita per:", filename);
         }
     }
 });`.trim();
