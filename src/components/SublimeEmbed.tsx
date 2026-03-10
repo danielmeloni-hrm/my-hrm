@@ -1,19 +1,30 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { io } from "socket.io-client";
+import { io, Socket } from "socket.io-client";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+
+type SublimeEmbedProps = {
+  socketUrl?: string;
+};
+
+type CodeUpdatePayload =
+  | string
+  | {
+      filePath?: string;
+      code?: string;
+    };
 
 const SublimeEmbed = ({
   socketUrl = "https://sublime-bridge-server.onrender.com",
-}) => {
+}: SublimeEmbedProps) => {
   const [files, setFiles] = useState<Record<string, string>>({});
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [status, setStatus] = useState("disconnesso");
+  const [status, setStatus] = useState<string>("disconnesso");
 
   useEffect(() => {
-    const socket = io(socketUrl, {
+    const socket: Socket = io(socketUrl, {
       transports: ["websocket", "polling"],
     });
 
@@ -22,54 +33,56 @@ const SublimeEmbed = ({
       setStatus("connesso");
     });
 
-    socket.on("disconnect", (reason) => {
+    socket.on("disconnect", (reason: string) => {
       console.log("Socket disconnessa:", reason);
       setStatus("disconnesso");
     });
 
-    socket.on("connect_error", (err) => {
+    socket.on("connect_error", (err: Error) => {
       console.error("Errore connessione socket:", err.message);
       setStatus("disconnesso");
     });
 
-    socket.on("code-update", (data) => {
-  console.log("Evento code-update ricevuto:", data);
+    socket.on("code-update", (data: CodeUpdatePayload) => {
+      console.log("Evento code-update ricevuto:", data);
 
-  if (typeof data === "string") {
-    setFiles((prev) => ({
-      ...prev,
-      "live_file.txt": data,
-    }));
-    setSelectedFile((prev) => prev || "live_file.txt");
-    return;
-  }
+      if (typeof data === "string") {
+        setFiles((prev) => ({
+          ...prev,
+          "live_file.txt": data,
+        }));
+        setSelectedFile((prev) => prev || "live_file.txt");
+        return;
+      }
 
-  if (!data || !data.filePath) return;
+      if (!data || !data.filePath) return;
 
-  setFiles((prev) => ({
-    ...prev,
-    [data.filePath]: data.code || "// Nessun contenuto",
-  }));
+      setFiles((prev) => ({
+        ...prev,
+        [data.filePath as string]: data.code || "// Nessun contenuto",
+      }));
 
-  setSelectedFile((prev) => prev || data.filePath);
-});
+      setSelectedFile((prev) => prev || data.filePath || null);
+    });
 
     return () => {
-  socket.disconnect();
-};
+      socket.disconnect();
+    };
   }, [socketUrl]);
 
-  const fileNames = useMemo(() => Object.keys(files).sort(), [files]);
+  const fileNames = useMemo<string[]>(() => Object.keys(files).sort(), [files]);
 
-  const currentCode = selectedFile
-    ? files[selectedFile]
-    : "// In attesa di file da Sublime...";
+  const currentCode =
+    selectedFile && files[selectedFile]
+      ? files[selectedFile]
+      : "// In attesa di file da Sublime...";
 
-  const getLanguageFromFile = (fileName) => {
+  const getLanguageFromFile = (fileName: string | null): string => {
     if (!fileName) return "javascript";
+
     const ext = fileName.split(".").pop()?.toLowerCase();
 
-    const map = {
+    const map: Record<string, string> = {
       js: "javascript",
       jsx: "jsx",
       ts: "typescript",
@@ -81,7 +94,7 @@ const SublimeEmbed = ({
       txt: "text",
     };
 
-    return map[ext] || "javascript";
+    return map[ext || ""] || "javascript";
   };
 
   return (
@@ -94,7 +107,8 @@ const SublimeEmbed = ({
         </div>
 
         <div style={styles.fileName}>
-          {selectedFile || "nessun file"} — {status === "connesso" ? "● Live" : "○ Offline"}
+          {selectedFile || "nessun file"} —{" "}
+          {status === "connesso" ? "● Live" : "○ Offline"}
         </div>
       </div>
 
@@ -133,7 +147,7 @@ const SublimeEmbed = ({
   );
 };
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   wrapper: {
     borderRadius: "12px",
     overflow: "hidden",
