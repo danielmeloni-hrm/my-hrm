@@ -4,6 +4,8 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { io, Socket } from 'socket.io-client';
 import { Terminal, Cloud, CloudOff, Zap, ZapOff,AlertCircle, Download} from 'lucide-react';
+import DownloadBridge from '@/components/DownloadBridge';
+
 
 // --- Inizializzazione Supabase ---
 const supabase = createClient(
@@ -661,81 +663,3 @@ useEffect(() => {
   );
 }
 
-
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
-
-function DownloadBridge({ userId }: { userId: string }) {
-  const downloadPackage = async () => {
-    const zip = new JSZip();
-    
-    // Il cuore del sistema: il bridge Node.js personalizzato per l'utente
-    const bridgeCode = `
-const io = require('socket.io-client');
-const fs = require('fs');
-const path = require('path');
-
-const USER_ID = "${userId}"; 
-const SERVER_URL = "https://sublime-bridge-server.onrender.com"; // <-- IL TUO URL RENDER
-const FILE_TO_WATCH = path.join(__dirname, 'lavora-qui.js');
-
-if (!fs.existsSync(FILE_TO_WATCH)) {
-    fs.writeFileSync(FILE_TO_WATCH, "// Apri questo file con Sublime Text...\\n");
-}
-
-const socket = io(SERVER_URL);
-console.log("🚀 Bridge Attivo per: " + USER_ID);
-
-socket.on('connect', () => {
-    console.log("✅ Connesso al Cloud!");
-    socket.emit('join-room', USER_ID);
-});
-
-fs.watch(FILE_TO_WATCH, (event) => {
-  if (event === 'change') {
-    try {
-        const content = fs.readFileSync(FILE_TO_WATCH, 'utf8');
-        socket.emit('code-from-sublime', { userId: USER_ID, code: content });
-        console.log("⚡ Sincronizzato!");
-    } catch(e) {}
-  }
-});`.trim();
-
-    const packageJson = JSON.stringify({
-      name: "sublime-bridge",
-      version: "1.0.0",
-      main: "bridge.js",
-      dependencies: { "socket.io-client": "^4.7.2" }
-    }, null, 2);
-
-    const startBat = `@echo off
-echo Avvio Sublime Bridge...
-IF NOT EXIST node_modules (
-    echo Installazione dipendenze in corso...
-    call npm install
-)
-node bridge.js
-pause`.trim();
-
-    zip.file("bridge.js", bridgeCode);
-    zip.file("package.json", packageJson);
-    zip.file("AVVIA_BRIDGE.bat", startBat);
-    zip.file("lavora-qui.js", "// Inizia a scrivere qui\n");
-
-    const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, `sublime-bridge-${userId.substring(0, 5)}.zip`);
-  };
-
-  return (
-    <button 
-      onClick={downloadPackage}
-      className="group relative flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-black py-3 px-2 rounded-lg font-black text-[10px] transition-all overflow-hidden shadow-lg shadow-amber-500/20"
-    >
-      <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-      <div className="relative flex items-center gap-2">
-        <Download size={14} className="animate-bounce" />
-        SCARICA SUBLIME BRIDGE
-      </div>
-    </button>
-  );
-}

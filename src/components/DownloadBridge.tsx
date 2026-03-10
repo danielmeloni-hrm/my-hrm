@@ -9,45 +9,31 @@ export default function DownloadBridge({ userId }: { userId: string }) {
   const downloadPackage = async () => {
     const zip = new JSZip();
 
-    // 1. IL FILE DI AVVIO (BAT) - Versione con Auto-Download di Node.js
+    // 1. BAT CON AUTO-INSTALLAZIONE NODE
     const setupCommand = `
 @echo off
 title Sublime Bridge Auto-Setup
 set NODE_URL=https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi
 set NODE_MSI=node_installer.msi
-
 :check_node
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    if exist "C:\\Program Files\\nodejs\\node.exe" (
-        set "PATH=%PATH%;C:\\Program Files\\nodejs\\"
-        goto node_ok
-    )
-    echo ====================================================
     echo [ATTENZIONE] Node.js non trovato! Scaricamento...
-    echo ====================================================
     powershell -Command "Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%NODE_MSI%'"
-    echo [INFO] Avvio installazione... Attendi il termine.
     msiexec /i %NODE_MSI% /passive /norestart
     del %NODE_MSI%
-    echo.
-    echo [IMPORTANTE] Installazione completata. 
-    echo Chiudi questa finestra e riavvia AVVIA_BRIDGE.bat per attivare i comandi.
+    echo [OK] Installato. Riavvia questo file.
     pause
     exit
 )
-
 :node_ok
 if not exist node_modules (
-    echo [INFO] Installazione dipendenze bridge...
     call npm install
 )
-
-echo [OK] Bridge in avvio...
 node bridge.js
-pause
-`.trim();
+pause`.trim();
 
+    // 2. BRIDGE CODE CORRETTO
     const bridgeCode = `
 const io = require('socket.io-client');
 const fs = require('fs');
@@ -57,19 +43,17 @@ const { exec } = require('child_process');
 const USER_ID = "${userId}"; 
 const SERVER_URL = "https://sublime-bridge-server.onrender.com";
 const socket = io(SERVER_URL);
-
 const folderPath = __dirname;
 
-console.log("🚀 Multi-Tab Bridge Attivo per: " + USER_ID);
-
 socket.on('connect', () => {
+    console.log("✅ Connesso al Cloud!");
     socket.emit('join-room', USER_ID);
     syncAllFiles();
 });
 
-// Ascolta il comando dal sito per aprire il file fisicamente
-socket.on('open-file-locally', (data) => {
-    console.log("📂 Apertura file richiesta: " + data.fullPath);
+// ASCOLTA IL COMANDO DI APERTURA
+socket.on('open-external-file', (data) => {
+    console.log("📂 Apertura file: " + data.fullPath);
     const command = process.platform === 'win32' 
         ? 'start "" "' + data.fullPath + '"' 
         : 'open "' + data.fullPath + '"';
@@ -86,7 +70,7 @@ function syncAllFiles() {
                 userId: USER_ID, 
                 code: content, 
                 fileName: file,
-                fullPath: filePath // <--- AGGIUNTO QUI
+                fullPath: filePath 
             });
         });
     });
@@ -102,16 +86,13 @@ fs.watch(folderPath, (event, filename) => {
                     userId: USER_ID, 
                     code: content, 
                     fileName: filename,
-                    fullPath: filePath // <--- AGGIUNTO QUI
+                    fullPath: filePath 
                 });
-                console.log("⚡ Tab aggiornata: " + filename);
             } catch(e) {}
         }
     }
-});
-`.trim();
+});`.trim();
 
-    // 3. IL FILE PACKAGE.JSON
     const packageJson = JSON.stringify({
       name: "sublime-bridge",
       version: "1.0.0",
@@ -119,30 +100,23 @@ fs.watch(folderPath, (event, filename) => {
       dependencies: { "socket.io-client": "^4.7.2" }
     }, null, 2);
 
-    // AGGIUNGIAMO TUTTO ALLO ZIP
     zip.file("bridge.js", bridgeCode);
     zip.file("package.json", packageJson);
-    zip.file("AVVIA_BRIDGE.bat", setupCommand); // Usiamo setupCommand per evitare doppioni
-    zip.file("lavora-qui.js", "// Inizia a scrivere qui su Sublime Text\n");
+    zip.file("AVVIA_BRIDGE.bat", setupCommand);
+    zip.file("lavora-qui.js", "// Inizia a scrivere qui\n");
 
-    // GENERAZIONE E DOWNLOAD
     try {
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `sublime-bridge-${userId.substring(0, 5)}.zip`);
     } catch (error) {
-      console.error("Errore durante la creazione dello ZIP:", error);
+      console.error(error);
     }
   };
 
   return (
-    <button 
-      onClick={downloadPackage}
-      className="group relative flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-black py-3 px-4 rounded-lg font-black text-[10px] transition-all overflow-hidden shadow-lg shadow-amber-500/20 w-full"
-    >
-      <div className="relative flex items-center gap-2">
-        <Download size={14} className="animate-bounce" />
-        SCARICA SUBLIME BRIDGE
-      </div>
+    <button onClick={downloadPackage} className="bg-amber-500 hover:bg-amber-600 text-black py-3 px-4 rounded-lg font-black text-[10px] w-full flex items-center justify-center gap-2">
+      <Download size={14} className="animate-bounce" />
+      SCARICA SUBLIME BRIDGE
     </button>
   );
 }
