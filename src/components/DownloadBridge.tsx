@@ -52,7 +52,7 @@ pause
 const io = require('socket.io-client');
 const fs = require('fs');
 const path = require('path');
-
+const { exec } = require('child_process')
 const USER_ID = "${userId}"; 
 const SERVER_URL = "https://sublime-bridge-server.onrender.com";
 const socket = io(SERVER_URL);
@@ -67,7 +67,22 @@ socket.on('connect', () => {
     // Invia subito tutti i file esistenti al sito
     syncAllFiles();
 });
-
+// Ascolta l'istruzione dal sito per aprire il file
+socket.on('open-file-locally', (data) => {
+    console.log("📂 Apertura file richiesta: " + data.fullPath);
+    // Comando per Windows (start), Mac (open) o Linux (xdg-open)
+    const command = process.platform === 'win32' 
+        ? 'start "" "' + data.fullPath + '"' 
+        : 'open "' + data.fullPath + '"';
+    exec(command);
+});
+// --- NUOVA LOGICA: Ascolta il comando dal sito ---
+socket.on('open-file-locally', (data) => {
+    console.log("📂 Richiesta apertura file: " + data.fullPath);
+    // Questo comando apre il file con l'applicazione predefinita (Sublime)
+    const command = process.platform === 'win32' ? 'start "" "' + data.fullPath + '"' : 'open "' + data.fullPath + '"';
+    exec(command);
+});
 function syncAllFiles() {
     fs.readdir(folderPath, (err, files) => {
         if (err) return;

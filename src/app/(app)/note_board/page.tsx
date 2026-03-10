@@ -504,22 +504,41 @@ useEffect(() => {
       <DownloadBridge userId={userId || "guests_123"} />
     </div>
   ) : (
-    <div className="bg-green-500/10 border border-green-500/30 p-3 rounded-lg flex flex-col gap-1">
-      <div className="flex items-center gap-3">
-        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
-        <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">
-          Bridge Sincronizzato
-        </span>
-      </div>
-      {connectedFile && (
-        <div className="flex items-center gap-1.5 mt-1 opacity-80 border-t border-green-500/20 pt-1">
-          <Terminal size={10} className="text-green-500" />
-          <span className="text-[9px] font-mono text-green-200 truncate">
-            File: <span className="underline italic text-white">{connectedFile}</span>
-          </span>
-        </div>
-      )}
+    <div className="bg-green-500/10 border border-green-500/30 p-2 rounded-lg flex flex-col gap-2">
+  <div className="flex items-center justify-between gap-2">
+    {/* Status compatto */}
+    <div className="flex items-center gap-2">
+      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
+      <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">
+        SINCRO
+      </span>
     </div>
+
+    {/* Pulsante di apertura */}
+    <button 
+      onClick={() => {
+        if (connectedFile) {
+          // Invia l'evento al server che poi lo girerà al bridge
+          socketRef.current?.emit('open-external-file', { 
+            userId, 
+            fullPath: connectedFile 
+          });
+        }
+      }}
+      className="bg-green-500 hover:bg-green-400 text-black px-2 py-1 rounded text-[8px] font-bold flex items-center gap-1 transition-colors"
+    >
+      <Download size={10} className="rotate-180" /> {/* Icona invertita per "apri" */}
+      OPEN SUB-T
+    </button>
+  </div>
+
+  {/* Mostra solo il nome del file, non tutto il path, per pulizia */}
+  {connectedFile && (
+    <div className="text-[8px] font-mono text-green-200/60 truncate border-t border-green-500/20 pt-1">
+      FILE: {connectedFile.split('\\').pop()?.split('/').pop()}
+    </div>
+  )}
+</div>
   )}
 </div>
 
