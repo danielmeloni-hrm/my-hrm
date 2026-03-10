@@ -55,32 +55,49 @@ const path = require('path');
 
 const USER_ID = "${userId}"; 
 const SERVER_URL = "https://sublime-bridge-server.onrender.com";
-const FILE_TO_WATCH = path.join(__dirname, 'lavora-qui.js');
-
-if (!fs.existsSync(FILE_TO_WATCH)) {
-    fs.writeFileSync(FILE_TO_WATCH, "// Apri questo file con Sublime Text...\\n");
-}
-
 const socket = io(SERVER_URL);
-console.log("🚀 Bridge Attivo per: " + USER_ID);
+
+// Monitoriamo tutta la cartella corrente
+const folderPath = __dirname;
+
+console.log("🚀 Multi-Tab Bridge Attivo per: " + USER_ID);
 
 socket.on('connect', () => {
-    console.log("✅ Connesso al Cloud!");
     socket.emit('join-room', USER_ID);
-    socket.emit('bridge-status', { 
-      fileName: path.basename(FILE_TO_WATCH)
-    });
+    // Invia subito tutti i file esistenti al sito
+    syncAllFiles();
 });
 
-fs.watch(FILE_TO_WATCH, (event) => {
-  if (event === 'change') {
-    try {
-        const content = fs.readFileSync(FILE_TO_WATCH, 'utf8');
-        socket.emit('code-from-sublime', { userId: USER_ID, code: content });
-        console.log("⚡ Sincronizzato!");
-    } catch(e) {}
-  }
-});`.trim();
+function syncAllFiles() {
+    fs.readdir(folderPath, (err, files) => {
+        if (err) return;
+        files.filter(f => f.endsWith('.js') && f !== 'bridge.js').forEach(file => {
+            const content = fs.readFileSync(path.join(folderPath, file), 'utf8');
+            socket.emit('code-from-sublime', { 
+                userId: USER_ID, 
+                code: content, 
+                fileName: file 
+            });
+        });
+    });
+}
+
+// Guarda se aggiungi, elimini o modifichi file
+fs.watch(folderPath, (event, filename) => {
+    if (filename && filename.endsWith('.js') && filename !== 'bridge.js') {
+        const filePath = path.join(folderPath, filename);
+        if (fs.existsSync(filePath)) {
+            const content = fs.readFileSync(filePath, 'utf8');
+            socket.emit('code-from-sublime', { 
+                userId: USER_ID, 
+                code: content, 
+                fileName: filename 
+            });
+            console.log("⚡ Tab aggiornata/creata: " + filename);
+        }
+    }
+});
+`.trim();
 
     // 3. IL FILE PACKAGE.JSON
     const packageJson = JSON.stringify({

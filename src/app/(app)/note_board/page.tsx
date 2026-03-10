@@ -194,28 +194,44 @@ export default function SublimeSupabaseEditor() {
 
   // --- Sublime Stream Effect ---
   useEffect(() => {
-    socketRef.current = io('https://sublime-bridge-server.onrender.com');
+    socketRef.current = io('http://localhost:4000');
 
     socketRef.current.on('connect', () => setLocalStreamStatus('connected'));
     socketRef.current.on('disconnect', () => setLocalStreamStatus('disconnected'));
-    socketRef.current.on('bridge-status', (status: { fileName: string }) => {
-      setConnectedFile(status.fileName);
-    });
+    socketRef.current.on('bridge-status', (status: { fileName: string, fullPath?: string }) => {
+  // Salviamo il nome o il percorso completo se disponibile
+  setConnectedFile(status.fullPath || status.fileName);
+  setLocalStreamStatus('connected');
+});
 
     // Resetta se si disconnette
     socketRef.current.on('disconnect', () => {
       setLocalStreamStatus('disconnected');
       setConnectedFile(null);
     });
-    socketRef.current.on('code-update', (newCode: string) => {
-      setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newCode } : t)));
-      
-      // Trigger automatico sync Supabase su ogni riga @ rilevata
-      const lines = newCode.split('\n');
-      lines.forEach((line, idx) => {
-        if (line.includes('@')) syncTicketData(lines, idx);
-      });
-    });
+    socketRef.current.on('code-update', (data: { code: string, fileName: string }) => {
+  setLocalStreamStatus('connected');
+  setConnectedFile(data.fileName);
+
+  setTabs(prev => {
+    // 1. Cerchiamo se esiste già una tab con lo stesso nome file
+    const existingTab = prev.find(t => t.id.toString() === data.fileName);
+
+    if (existingTab) {
+      // 2. Se esiste, aggiorna solo il contenuto
+      return prev.map(t => 
+        t.id.toString() === data.fileName ? { ...t, content: data.code } : t
+      );
+    } else {
+      // 3. Se NON esiste, crea una nuova tab!
+      const newTab = {
+        id: data.fileName as any, // Usiamo il nome file come ID univoco
+        content: data.code
+      };
+      return [...prev, newTab];
+    }
+  });
+});
 
     return () => { socketRef.current?.disconnect(); };
   }, [activeTabId, syncTicketData]);
@@ -223,7 +239,7 @@ export default function SublimeSupabaseEditor() {
   // --- Lifecycle ---
  useEffect(() => {
   const init = async () => {
-    // 1. Gestione User ID (Recupera o Crea)
+    // 1. Gestione User ID
     let storedId = localStorage.getItem('sublime_user_id');
     if (!storedId) {
       storedId = "user_" + Math.random().toString(36).substring(2, 9);
@@ -231,18 +247,75 @@ export default function SublimeSupabaseEditor() {
     }
     setUserId(storedId);
 
-    // 2. Il resto del tuo caricamento dati...
+    // 2. Caricamento Dati API
     await fetchData();
+
+    // 3. RECUPERO TAB DAL LOCALSTORAGE (La parte mancante!)
     const savedTabs = localStorage.getItem('sublime_tabs');
-    // ... logica per caricare le tab ...
+    if (savedTabs) {
+      try {
+        const parsedTabs = JSON.parse(savedTabs);
+        if (parsedTabs.length > 0) {
+          setTabs(parsedTabs);
+          setActiveTabId(parsedTabs[0].id); // Imposta la prima tab come attiva
+        } else {
+          // Se il log è vuoto, crea una tab di default
+          const defaultTab = { id: Date.now(), content: "// Inizia a scrivere...\n" };
+          setTabs([defaultTab]);
+          setActiveTabId(defaultTab.id);
+        }
+      } catch (e) {
+        console.error("Errore nel parsing delle tab salvate", e);
+      }
+    } else {
+      // Se non c'è nulla nel localStorage, crea la prima tab
+      const defaultTab = { id: Date.now(), content: "// Benvenuto!\n" };
+      setTabs([defaultTab]);
+      setActiveTabId(defaultTab.id);
+    }
+
     setLoading(false);
   };
   init();
 }, [fetchData]);
 
-  useEffect(() => {
-    if (!loading) localStorage.setItem('sublime_tabs', JSON.stringify(tabs));
-  }, [tabs, loading]);
+ // --- Sublime Stream Effect ---
+useEffect(() => {
+  if (!userId) return; // Non connetterti se l'ID non è pronto
+
+  // CAMBIO QUI: Punta al server Render, non a localhost
+  socketRef.current = io('https://sublime-bridge-server.onrender.com');
+
+  socketRef.current.on('connect', () => {
+    setLocalStreamStatus('connected');
+    // IMPORTANTE: Diciamo al server di unirsi alla stanza dell'utente
+    socketRef.current?.emit('join-room', userId);
+  });
+
+  socketRef.current.on('disconnect', () => {
+    setLocalStreamStatus('disconnected');
+    setConnectedFile(null);
+  });
+
+  // Riceve lo stato dal bridge (nome file)
+  socketRef.current.on('bridge-status', (status: { fileName: string }) => {
+    setConnectedFile(status.fileName);
+    setLocalStreamStatus('connected');
+  });
+
+  // Riceve il codice e sincronizza Supabase
+  socketRef.current.on('code-update', (newCode: string) => {
+    setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newCode } : t)));
+    setLocalStreamStatus('connected');
+
+    const lines = newCode.split('\n');
+    lines.forEach((line, idx) => {
+      if (line.includes('@')) syncTicketData(lines, idx);
+    });
+  });
+
+  return () => { socketRef.current?.disconnect(); };
+}, [activeTabId, syncTicketData, userId]); // userId aggiunto alle dipendenze
 
   const lineStates = useMemo(() => {
     return activeLines.map(line => {
@@ -528,10 +601,16 @@ export default function SublimeSupabaseEditor() {
                {saveStatus === 'saving' ? 'Cloud Syncing...' : 'Cloud Synced'}
             </span>
             {localStreamStatus === 'connected' && (
-              <span className="flex items-center gap-1 text-green-300">
-                <Terminal size={10}/> Live from Sublime
-              </span>
-            )}
+                  <span className="flex items-center gap-2 text-green-300">
+                    <Terminal size={10} className="shrink-0" />
+                    <span className="flex gap-1 items-baseline">
+                      <span>Live from Sublime:</span>
+                      <span className="text-white italic lowercase opacity-80 truncate max-w-[250px]">
+                        {connectedFile ? `Editing: \${connectedFile}` : 'In attesa di modifiche...'}
+                      </span>
+                    </span>
+                  </span>
+                )}
           </div>
           <div className="flex gap-3">
             <button onClick={() => setIsDarkMode(!isDarkMode)}>{isDarkMode ? '🌙 Dark' : '☀️ Light'}</button>
