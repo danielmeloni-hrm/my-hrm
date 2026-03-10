@@ -312,16 +312,24 @@ useEffect(() => {
 
   // Riceve il codice e sincronizza Supabase
   socketRef.current.on('code-update', (data: any) => {
-  // Se data è un oggetto (come inviato dal nuovo bridge)
   if (data.fullPath) {
     setConnectedFile(data.fullPath);
   }
 
-    const lines = newCode.split('\n');
-    lines.forEach((line, idx) => {
-      if (line.includes('@')) syncTicketData(lines, idx);
-    });
+  // Usiamo data.code che arriva dal socket, non newCode
+  const currentCode = data.code || ""; 
+  const lines = currentCode.split('\n');
+  
+  lines.forEach((line: string, idx: number) => {
+    if (line.includes('@')) syncTicketData(lines, idx);
   });
+
+  // Aggiorna anche le tab se necessario
+  setTabs(prev => {
+    const tabId = data.fileName || 'lavora-qui.js';
+    return prev.map(t => t.id.toString() === tabId ? { ...t, content: currentCode } : t);
+  });
+});
 
   return () => { socketRef.current?.disconnect(); };
 }, [activeTabId, syncTicketData, userId]); // userId aggiunto alle dipendenze
