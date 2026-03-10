@@ -5,11 +5,7 @@ export default function Page() {
     <div style={{ padding: 40 }}>
       <h1>Note Board</h1>
 
-      <SublimeEmbed
-        filePath="note_live.js"
-        socketUrl="https://sublime-bridge-server.onrender.com"
-        language="javascript"
-      />
+      <SublimeEmbed socketUrl="https://sublime-bridge-server.onrender.com" />
     </div>
   );
 }
