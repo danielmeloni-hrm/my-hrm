@@ -194,7 +194,7 @@ export default function SublimeSupabaseEditor() {
 
   // --- Sublime Stream Effect ---
   useEffect(() => {
-    socketRef.current = io('http://localhost:4000');
+    socketRef.current = io('https://sublime-bridge-server.onrender.com');
 
     socketRef.current.on('connect', () => setLocalStreamStatus('connected'));
     socketRef.current.on('disconnect', () => setLocalStreamStatus('disconnected'));
