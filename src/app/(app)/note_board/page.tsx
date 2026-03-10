@@ -193,48 +193,55 @@ export default function SublimeSupabaseEditor() {
   }, []);
 
   // --- Sublime Stream Effect ---
-  useEffect(() => {
-    socketRef.current = io('http://localhost:4000');
+  // --- Sublime Stream Effect ---
+useEffect(() => {
+  if (!userId) return;
 
-    socketRef.current.on('connect', () => setLocalStreamStatus('connected'));
-    socketRef.current.on('disconnect', () => setLocalStreamStatus('disconnected'));
-    socketRef.current.on('bridge-status', (status: { fileName: string, fullPath?: string }) => {
-  // Salviamo il nome o il percorso completo se disponibile
-  setConnectedFile(status.fullPath || status.fileName);
-  setLocalStreamStatus('connected');
-});
+  // Connessione al server Render
+  socketRef.current = io('https://sublime-bridge-server.onrender.com');
 
-    // Resetta se si disconnette
-    socketRef.current.on('disconnect', () => {
-      setLocalStreamStatus('disconnected');
-      setConnectedFile(null);
-    });
-    socketRef.current.on('code-update', (data: { code: string, fileName: string }) => {
-  setLocalStreamStatus('connected');
-  setConnectedFile(data.fileName);
-
-  setTabs(prev => {
-    // 1. Cerchiamo se esiste già una tab con lo stesso nome file
-    const existingTab = prev.find(t => t.id.toString() === data.fileName);
-
-    if (existingTab) {
-      // 2. Se esiste, aggiorna solo il contenuto
-      return prev.map(t => 
-        t.id.toString() === data.fileName ? { ...t, content: data.code } : t
-      );
-    } else {
-      // 3. Se NON esiste, crea una nuova tab!
-      const newTab = {
-        id: data.fileName as any, // Usiamo il nome file come ID univoco
-        content: data.code
-      };
-      return [...prev, newTab];
-    }
+  socketRef.current.on('connect', () => {
+    setLocalStreamStatus('connected');
+    socketRef.current?.emit('join-room', userId);
   });
-});
 
-    return () => { socketRef.current?.disconnect(); };
-  }, [activeTabId, syncTicketData]);
+  socketRef.current.on('disconnect', () => {
+    setLocalStreamStatus('disconnected');
+    setConnectedFile(null);
+  });
+
+  // Gestione ricezione codice e file info
+  socketRef.current.on('code-update', (data: any) => {
+    setLocalStreamStatus('connected');
+    
+    // 1. Aggiorna il percorso file nel footer
+    if (data.fullPath) {
+      setConnectedFile(data.fullPath);
+    } else if (data.fileName) {
+      setConnectedFile(data.fileName);
+    }
+
+    // 2. Sincronizzazione automatica Supabase
+    const lines = data.code.split('\n');
+    lines.forEach((line: string, idx: number) => {
+      if (line.includes('@')) syncTicketData(lines, idx);
+    });
+
+    // 3. Gestione Tab
+    setTabs(prev => {
+      const tabName = data.fileName || 'lavora-qui.js';
+      const existingTab = prev.find(t => t.id.toString() === tabName);
+
+      if (existingTab) {
+        return prev.map(t => t.id.toString() === tabName ? { ...t, content: data.code } : t);
+      } else {
+        return [...prev, { id: tabName as any, content: data.code }];
+      }
+    });
+  });
+
+  return () => { socketRef.current?.disconnect(); };
+}, [userId, syncTicketData]);
 
   // --- Lifecycle ---
  useEffect(() => {
@@ -304,9 +311,11 @@ useEffect(() => {
   });
 
   // Riceve il codice e sincronizza Supabase
-  socketRef.current.on('code-update', (newCode: string) => {
-    setTabs(prev => prev.map(t => (t.id === activeTabId ? { ...t, content: newCode } : t)));
-    setLocalStreamStatus('connected');
+  socketRef.current.on('code-update', (data: any) => {
+  // Se data è un oggetto (come inviato dal nuovo bridge)
+  if (data.fullPath) {
+    setConnectedFile(data.fullPath);
+  }
 
     const lines = newCode.split('\n');
     lines.forEach((line, idx) => {
@@ -518,7 +527,6 @@ useEffect(() => {
     <button 
       onClick={() => {
         if (connectedFile) {
-          // Invia l'evento al server che poi lo girerà al bridge
           socketRef.current?.emit('open-external-file', { 
             userId, 
             fullPath: connectedFile 
@@ -527,7 +535,7 @@ useEffect(() => {
       }}
       className="bg-green-500 hover:bg-green-400 text-black px-2 py-1 rounded text-[8px] font-bold flex items-center gap-1 transition-colors"
     >
-      <Download size={10} className="rotate-180" /> {/* Icona invertita per "apri" */}
+      <Download size={10} className="rotate-180" />
       OPEN SUB-T
     </button>
   </div>
@@ -620,16 +628,16 @@ useEffect(() => {
                {saveStatus === 'saving' ? 'Cloud Syncing...' : 'Cloud Synced'}
             </span>
             {localStreamStatus === 'connected' && (
-                  <span className="flex items-center gap-2 text-green-300">
-                    <Terminal size={10} className="shrink-0" />
-                    <span className="flex gap-1 items-baseline">
-                      <span>Live from Sublime:</span>
-                      <span className="text-white italic lowercase opacity-80 truncate max-w-[250px]">
-                        {connectedFile ? `Editing: \${connectedFile}` : 'In attesa di modifiche...'}
-                      </span>
-                    </span>
+              <span className="flex items-center gap-2 text-green-300">
+                <Terminal size={10} className="shrink-0" />
+                <span className="flex gap-1 items-baseline">
+                  <span>Live from Sublime:</span>
+                  <span className="text-white italic lowercase opacity-80 truncate max-w-[400px]">
+                    {connectedFile ? connectedFile : 'In attesa di modifiche...'}
                   </span>
-                )}
+                </span>
+              </span>
+            )}
           </div>
           <div className="flex gap-3">
             <button onClick={() => setIsDarkMode(!isDarkMode)}>{isDarkMode ? '🌙 Dark' : '☀️ Light'}</button>

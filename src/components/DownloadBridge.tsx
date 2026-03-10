@@ -52,63 +52,60 @@ pause
 const io = require('socket.io-client');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process')
+const { exec } = require('child_process');
+
 const USER_ID = "${userId}"; 
 const SERVER_URL = "https://sublime-bridge-server.onrender.com";
 const socket = io(SERVER_URL);
 
-// Monitoriamo tutta la cartella corrente
 const folderPath = __dirname;
 
 console.log("🚀 Multi-Tab Bridge Attivo per: " + USER_ID);
 
 socket.on('connect', () => {
     socket.emit('join-room', USER_ID);
-    // Invia subito tutti i file esistenti al sito
     syncAllFiles();
 });
-// Ascolta l'istruzione dal sito per aprire il file
+
+// Ascolta il comando dal sito per aprire il file fisicamente
 socket.on('open-file-locally', (data) => {
     console.log("📂 Apertura file richiesta: " + data.fullPath);
-    // Comando per Windows (start), Mac (open) o Linux (xdg-open)
     const command = process.platform === 'win32' 
         ? 'start "" "' + data.fullPath + '"' 
         : 'open "' + data.fullPath + '"';
     exec(command);
 });
-// --- NUOVA LOGICA: Ascolta il comando dal sito ---
-socket.on('open-file-locally', (data) => {
-    console.log("📂 Richiesta apertura file: " + data.fullPath);
-    // Questo comando apre il file con l'applicazione predefinita (Sublime)
-    const command = process.platform === 'win32' ? 'start "" "' + data.fullPath + '"' : 'open "' + data.fullPath + '"';
-    exec(command);
-});
+
 function syncAllFiles() {
     fs.readdir(folderPath, (err, files) => {
         if (err) return;
         files.filter(f => f.endsWith('.js') && f !== 'bridge.js').forEach(file => {
-            const content = fs.readFileSync(path.join(folderPath, file), 'utf8');
+            const filePath = path.join(folderPath, file);
+            const content = fs.readFileSync(filePath, 'utf8');
             socket.emit('code-from-sublime', { 
                 userId: USER_ID, 
                 code: content, 
-                fileName: file 
+                fileName: file,
+                fullPath: filePath // <--- AGGIUNTO QUI
             });
         });
     });
 }
 
-// Guarda se aggiungi, elimini o modifichi file
 fs.watch(folderPath, (event, filename) => {
     if (filename && filename.endsWith('.js') && filename !== 'bridge.js') {
         const filePath = path.join(folderPath, filename);
         if (fs.existsSync(filePath)) {
-            const content = fs.readFileSync(filePath, 'utf8');
-            socket.emit('code-from-sublime', { 
-                userId: USER_ID, 
-                code: content, 
-                fileName: filename 
-            });
-            console.log("⚡ Tab aggiornata/creata: " + filename);
+            try {
+                const content = fs.readFileSync(filePath, 'utf8');
+                socket.emit('code-from-sublime', { 
+                    userId: USER_ID, 
+                    code: content, 
+                    fileName: filename,
+                    fullPath: filePath // <--- AGGIUNTO QUI
+                });
+                console.log("⚡ Tab aggiornata: " + filename);
+            } catch(e) {}
         }
     }
 });
