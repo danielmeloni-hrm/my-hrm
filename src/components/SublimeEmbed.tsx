@@ -54,7 +54,9 @@ const SublimeEmbed = ({
       setSelectedFile((prev) => prev || data.filePath);
     });
 
-    return () => socket.disconnect();
+    return () => {
+  socket.disconnect();
+};
   }, [socketUrl]);
 
   const fileNames = useMemo(() => Object.keys(files).sort(), [files]);
