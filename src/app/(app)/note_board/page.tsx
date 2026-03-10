@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { io, Socket } from 'socket.io-client';
-import { Terminal, Cloud, CloudOff, Zap, ZapOff,AlertCircle, Download} from 'lucide-react';
+import { Terminal, Cloud, CloudOff, Zap, ZapOff,AlertCircle, Download, Power} from 'lucide-react';
 import DownloadBridge from '@/components/DownloadBridge';
 
 
@@ -56,7 +56,7 @@ export default function SublimeSupabaseEditor() {
   const [fontSize, setFontSize] = useState(14);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('saved');
   const [localStreamStatus, setLocalStreamStatus] = useState<'connected' | 'disconnected'>('disconnected');
-
+  const [isBridgeActive, setIsBridgeActive] = useState(false);
   const [workingRows, setWorkingRows] = useState<Record<number, boolean>>({});
   const [workingLoadingByTag, setWorkingLoadingByTag] = useState<Record<string, boolean>>({});
   const [syncingRows, setSyncingRows] = useState<{ [key: number]: boolean }>({});
@@ -197,9 +197,12 @@ export default function SublimeSupabaseEditor() {
   // --- Sublime Stream Effect ---
   // --- Sublime Stream Effect ---
 useEffect(() => {
-  if (!userId) return;
+  if (!userId || !isBridgeActive) {
+    socketRef.current?.disconnect();
+    setLocalStreamStatus('disconnected');
+    return;
+  }
 
-  // Connessione al server Render
   socketRef.current = io('https://sublime-bridge-server.onrender.com');
 
   socketRef.current.on('connect', () => {
@@ -207,43 +210,27 @@ useEffect(() => {
     socketRef.current?.emit('join-room', userId);
   });
 
-  socketRef.current.on('disconnect', () => {
-    setLocalStreamStatus('disconnected');
-    setConnectedFile(null);
-  });
-
-  // Gestione ricezione codice e file info
   socketRef.current.on('code-update', (data: any) => {
-    setLocalStreamStatus('connected');
-    
-    // 1. Aggiorna il percorso file nel footer
-    if (data.fullPath) {
-      setConnectedFile(data.fullPath);
-    } else if (data.fileName) {
-      setConnectedFile(data.fileName);
-    }
+    if (data.fullPath) setConnectedFile(data.fullPath);
 
-    // 2. Sincronizzazione automatica Supabase
-    const lines = data.code.split('\n');
+    const currentCode = data.code || ""; 
+    const lines = currentCode.split('\n');
     lines.forEach((line: string, idx: number) => {
       if (line.includes('@')) syncTicketData(lines, idx);
     });
 
-    // 3. Gestione Tab
     setTabs(prev => {
-      const tabName = data.fileName || 'lavora-qui.js';
-      const existingTab = prev.find(t => t.id.toString() === tabName);
-
-      if (existingTab) {
-        return prev.map(t => t.id.toString() === tabName ? { ...t, content: data.code } : t);
-      } else {
-        return [...prev, { id: tabName as any, content: data.code }];
+      const tabId = data.fileName || 'lavora-qui.js';
+      const exists = prev.find(t => t.id.toString() === tabId);
+      if (exists) {
+        return prev.map(t => t.id.toString() === tabId ? { ...t, content: currentCode } : t);
       }
+      return [...prev, { id: tabId as any, content: currentCode }];
     });
   });
 
   return () => { socketRef.current?.disconnect(); };
-}, [userId, syncTicketData]);
+}, [userId, isBridgeActive, syncTicketData]);
 
   // --- Lifecycle ---
  useEffect(() => {
@@ -512,51 +499,60 @@ useEffect(() => {
 
 
           <div className="mt-auto p-4 border-t border-black/10 bg-black/10 flex flex-col gap-3">
-  {localStreamStatus === 'disconnected' ? (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-2 text-amber-400">
-        <AlertCircle size={14} className="shrink-0 mt-0.5" />
-        <p className="text-[9px] leading-tight font-bold uppercase italic">
-          Sublime non collegato. Scarica il ponte per iniziare.
-        </p>
+  {/* MASTER SWITCH BUTTON */}
+  <button 
+    onClick={() => setIsBridgeActive(!isBridgeActive)}
+    className={`w-full py-2 rounded-md font-black text-[10px] tracking-widest transition-all flex items-center justify-center gap-2 border ${
+      isBridgeActive 
+      ? 'bg-red-500/10 border-red-500 text-red-500 hover:bg-red-500 hover:text-white' 
+      : 'bg-green-500 border-green-600 text-black hover:bg-green-400'
+    }`}
+  >
+    <Power size={12} />
+    {isBridgeActive ? 'DISCONNECT BRIDGE' : 'CONNECT BRIDGE'}
+  </button>
+
+  {isBridgeActive ? (
+    localStreamStatus === 'disconnected' ? (
+      <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg flex flex-col gap-2">
+        <div className="flex items-start gap-2 text-amber-400">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <p className="text-[9px] leading-tight font-bold uppercase italic">
+            Bridge acceso sul sito, ma nessun segnale dal PC...
+          </p>
+        </div>
+        <DownloadBridge userId={userId || "guests_123"} />
       </div>
-      <DownloadBridge userId={userId || "guests_123"} />
-    </div>
+    ) : (
+      <div className="bg-green-500/10 border border-green-500/30 p-2 rounded-lg flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
+            <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">SINCRO</span>
+          </div>
+          <button 
+            onClick={() => {
+              if (connectedFile) {
+                socketRef.current?.emit('open-external-file', { userId, fullPath: connectedFile });
+              }
+            }}
+            className="bg-green-500 hover:bg-green-400 text-black px-2 py-1 rounded text-[8px] font-bold flex items-center gap-1 transition-colors"
+          >
+            <Download size={10} className="rotate-180" />
+            OPEN SUB-T
+          </button>
+        </div>
+        {connectedFile && (
+          <div className="text-[8px] font-mono text-green-200/60 truncate border-t border-green-500/20 pt-1">
+            FILE: {connectedFile.split('\\').pop()?.split('/').pop()}
+          </div>
+        )}
+      </div>
+    )
   ) : (
-    <div className="bg-green-500/10 border border-green-500/30 p-2 rounded-lg flex flex-col gap-2">
-  <div className="flex items-center justify-between gap-2">
-    {/* Status compatto */}
-    <div className="flex items-center gap-2">
-      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]" />
-      <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">
-        SINCRO
-      </span>
+    <div className="text-center py-2 opacity-30 text-[9px] uppercase font-bold tracking-widest">
+      Bridge disattivato
     </div>
-
-    {/* Pulsante di apertura */}
-    <button 
-      onClick={() => {
-        if (connectedFile) {
-          socketRef.current?.emit('open-external-file', { 
-            userId, 
-            fullPath: connectedFile 
-          });
-        }
-      }}
-      className="bg-green-500 hover:bg-green-400 text-black px-2 py-1 rounded text-[8px] font-bold flex items-center gap-1 transition-colors"
-    >
-      <Download size={10} className="rotate-180" />
-      OPEN SUB-T
-    </button>
-  </div>
-
-  {/* Mostra solo il nome del file, non tutto il path, per pulizia */}
-  {connectedFile && (
-    <div className="text-[8px] font-mono text-green-200/60 truncate border-t border-green-500/20 pt-1">
-      FILE: {connectedFile.split('\\').pop()?.split('/').pop()}
-    </div>
-  )}
-</div>
   )}
 </div>
 

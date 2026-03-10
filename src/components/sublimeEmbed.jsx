@@ -15,7 +15,17 @@ const SublimeEmbed = ({ filePath = "file_corrente.js" }) => {
     socket.on('connect', () => setStatus("connesso"));
     socket.on('code-update', (newCode) => setCode(newCode));
     socket.on('disconnect', () => setStatus("disconnesso"));
-
+    socket.on('code-update', (data) => {
+  console.log("Dati ricevuti dal server:", data); // Controlla in console (F12)
+  
+  if (typeof data === 'string') {
+    // Se il server manda solo testo
+    setCode(data);
+  } else if (data && data.code) {
+    // Se il server manda l'oggetto completo (come nel nuovo server.js)
+    setCode(data.code);
+  }
+});
     return () => socket.disconnect();
   }, []);
 
