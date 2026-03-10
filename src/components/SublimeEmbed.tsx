@@ -8,8 +8,8 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 const SublimeEmbed = ({
   socketUrl = "https://sublime-bridge-server.onrender.com",
 }) => {
-  const [files, setFiles] = useState({});
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [status, setStatus] = useState("disconnesso");
 
   useEffect(() => {
@@ -33,26 +33,26 @@ const SublimeEmbed = ({
     });
 
     socket.on("code-update", (data) => {
-      console.log("Evento code-update ricevuto:", data);
+  console.log("Evento code-update ricevuto:", data);
 
-      if (typeof data === "string") {
-        setFiles((prev) => ({
-          ...prev,
-          "live_file.txt": data,
-        }));
-        setSelectedFile((prev) => prev || "live_file.txt");
-        return;
-      }
+  if (typeof data === "string") {
+    setFiles((prev) => ({
+      ...prev,
+      "live_file.txt": data,
+    }));
+    setSelectedFile((prev) => prev || "live_file.txt");
+    return;
+  }
 
-      if (!data || !data.filePath) return;
+  if (!data || !data.filePath) return;
 
-      setFiles((prev) => ({
-        ...prev,
-        [data.filePath]: data.code || "// Nessun contenuto",
-      }));
+  setFiles((prev) => ({
+    ...prev,
+    [data.filePath]: data.code || "// Nessun contenuto",
+  }));
 
-      setSelectedFile((prev) => prev || data.filePath);
-    });
+  setSelectedFile((prev) => prev || data.filePath);
+});
 
     return () => {
   socket.disconnect();
