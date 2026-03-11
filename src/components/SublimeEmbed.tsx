@@ -10,6 +10,7 @@ type Tab = {
 };
 
 type SublimeEmbedProps = {
+  socketUrl: string;
   tabs: Tab[];
   activeTabId: number | string;
   onSelectTab: (id: number | string) => void;
@@ -17,6 +18,7 @@ type SublimeEmbedProps = {
 };
 
 const SublimeEmbed = ({
+  socketUrl,
   tabs,
   activeTabId,
   onSelectTab,

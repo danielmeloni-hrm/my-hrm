@@ -339,11 +339,12 @@ export default function SublimeSupabaseEditor() {
           </span>
         </div>
 
-        <SublimeEmbed
-  tabs={tabs}
-  activeTabId={activeTabId}
-  onSelectTab={setActiveTabId}
-  status={localStreamStatus === 'connected' ? 'connesso' : 'disconnesso'}
+        <SublimeEmbed 
+        socketUrl="https://sublime-bridge-server.onrender.com"
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={setActiveTabId}
+        status={localStreamStatus === 'connected' ? 'connesso' : 'disconnesso'}
 />
 
         <div
