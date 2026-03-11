@@ -1,84 +1,34 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import React from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 
-type SublimeEmbedProps = {
-  socketUrl?: string;
+type Tab = {
+  id: number | string;
+  content: string;
 };
 
-type CodeUpdatePayload =
-  | string
-  | {
-      filePath?: string;
-      code?: string;
-    };
+type SublimeEmbedProps = {
+  tabs: Tab[];
+  activeTabId: number | string;
+  onSelectTab: (id: number | string) => void;
+  status?: "connesso" | "disconnesso";
+};
 
 const SublimeEmbed = ({
-  socketUrl = "https://sublime-bridge-server.onrender.com",
+  tabs,
+  activeTabId,
+  onSelectTab,
+  status = "disconnesso",
 }: SublimeEmbedProps) => {
-  const [files, setFiles] = useState<Record<string, string>>({});
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("disconnesso");
+  const activeTab =
+    tabs.find((tab) => String(tab.id) === String(activeTabId)) || tabs[0] || null;
 
-  useEffect(() => {
-    const socket: Socket = io(socketUrl, {
-      transports: ["websocket", "polling"],
-    });
-
-    socket.on("connect", () => {
-      console.log("Socket connessa:", socket.id);
-      setStatus("connesso");
-    });
-
-    socket.on("disconnect", (reason: string) => {
-      console.log("Socket disconnessa:", reason);
-      setStatus("disconnesso");
-    });
-
-    socket.on("connect_error", (err: Error) => {
-      console.error("Errore connessione socket:", err.message);
-      setStatus("disconnesso");
-    });
-
-    socket.on("code-update", (data: CodeUpdatePayload) => {
-      console.log("Evento code-update ricevuto:", data);
-
-      if (typeof data === "string") {
-        setFiles((prev) => ({
-          ...prev,
-          "live_file.txt": data,
-        }));
-        setSelectedFile((prev) => prev || "live_file.txt");
-        return;
-      }
-
-      if (!data || !data.filePath) return;
-
-      setFiles((prev) => ({
-        ...prev,
-        [data.filePath as string]: data.code || "// Nessun contenuto",
-      }));
-
-      setSelectedFile((prev) => prev || data.filePath || null);
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [socketUrl]);
-
-  const fileNames = useMemo<string[]>(() => Object.keys(files).sort(), [files]);
-
-  const currentCode =
-    selectedFile && files[selectedFile]
-      ? files[selectedFile]
-      : "// In attesa di file da Sublime...";
+  const currentCode = activeTab?.content || "// In attesa di file da Sublime...";
 
   const getLanguageFromFile = (fileName: string | null): string => {
-    if (!fileName) return "javascript";
+    if (!fileName) return "text";
 
     const ext = fileName.split(".").pop()?.toLowerCase();
 
@@ -94,47 +44,16 @@ const SublimeEmbed = ({
       txt: "text",
     };
 
-    return map[ext || ""] || "javascript";
+    return map[ext || ""] || "text";
   };
 
   return (
     <div style={styles.wrapper}>
-      <div style={styles.toolbar}>
-        <div style={styles.dots}>
-          <div style={{ ...styles.dot, backgroundColor: "#ff5f56" }} />
-          <div style={{ ...styles.dot, backgroundColor: "#ffbd2e" }} />
-          <div style={{ ...styles.dot, backgroundColor: "#27c93f" }} />
-        </div>
-
-        <div style={styles.fileName}>
-          {selectedFile || "nessun file"} —{" "}
-          {status === "connesso" ? "● Live" : "○ Offline"}
-        </div>
-      </div>
-
-      <div style={styles.body}>
-        <div style={styles.sidebar}>
-          {fileNames.length === 0 ? (
-            <div style={styles.emptyFiles}>Nessun file ricevuto</div>
-          ) : (
-            fileNames.map((file) => (
-              <button
-                key={file}
-                onClick={() => setSelectedFile(file)}
-                style={{
-                  ...styles.tabButton,
-                  ...(selectedFile === file ? styles.tabButtonActive : {}),
-                }}
-              >
-                {file}
-              </button>
-            ))
-          )}
-        </div>
+      
 
         <div style={styles.editorContainer}>
           <SyntaxHighlighter
-            language={getLanguageFromFile(selectedFile)}
+            language={getLanguageFromFile(activeTab ? String(activeTab.id) : null)}
             style={vscDarkPlus}
             customStyle={styles.codeBlock}
             showLineNumbers
@@ -142,8 +61,9 @@ const SublimeEmbed = ({
             {currentCode}
           </SyntaxHighlighter>
         </div>
-      </div>
+      
     </div>
+    
   );
 };
 
@@ -154,6 +74,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#1e1e1e",
     border: "1px solid #333",
     boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+    height: "100%",
   },
   toolbar: {
     backgroundColor: "#2d2d2d",
@@ -178,10 +99,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   body: {
     display: "flex",
-    minHeight: "520px",
+    height: "calc(100% - 41px)",
   },
   sidebar: {
-    width: "220px",
+    width: "240px",
     backgroundColor: "#181818",
     borderRight: "1px solid #2c2c2c",
     padding: "10px",
@@ -211,14 +132,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   editorContainer: {
     flex: 1,
-    maxHeight: "520px",
     overflowY: "auto",
   },
   codeBlock: {
     margin: 0,
     background: "transparent",
     fontSize: "13px",
-    minHeight: "520px",
+    minHeight: "100%",
   },
 };
 

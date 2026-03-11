@@ -7,7 +7,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import {
   User, Users, ChevronRight, Hash, Activity,
   LayoutDashboard, Search, Filter, Settings2, X, Check,
-  Plus, Minus, Maximize2, Circle, PlayCircle
+  Plus, Minus, Maximize2, Circle, PlayCircle, TriangleAlert  
 } from 'lucide-react'
 import { formatDateShort, getPingStyles, isPingExpired } from '@/lib/ticket-utils'
 
@@ -604,16 +604,23 @@ export default function GeneralDashboard() {
                                         onBlur={(e) => handleUpdateTicket(ticket.id, { titolo: e.target.value })}
                                         onChange={(e) => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, titolo: e.target.value } : t))}
                                       />
-
-                                      <div className="flex items-center gap-1 mt-1 text-gray-400">
-                                        <Hash size={7} />
-                                        <input
+                                        <textarea
                                           onClick={(e) => e.stopPropagation()}
                                           className="text-[10px] font-bold uppercase outline-none border-none bg-transparent w-full"
                                           value={ticket.n_tag || ''}
                                           placeholder="TAG"
                                           onBlur={(e) => handleUpdateTicket(ticket.id, { n_tag: e.target.value })}
                                           onChange={(e) => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, n_tag: e.target.value } : t))}
+                                        />
+                                      <div className="flex items-center gap-1 mt-1 text-gray-400">
+                                        <TriangleAlert   size={10} />
+                                        <input
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-[10px] font-bold uppercase outline-none border-none bg-transparent w-full"
+                                          value={ticket.note_importanti || ''}
+                                          placeholder="TAG"
+                                          onBlur={(e) => handleUpdateTicket(ticket.id, { note_importanti: e.target.value })}
+                                          onChange={(e) => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, note_importanti: e.target.value } : t))}
                                         />
                                       </div>
                                     </div>
