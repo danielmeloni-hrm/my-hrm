@@ -65,14 +65,14 @@ const SublimeEmbed = ({
   const currentCode = activeTab?.content || '// Seleziona un file o salva in Sublime per iniziare...';
 
   const getLanguageFromFile = (fileName: string | null): string => {
-    if (!fileName) return 'javascript';
+    if (!fileName) return 'text';
     const ext = fileName.split('.').pop()?.toLowerCase();
     const map: Record<string, string> = {
       js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx',
       json: 'json', html: 'html', css: 'css', md: 'markdown',
       txt: 'text', py: 'python', php: 'php',
     };
-    return map[ext || ''] || 'javascript';
+    return map[ext || ''] || 'text';
   };
 
   const onCodeUpdateRef = useRef(onCodeUpdate);
