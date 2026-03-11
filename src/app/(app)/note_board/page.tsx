@@ -232,12 +232,13 @@ export default function SublimeSupabaseEditor() {
     console.log("Nuovo codice ricevuto:", code);}}
             onBridgeStatusChange={handleBridgeStatusChange} // Usa la funzione stabile definita sopra
             highlightRules={[
-              { name: 'ticket', regex: /@([^\s]+)/ },
+              { name: 'cliente', regex: /@([^\s]+)/ },
               { name: 'tag', regex: /#([\w\d]+)/ },
               { name: 'title', regex: /"(.*?)"/ },
               { name: 'collaudo', regex: /\(coll:\s*([^)]+)\)/ },
               { name: 'produzione', regex: /\(prod:\s*([^)]+)\)/ },
               { name: 'percentuale', regex: /\[perc:\s*([^\]]+)\]/ },
+              { name: 'in_lavorazione', regex: /\{ora\}/ },
             ]}
           />
         </div>
