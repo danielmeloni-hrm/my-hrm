@@ -1,19 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { io, Socket } from 'socket.io-client';
-import { Terminal, Cloud, Zap, ZapOff, AlertCircle, Download, Power } from 'lucide-react';
-import DownloadBridge from '@/components/DownloadBridge';
+import { Cloud, Zap, ZapOff } from 'lucide-react';
 import SublimeEmbed from '@/components/SublimeEmbed';
 
-// --- Inizializzazione Supabase ---
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// --- Interfacce ---
 interface TicketRecord {
   n_tag: string;
   cliente: string;
@@ -25,29 +21,15 @@ interface TicketRecord {
   note?: string;
 }
 
-interface Tab {
-  id: number | string;
-  content: string;
-}
-
 export default function SublimeSupabaseEditor() {
-  const [connectedFile, setConnectedFile] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string>('');
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<number | string>(0);
+  const [userId, setUserId] = useState('');
   const [allTickets, setAllTickets] = useState<TicketRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('saved');
-  const [localStreamStatus, setLocalStreamStatus] = useState<'connected' | 'disconnected'>('disconnected');
-  const [isBridgeActive, setIsBridgeActive] = useState(false);
+  const [bridgeConnected, setBridgeConnected] = useState(false);
+  const [connectedFile, setConnectedFile] = useState<string | null>(null);
 
-  const socketRef = useRef<Socket | null>(null);
   const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
-
-  const activeTab = useMemo(
-    () => tabs.find(t => t.id === activeTabId) || tabs[0] || null,
-    [tabs, activeTabId]
-  );
 
   const fetchData = useCallback(async () => {
     try {
@@ -57,12 +39,12 @@ export default function SublimeSupabaseEditor() {
         .order('n_tag', { ascending: false });
 
       if (tData) {
-        const formattedData = tData.map(t => ({
+        const formattedData = tData.map((t) => ({
           n_tag: String(t.n_tag || '').trim(),
           titolo: String(t.titolo || '').trim(),
           in_lavorazione_ora: Boolean(t.in_lavorazione_ora),
           numero_priorita: (t as any).numero_priorita,
-          cliente: t.clienti ? String((t.clienti as any).nome).trim() : ''
+          cliente: t.clienti ? String((t.clienti as any).nome).trim() : '',
         }));
         setAllTickets(formattedData);
       }
@@ -174,8 +156,8 @@ export default function SublimeSupabaseEditor() {
 
       if (!error) {
         setSaveStatus('saved');
-        setAllTickets(prev =>
-          prev.map(t => {
+        setAllTickets((prev) =>
+          prev.map((t) => {
             const isMatch =
               queryField === 'n_tag'
                 ? t.n_tag === queryValue
@@ -197,101 +179,38 @@ export default function SublimeSupabaseEditor() {
         storedId = 'user_' + Math.random().toString(36).substring(2, 9);
         localStorage.setItem('sublime_user_id', storedId);
       }
+
       setUserId(storedId);
-
       await fetchData();
-
-      const savedTabs = localStorage.getItem('sublime_tabs');
-      if (savedTabs) {
-        try {
-          const parsedTabs = JSON.parse(savedTabs);
-          if (parsedTabs.length > 0) {
-            setTabs(parsedTabs);
-            setActiveTabId(parsedTabs[0].id);
-          } else {
-            const defaultTab = { id: Date.now(), content: '// Inizia a scrivere...\n' };
-            setTabs([defaultTab]);
-            setActiveTabId(defaultTab.id);
-          }
-        } catch (e) {
-          console.error('Errore parsing tabs', e);
-        }
-      } else {
-        const defaultTab = { id: Date.now(), content: '// Benvenuto!\n' };
-        setTabs([defaultTab]);
-        setActiveTabId(defaultTab.id);
-      }
-
       setLoading(false);
     };
 
     init();
   }, [fetchData]);
+  const handleBridgeStatusChange = useCallback(({ connected, fileName }: { connected: boolean; fileName: string | null }) => {
+    setBridgeConnected(connected);
+    setConnectedFile(fileName);
+  }, []);
+  const handleCodeUpdate = useCallback(
+    ({ code, fileName, fullPath }: { code: string; fileName: string; fullPath?: string }) => {
+      const lines = code.split('\n');
 
-  useEffect(() => {
-    localStorage.setItem('sublime_tabs', JSON.stringify(tabs));
-  }, [tabs]);
-
-  useEffect(() => {
-    if (!userId || !isBridgeActive) {
-      socketRef.current?.disconnect();
-      setLocalStreamStatus('disconnected');
-      setConnectedFile(null);
-      return;
-    }
-
-    socketRef.current = io('https://sublime-bridge-server.onrender.com');
-
-    socketRef.current.on('connect', () => {
-      setLocalStreamStatus('connected');
-      socketRef.current?.emit('join-room', userId);
-    });
-
-    socketRef.current.on('disconnect', () => {
-      setLocalStreamStatus('disconnected');
-      setConnectedFile(null);
-    });
-
-    socketRef.current.on('bridge-status', (status: { fileName: string }) => {
-      setConnectedFile(status.fileName);
-      setLocalStreamStatus('connected');
-    });
-
-    socketRef.current.on('code-update', (data: any) => {
-      if (data.fullPath) setConnectedFile(data.fullPath);
-
-      const currentCode = data.code || '';
-      const lines = currentCode.split('\n');
-
-      lines.forEach((line: string, idx: number) => {
+      lines.forEach((line, idx) => {
         if (line.includes('@')) {
-          if (syncTimeoutRef.current[idx]) clearTimeout(syncTimeoutRef.current[idx]);
+          if (syncTimeoutRef.current[idx]) {
+            clearTimeout(syncTimeoutRef.current[idx]);
+          }
+
           syncTimeoutRef.current[idx] = setTimeout(() => {
             syncTicketData(lines, idx);
           }, 600);
         }
       });
 
-      setTabs(prev => {
-        const tabId = data.fileName || 'lavora-qui.js';
-        const exists = prev.find(t => String(t.id) === String(tabId));
-
-        if (exists) {
-          return prev.map(t =>
-            String(t.id) === String(tabId) ? { ...t, content: currentCode } : t
-          );
-        }
-
-        return [...prev, { id: tabId, content: currentCode }];
-      });
-
-      setActiveTabId(data.fileName || 'lavora-qui.js');
-    });
-
-    return () => {
-      socketRef.current?.disconnect();
-    };
-  }, [userId, isBridgeActive, syncTicketData]);
+      setConnectedFile(fullPath || fileName);
+    },
+    [syncTicketData]
+  );
 
   if (loading) {
     return (
@@ -303,16 +222,38 @@ export default function SublimeSupabaseEditor() {
 
   return (
     <div className="flex h-screen w-full font-mono overflow-hidden bg-[#1e1e1e] text-[#d4d4d4]">
-      <div className="w-64 border-r flex flex-col shrink-0 bg-[#181818] border-[#121212]">
-        <div className="p-4 border-b border-black/10 flex flex-col gap-2">
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 min-h-0 p-1">
+          <SublimeEmbed
+            socketUrl="https://sublime-bridge-server.onrender.com"
+            userId={userId}
+            bridgeActive={true}
+            onCodeUpdate={handleCodeUpdate}
+            onBridgeStatusChange={handleBridgeStatusChange} // Usa la funzione stabile definita sopra
+            highlightRules={[
+              { name: 'ticket', regex: /@([^\s]+)/ },
+              { name: 'tag', regex: /#([\w\d]+)/ },
+              { name: 'title', regex: /"(.*?)"/ },
+              { name: 'collaudo', regex: /\(coll:\s*([^)]+)\)/ },
+              { name: 'produzione', regex: /\(prod:\s*([^)]+)\)/ },
+              { name: 'percentuale', regex: /\[perc:\s*([^\]]+)\]/ },
+            ]}
+          />
+        </div>
+        <div
+          className={`h-7 flex items-center justify-between px-3 text-[9px] font-black uppercase shrink-0 ${
+            saveStatus === 'saving' ? 'bg-amber-600' : 'bg-[#007acc]'
+          } text-white`}
+        >
+        
           <div className="flex items-center gap-2">
-            {localStreamStatus === 'connected' ? (
+            {bridgeConnected ? (
               <Zap size={14} className="text-green-500" />
             ) : (
               <ZapOff size={14} className="text-red-500" />
             )}
             <span className="text-[10px] font-bold uppercase tracking-tighter">
-              Sublime Bridge: {localStreamStatus}
+              Sublime Bridge: {bridgeConnected ? 'connected' : 'disconnected'}
             </span>
           </div>
 
@@ -322,53 +263,14 @@ export default function SublimeSupabaseEditor() {
               Supabase Cloud: OK
             </span>
           </div>
-        </div>
-
         
 
        
-      </div>
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-4 py-2 border-b border-black/10 bg-[#111] text-[11px] flex items-center justify-between">
-          <span className="opacity-70">
-            {activeTab ? `Tab attiva: ${String(activeTab.id)}` : 'Nessuna tab attiva'}
-          </span>
-          <span className="opacity-50">
-            {connectedFile ? connectedFile.split('\\').pop()?.split('/').pop() : 'Nessun file collegato'}
-          </span>
-        </div>
-
-        <SublimeEmbed 
-        socketUrl="https://sublime-bridge-server.onrender.com"
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelectTab={setActiveTabId}
-        status={localStreamStatus === 'connected' ? 'connesso' : 'disconnesso'}
-/>
-
-        <div
-          className={`h-7 flex items-center justify-between px-3 text-[9px] font-black uppercase shrink-0 ${
-            saveStatus === 'saving' ? 'bg-amber-600' : 'bg-[#007acc]'
-          } text-white`}
-        >
           <div className="flex gap-4 items-center">
             <span className="flex items-center gap-1">
               <Cloud size={10} />
               {saveStatus === 'saving' ? 'Cloud Syncing...' : 'Cloud Synced'}
             </span>
-
-            {localStreamStatus === 'connected' && (
-              <span className="flex items-center gap-2 text-green-300">
-                <Terminal size={10} className="shrink-0" />
-                <span className="flex gap-1 items-baseline">
-                  <span>Live from Sublime:</span>
-                  <span className="text-white italic lowercase opacity-80 truncate max-w-[400px]">
-                    {connectedFile ? connectedFile : 'In attesa di modifiche...'}
-                  </span>
-                </span>
-              </span>
-            )}
           </div>
         </div>
       </div>
