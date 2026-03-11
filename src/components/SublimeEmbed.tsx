@@ -155,8 +155,8 @@ const SublimeEmbed = ({
     return {
       style: {
         display: 'block',
-        background: 'rgba(8, 234, 830.05)',
-        borderLeft: '3px solid #08ea53',
+        background: 'rgba(0, 207, 93, 0.25)',
+        borderLeft: '3px solid #00c75a',
       },
     };
   };
