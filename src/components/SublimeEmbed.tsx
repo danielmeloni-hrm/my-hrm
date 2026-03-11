@@ -106,7 +106,8 @@ const SublimeEmbed = ({
     });
 
     socket.on('code-update', (data: any) => {
-      const nextFileName = data.fileName || 'unnamed.js';
+      const rawPath = data.fileName || data.fullPath || 'unnamed.js';
+      const nextFileName = rawPath.split(/[\\/]/).pop() || 'unnamed.js';
       const nextCode = data.code || '';
       const nextFullPath = data.fullPath || null;
 
@@ -154,8 +155,8 @@ const SublimeEmbed = ({
     return {
       style: {
         display: 'block',
-        background: 'rgba(255,255,0,0.05)',
-        borderLeft: '3px solid #eab308',
+        background: 'rgba(8, 234, 830.05)',
+        borderLeft: '3px solid #08ea53',
       },
     };
   };
