@@ -228,7 +228,8 @@ export default function SublimeSupabaseEditor() {
             socketUrl="https://sublime-bridge-server.onrender.com"
             userId={userId}
             bridgeActive={true}
-            onCodeUpdate={handleCodeUpdate}
+            onCodeUpdate={({ code, fileName, tabs }) => {
+    console.log("Nuovo codice ricevuto:", code);}}
             onBridgeStatusChange={handleBridgeStatusChange} // Usa la funzione stabile definita sopra
             highlightRules={[
               { name: 'ticket', regex: /@([^\s]+)/ },
