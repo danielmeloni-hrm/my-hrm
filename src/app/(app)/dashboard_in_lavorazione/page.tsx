@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
-import { AppWindow } from "lucide-react";
+import { AppWindow,TriangleAlert } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 type Profile = {
@@ -429,6 +429,7 @@ function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boole
             ))}
           </div>
         ) : null}
+      
 
         {/* CONTAINER PALLINI (PRIORITÀ E PERCENTUALE) */}
         <div className="ml-auto flex gap-1.5 items-center">
@@ -451,11 +452,18 @@ function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boole
               {ticket.numero_priorita}
             </span>
           )}
-        </div>
+        </div>  
+        
       </div>
 
       <h3 className="text-[13px] font-bold text-gray-800 leading-tight">{ticket.titolo || "—"}</h3>
       <h4 className="text-[9px] font-bold text-gray-800 leading-tight">{ticket.n_tag || "—"}</h4>
+      <div className="flex items-center gap-1 mt-1 text-gray-400">
+      <TriangleAlert   size={10} />
+      <p className="text-[10px] font-bold uppercase outline-none border-none bg-transparent w-full">
+            {ticket.note_importanti || "N/D"}
+          </p>
+        </div>
     </div>
   );
 
