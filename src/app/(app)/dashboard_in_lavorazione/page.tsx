@@ -20,6 +20,7 @@ type Ticket = {
   numero_priorita?: number | null;
   in_lavorazione_ora?: boolean | null;
   stato?: string | null;
+  note_importanti?: string | null;
   percentuale_avanzamento?: number | null;
   clienti?: { nome?: string | null } | null;
   profili?: { nome_completo?: string | null } | null;
@@ -84,6 +85,7 @@ export default function TicketsDashboardByAssignee() {
           n_tag,
           in_lavorazione_ora,
           numero_priorita,
+          note_importanti,
           percentuale_avanzamento,
           clienti:cliente_id ( nome ),
           profili:assignee ( nome_completo )
@@ -261,7 +263,7 @@ export default function TicketsDashboardByAssignee() {
           </div>
 
           <div className="flex gap-3 flex-wrap">
-            <div className="flex bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
+            <div className="flex bg-white border border-gray-100 rounded-l p-1 shadow-sm">
               {(["Sprint", "Opex"] as const).map((type) => (
                 <button
                   key={type}
@@ -280,7 +282,7 @@ export default function TicketsDashboardByAssignee() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Cerca cliente / titolo / app..."
-              className="px-4 py-2 rounded-xl bg-white border border-gray-100 text-[12px] font-bold outline-none w-72"
+              className="px-4 py-2 rounded-l bg-white border border-gray-100 text-[12px] font-bold outline-none w-72"
               style={{
                 boxShadow: "0 1px 0 rgba(0,0,0,0.02)",
               }}
@@ -289,7 +291,7 @@ export default function TicketsDashboardByAssignee() {
             <select
               value={filterCliente}
               onChange={(e) => setFilterCliente(e.target.value)}
-              className="px-4 py-2 rounded-xl bg-white border border-gray-100 text-[12px] font-bold outline-none min-w-[160px]"
+              className="px-4 py-2 rounded-l bg-white border border-gray-100 text-[12px] font-bold outline-none min-w-[160px]"
             >
               <option value="">Tutti i Clienti</option>
               {CLIENT_OPTIONS.map((c) => (
@@ -311,12 +313,12 @@ export default function TicketsDashboardByAssignee() {
               return (
                 <div
                   key={col.key}
-                  className="flex-shrink-0 w-96 bg-gray-50/50 p-3 rounded-[1rem] border border-gray-100 flex flex-col gap-4"
+                  className="flex-shrink-0 w-96 bg-gray-50/50 p-3 rounded-[10px] border border-gray-100 flex flex-col gap-4"
                 >
                   {/* HEADER DIPENDENTE */}
-                  <div className="flex items-center justify-between px-5 py-4 rounded-2xl bg-white shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between px-5 py-4 rounded-l bg-white shadow-sm border border-gray-100">
                     <div className="min-w-0">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">Dipendente</div>
+                     
                       <div className="text-[16px] font-black text-black truncate">{col.name}</div>
                     </div>
                     <span className="text-xs font-black bg-gray-50 px-2 py-0.5 rounded-lg text-gray-500">
@@ -406,29 +408,20 @@ export default function TicketsDashboardByAssignee() {
 function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boolean }) {
   const card = (
     <div
-      className={`bg-white p-6 rounded-[1rem] border shadow-sm hover:shadow-xl transition-all cursor-pointer ${
+      className={`bg-white p-6 rounded-[10px] border shadow-sm hover:shadow-xl transition-all cursor-pointer ${
         isDragging ? "pointer-events-none" : ""
       }`}
       style={{ borderColor: BRAND_BORDER }}
     >
       <div className="flex flex-wrap gap-2 items-center mb-3">
         <span
-          className="text-[9px] font-black px-3 py-1 rounded-full uppercase italic"
+          className="text-[9px] font-black px-3 py-1 rounded-full uppercase "
           style={{ color: BRAND, background: BRAND_BG }}
         >
           {ticket.clienti?.nome || "N/D"}
         </span>
 
-        {ticket.applicativo && Array.isArray(ticket.applicativo) && ticket.applicativo.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {ticket.applicativo.map((app, idx) => (
-              <span key={idx} className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
-                <AppWindow size={10} />
-                {app}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        
       
 
         {/* CONTAINER PALLINI (PRIORITÀ E PERCENTUALE) */}
@@ -455,13 +448,25 @@ function TicketCard({ ticket, isDragging }: { ticket: Ticket; isDragging?: boole
         </div>  
         
       </div>
+      <div className="flex flex-wrap gap-2 items-center mb-3">
+      {ticket.applicativo && Array.isArray(ticket.applicativo) && ticket.applicativo.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {ticket.applicativo.map((app, idx) => (
+              <span key={idx} className="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-md flex items-center gap-1">
+                <AppWindow size={10} />
+                {app}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
-      <h3 className="text-[13px] font-bold text-gray-800 leading-tight">{ticket.titolo || "—"}</h3>
-      <h4 className="text-[9px] font-bold text-gray-800 leading-tight">{ticket.n_tag || "—"}</h4>
+      </div>
+      <h3 className="text-[15px] font-bold text-gray-800 leading-tight">{ticket.titolo || "—"}</h3>
+      <h4 className="text-[11px] font-bold text-gray-800 leading-tight">{ticket.n_tag || "—"}</h4>
       <div className="flex items-center gap-1 mt-1 text-gray-400">
-      <TriangleAlert   size={10} />
-      <p className="text-[10px] font-bold uppercase outline-none border-none bg-transparent w-full">
-            {ticket.note_importanti || "N/D"}
+      <TriangleAlert   size={10} className="text-yellow-500 stroke-[2.5]" />
+      <p className="text-[11px] font-bold uppercase outline-none border-none bg-transparent w-full">
+            {ticket.note_importanti || ""}
           </p>
         </div>
     </div>

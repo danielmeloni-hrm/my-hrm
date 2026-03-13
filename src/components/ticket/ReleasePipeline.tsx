@@ -28,7 +28,7 @@ export default function ReleasePipeline({ ticketData, onUpdate }: PipelineProps)
   ]
 
   return (
-    <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-sm space-y-6">
+    <div className="p-8 bg-white border border-gray-100 rounded-[10px] shadow-sm space-y-6">
       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 pb-4">
         Release Pipeline
       </h3>
@@ -36,7 +36,7 @@ export default function ReleasePipeline({ ticketData, onUpdate }: PipelineProps)
         {steps.map((step) => {
           const isDone = !!ticketData[step.statusField]
           return (
-            <div key={step.label} className={`p-4 rounded-3xl border transition-all ${isDone ? step.activeClass : 'bg-gray-50/50 border-gray-100'}`}>
+            <div key={step.label} className={`p-4 rounded-l border transition-all ${isDone ? step.activeClass : 'bg-gray-50/50 border-gray-100'}`}>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-xl ${isDone ? 'bg-white/50' : 'bg-white text-gray-300'}`}>

@@ -58,7 +58,7 @@ export default function MailThread({ ticketData, onUpdate, saving }: MailThreadP
   }
 
   return (
-    <div className={`bg-white border transition-all duration-300 rounded-[24px] shadow-sm overflow-hidden flex flex-col ${
+    <div className={`bg-white border transition-all duration-300 rounded-[10px] shadow-sm overflow-hidden flex flex-col ${
       isOverdue ? 'border-red-200 ring-2 ring-red-50' : 'border-gray-100'
     }`}>
       
