@@ -211,6 +211,8 @@ export default function TicketsDashboardByAssignee() {
       in_lavorazione_ora: dstInWork,
       sprint: filterSprint,
       ultimo_ping: movedPing,
+      
+      
     };
 
     const dstWithout = dstList.filter((t) => t.id !== draggableId);
@@ -262,7 +264,7 @@ export default function TicketsDashboardByAssignee() {
             </p>
           </div>
 
-          <div className="flex gap-3 flex-wrap">
+          <div className="flex gap-2 flex-wrap">
             <div className="flex bg-white border border-gray-100 rounded-l p-1 shadow-sm">
               {(["Sprint", "Opex"] as const).map((type) => (
                 <button
@@ -305,7 +307,7 @@ export default function TicketsDashboardByAssignee() {
 
         {/* BOARD */}
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="flex gap-6 overflow-x-auto pb-10 scrollbar-hide items-start">
+          <div className="flex gap-4 overflow-x-auto pb-10 scrollbar-hide items-start">
             {assigneeColumns.map((col) => {
               const workTickets = getSortedList(col.key, "work");
               const sprintTickets = getSortedList(col.key, "sprint");
@@ -313,7 +315,7 @@ export default function TicketsDashboardByAssignee() {
               return (
                 <div
                   key={col.key}
-                  className="flex-shrink-0 w-96 bg-gray-50/50 p-3 rounded-[10px] border border-gray-100 flex flex-col gap-4"
+                  className="flex-shrink-0 w-96 bg-[#0150a0]/30 p-3 rounded-[10px] border border-gray-200 flex flex-col gap-4"
                 >
                   {/* HEADER DIPENDENTE */}
                   <div className="flex items-center justify-between px-5 py-4 rounded-l bg-white shadow-sm border border-gray-100">
@@ -321,7 +323,7 @@ export default function TicketsDashboardByAssignee() {
                      
                       <div className="text-[16px] font-black text-black truncate">{col.name}</div>
                     </div>
-                    <span className="text-xs font-black bg-gray-50 px-2 py-0.5 rounded-lg text-gray-500">
+                    <span className="text-xs font-black bg-gray-50 px-2 py-0.5 rounded-l text-gray-500">
                       {workTickets.length + sprintTickets.length}
                     </span>
                   </div>
@@ -329,11 +331,11 @@ export default function TicketsDashboardByAssignee() {
                   {/* SEZIONE WORK */}
                   <div className="flex flex-col flex-1">
                     <div
-                      className="flex items-center justify-between px-5 py-4 rounded-lg shadow-sm mb-4"
+                      className="flex items-center justify-between px-5 py-4 rounded-l shadow-sm mb-4"
                       style={{ background: BRAND_BG, color: BRAND }}
                     >
                       <span className="text-[10px] font-black uppercase tracking-widest">In lavorazione ora</span>
-                      <span className="text-xs font-black bg-white/50 px-2 py-0.5 rounded-lg">{workTickets.length}</span>
+                      <span className="text-xs font-black bg-white/50 px-2 py-0.5 rounded-l">{workTickets.length}</span>
                     </div>
 
                     <Droppable droppableId={WORK_ID(col.key)}>
@@ -365,7 +367,7 @@ export default function TicketsDashboardByAssignee() {
 
                   {/* SEZIONE SPRINT/OPEX */}
                   <div className="flex flex-col flex-1">
-                    <div className="flex items-center justify-between px-5 py-4 rounded-2xl bg-gray-100 text-gray-600 shadow-sm mb-4">
+                    <div className="flex items-center justify-between px-5 py-4 rounded-l bg-gray-100 text-gray-600 shadow-sm mb-4">
                       <span className="text-[10px] font-black uppercase tracking-widest text-wrap">In {filterSprint}</span>
                       <span className="text-xs font-black bg-white/60 px-2 py-0.5 rounded-lg">{sprintTickets.length}</span>
                     </div>
