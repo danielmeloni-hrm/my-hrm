@@ -62,9 +62,30 @@ export default function StoricoTicketPage() {
   const [selectedAttivita, setSelectedAttivita] = useState('');
   const [filterAttenzioneBusiness, setFilterAttenzioneBusiness] = useState(false);
 
+  const [selectedStato, setSelectedStato] = useState(''); // Nuovo stato per il filtro
   const [listaAssegnatari, setListaAssegnatari] = useState<any[]>([]);
   const [listaClienti, setListaClienti] = useState<any[]>([]);
-
+  const [sortConfig, setSortConfig] = useState<{
+      key: string | null;
+      direction: "asc" | "desc";
+    }>({
+      key: null,
+      direction: "asc"
+    });
+  const handleSort = (key: string) => {
+  setSortConfig((prev) => {
+    if (prev.key === key) {
+      return {
+        key,
+        direction: prev.direction === "asc" ? "desc" : "asc"
+      };
+    }
+    return {
+      key,
+      direction: "asc"
+    };
+  });
+};
   useEffect(() => {
     async function init() {
       try {
@@ -125,22 +146,94 @@ export default function StoricoTicketPage() {
 
   // --- LOGICA FILTRO APPLICATA ---
   const filteredTickets = useMemo(() => {
-    return tickets.filter(t => {
-      const matchesSearch = t.titolo?.toLowerCase().includes(searchTerm.toLowerCase()) || t.n_tag?.toLowerCase().includes(searchTerm.toLowerCase());
+    let data = tickets.filter(t => {
+      const matchesSearch = t.titolo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            t.n_tag?.toLowerCase().includes(searchTerm.toLowerCase());
+      
       const matchesCliente = selectedCliente === '' || String(t.cliente_id) === selectedCliente;
+      
+      // Filtro Assegnatario (usiamo l'ID salvato nel ticket)
       const matchesAssegnatario = selectedAssegnatario === '' || String(t.assignee) === selectedAssegnatario;
+      
+      // Filtro Stato
+      const matchesStato = selectedStato === '' 
+        ? t.stato !== "Completato" // Nasconde i chiusi nella vista generale
+        : t.stato === selectedStato;
+      
       const matchesSprint = selectedSprint === '' || t.sprint === selectedSprint;
       const matchesAttivita = selectedAttivita === '' || t.tipo_di_attivita === selectedAttivita;
       const matchesAttenzione = !filterAttenzioneBusiness || t.stato === "Attenzione Business";
-      
-      return matchesSearch && matchesCliente && matchesAssegnatario && matchesSprint && matchesAttivita && matchesAttenzione;
+
+      return matchesSearch && matchesCliente && matchesAssegnatario && 
+            matchesStato && matchesSprint && matchesAttivita && matchesAttenzione;
     });
-  }, [tickets, searchTerm, selectedCliente, selectedAssegnatario, selectedSprint, selectedAttivita, filterAttenzioneBusiness]);
+
+    if (sortConfig.key) {
+  const key = sortConfig.key; // Salvo in una costante per il type narrowing
+  
+  data = [...data].sort((a, b) => {
+    let aVal: any;
+    let bVal: any;
+
+    // 1. Mapping dei valori in base alla colonna
+    switch (key) {
+      case 'progress':
+        aVal = Number(a.percentuale_avanzamento) || 0;
+        bVal = Number(b.percentuale_avanzamento) || 0;
+        break;
+      case 'cliente':
+        aVal = a.clienti?.nome?.toLowerCase() || '';
+        bVal = b.clienti?.nome?.toLowerCase() || '';
+        break;
+      case 'assignee':
+      // Dobbiamo leggere il nome dal JOIN (profili.nome_completo) 
+      // e non l'ID (assignee)
+      aVal = a.profili?.nome_completo?.toLowerCase() || '';
+      bVal = b.profili?.nome_completo?.toLowerCase() || '';
+      break;
+      default:
+        aVal = a[key];
+        bVal = b[key];
+    }
+
+    // 2. Logica di confronto
+    if (aVal === bVal) return 0;
+    if (aVal == null) return 1;
+    if (bVal == null) return -1;
+
+    const modifier = sortConfig.direction === 'asc' ? 1 : -1;
+
+    // Confronto numerico (ora funzionerà 100 > 90)
+    if (typeof aVal === 'number' && typeof bVal === 'number') {
+      return (aVal - bVal) * modifier;
+    }
+
+    // Confronto stringhe
+    return String(aVal).localeCompare(String(bVal), undefined, { 
+      numeric: true, 
+      sensitivity: 'base' 
+    }) * modifier;
+  });
+}
+
+    return data;
+
+  }, [
+    tickets,
+    searchTerm,
+    selectedCliente,
+    selectedAssegnatario,
+    selectedSprint,
+    selectedAttivita,selectedStato,
+    filterAttenzioneBusiness,
+    sortConfig
+  ]);
 
   const resetFilters = () => {
     setSearchTerm('');
     setSelectedCliente('');
-    setSelectedAssegnatario('');
+    setSelectedAssegnatario(''); // Reset assegnatario
+    setSelectedStato('');        // Reset stato
     setSelectedSprint('');
     setSelectedAttivita('');
     setFilterAttenzioneBusiness(false);
@@ -172,7 +265,7 @@ export default function StoricoTicketPage() {
           </div>
 
           {/* ACTIONS & FILTERS BAR (MODERNIZZATA) */}
-          <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex flex-wrap items-center gap-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
@@ -184,9 +277,9 @@ export default function StoricoTicketPage() {
                 onChange={(e) => setSearchTerm(e.target.value)} 
               />
             </div>
-
+            
             {/* Dropdowns */}
-            <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
+            <div className="flex items-center gap-10 bg-slate-50 p-1 rounded-xl border border-slate-100">
               <select className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28" value={selectedCliente} onChange={(e) => setSelectedCliente(e.target.value)}>
                 <option value="">Cliente</option>
                 {listaClienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -199,6 +292,28 @@ export default function StoricoTicketPage() {
                 <option value="">Attività</option>
                 {ATTIVITA_LIST.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
+
+              {/* NUOVO: Filtro Stato */}
+  <select 
+    className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28" 
+    value={selectedStato} 
+    onChange={(e) => setSelectedStato(e.target.value)}
+  >
+    <option value="">Tutti gli Stati</option>
+    {Object.keys(STATO_PROGRESS_MAP).map(s => <option key={s} value={s}>{s}</option>)}
+  </select>
+
+  {/* NUOVO: Filtro Assegnatario */}
+  <select 
+    className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28" 
+    value={selectedAssegnatario} 
+    onChange={(e) => setSelectedAssegnatario(e.target.value)}
+  >
+    <option value="">Assegnatario</option>
+    {listaAssegnatari.map(u => <option key={u.id} value={u.id}>{u.nome_completo}</option>)}
+  </select>
+
+  
             </div>
 
             {/* Pulsante Attenzione Business */}
@@ -258,11 +373,39 @@ export default function StoricoTicketPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  {columnOrder.filter(c => c.visible).map(col => (
-                    <th key={col.id} className="px-5 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                      {col.label}
-                    </th>
-                  ))}
+                  {columnOrder.filter(c => c.visible).map(col => {
+  // Definiamo le larghezze in base al tipo di contenuto
+  const getColWidth = (id: string) => {
+    switch (id) {
+      case 'titolo': return 'min-w-[400px]'; // Titolo molto largo
+      case 'stato': return 'min-w-[180px]';
+      case 'tipo_di_attivita': return 'min-w-[180px]';
+      case 'n_tag': return 'min-w-[130px]';
+      case 'progress': return 'min-w-[150px]';
+      case 'cliente': return 'min-w-[140px]';
+      case 'assignee': return 'min-w-[140px]';
+      case 'ultimo_ping': return 'min-w-[120px]';
+      default: return 'min-w-[130px]'; // Larghezza standard per le altre
+    }
+  };
+
+  return (
+    <th
+      key={col.id}
+      onClick={() => handleSort(col.id)}
+      className={`px-5 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400 cursor-pointer select-none hover:text-slate-700 transition-colors ${getColWidth(col.id)}`}
+    >
+      <div className="flex items-center gap-1">
+        {col.label}
+        {sortConfig.key === col.id && (
+          sortConfig.direction === "asc"
+            ? <ChevronRight size={12} className="rotate-90" />
+            : <ChevronRight size={12} className="-rotate-90" />
+        )}
+      </div>
+    </th>
+  );
+})}
                   <th className="px-5 py-4" />
                 </tr>
               </thead>
@@ -302,8 +445,23 @@ export default function StoricoTicketPage() {
                         )}
 
                         {/* ... Altri renderer (n_tag, progress, assignee, etc) invariati dal codice precedente ... */}
-                        {col.id === 'n_tag' && <input className="bg-slate-50 border-transparent px-2 py-1 rounded text-[10px] font-mono w-20" value={t.n_tag || ''} onChange={(e) => handleUpdate(t.id, 'n_tag', e.target.value)} />}
- 
+                        {col.id === 'n_tag' && (
+                            t.link_tag ? (
+                              <a 
+                                href={t.link_tag} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-block bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded text-[10px] font-mono font-bold hover:bg-blue-600 hover:text-white transition-colors"
+                              >
+                                {t.n_tag || 'Link'}
+                              </a>
+                            ) : (
+                              <span className="px-2 py-1 text-[12px] font-mono text-black-400">
+                                {t.n_tag || '-'}
+                              </span>
+                            )
+                          )}
+                        {col.id === 'numero_storia' && <input className="bg-slate-50 border-transparent px-2 py-1 rounded text-[10px] font-mono w-20" value={t.numero_storia || ''} onChange={(e) => handleUpdate(t.id, 'numero_storia', e.target.value)} />}
 
                           {col.id === 'progress' && (
                             <div className="flex items-center gap-2 w-28 group/progress">
@@ -359,6 +517,43 @@ export default function StoricoTicketPage() {
                             {listaClienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
                           </select>
                         )}
+
+
+                        {/* Renderer Priorità */}
+{col.id === 'priorita' && (
+  <select 
+    className={`text-[9px] font-bold uppercase px-2 py-1 rounded-lg outline-none border ${
+      t.priorita === 'Alta' ? 'bg-red-50 text-red-600 border-red-100' : 
+      t.priorita === 'Media' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
+      t.priorita === 'Bassa' ? 'bg-green-50 text-green-600 border-green-100' : 
+      'bg-slate-50 text-slate-600 border-slate-100'
+    }`}
+    value={t.priorita || ''} 
+    onChange={(e) => handleUpdate(t.id, 'priorita', e.target.value)}
+  >
+    <option value="">-</option>
+    {PRIORITA_LIST.map(p => <option key={p} value={p}>{p}</option>)}
+  </select>
+)}
+
+{/* Renderer Ultimo Ping */}
+{col.id === 'ultimo_ping' && (() => {
+  const pingDate = t.ultimo_ping ? new Date(t.ultimo_ping) : null;
+  const fifteenDaysAgo = new Date();
+  fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+
+  const isStale = pingDate && pingDate < fifteenDaysAgo;
+
+  return (
+    <span className={`text-[10px] font-bold ${isStale ? 'text-red-500' : 'text-slate-400'}`}>
+      {pingDate ? pingDate.toLocaleDateString('it-IT', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+      }) : '-'}
+    </span>
+  );
+})()}
                         {/* Gestione Date: Collaudo, Produzione e Chiusura */}
 {['rilascio_in_collaudo', 'rilascio_in_produzione', 'data_chiusura_attivita'].includes(col.id) && (
   <div className="relative flex items-center group">

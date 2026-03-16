@@ -301,14 +301,30 @@ export default function CreateAttivitaOrChangePage() {
                       />
                     </Field>
                   </div>
-                  <Field label="Priorità">
-                    <input
-                      type="number"
-                      value={aForm.numero_priorita}
-                      onChange={(e) => setAForm(p => ({ ...p, numero_priorita: parseInt(e.target.value) }))}
-                      className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent text-sm font-mono font-bold outline-none"
-                    />
+                  <Field label="N° Tag" hint="ID Ticket">
+                        <input
+                          type="text"
+                          value={aForm.n_tag}
+                          onChange={(e) => setAForm(p => ({ ...p, n_tag: e.target.value }))}
+                          className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none"
+                        />
+                      </Field>
+                  <Field label="Assegnato a" hint="Chi si occupa del ticket?">
+                    <select
+                      value={aForm.assignee}
+                      onChange={(e) => setAForm(p => ({ ...p, assignee: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 text-sm font-bold text-slate-700 outline-none cursor-pointer transition-all appearance-none"
+                    >
+                      <option value="">Nessun assegnatario</option>
+                      {profiles.map(person => (
+                        <option key={person.id} value={person.id}>
+                          {person.nome_completo || "Utente senza nome"}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
+
+
                 </div>
               </Card>
             ) : (
@@ -408,14 +424,7 @@ export default function CreateAttivitaOrChangePage() {
                         </div>
                       </Field>
 
-                      <Field label="N° Tag" hint="Riferimento numerico">
-                        <input
-                          type="text"
-                          value={aForm.n_tag}
-                          onChange={(e) => setAForm(p => ({ ...p, n_tag: e.target.value }))}
-                          className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none"
-                        />
-                      </Field>
+                      
 
                       <Field label="Pianificazione Sprint">
                         <div className="grid grid-cols-2 gap-2 p-1 bg-slate-50 rounded-2xl">

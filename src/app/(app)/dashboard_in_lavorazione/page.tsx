@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
-import { AppWindow,TriangleAlert } from "lucide-react";
+import { AppWindow,TriangleAlert,ChevronDown, ChevronUp } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 type Profile = {
@@ -22,6 +22,7 @@ type Ticket = {
   stato?: string | null;
   note_importanti?: string | null;
   percentuale_avanzamento?: number | null;
+  n_tag?: string | null;
   clienti?: { nome?: string | null } | null;
   profili?: { nome_completo?: string | null } | null;
   [key: string]: any;
@@ -49,7 +50,14 @@ export default function TicketsDashboardByAssignee() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [collapsedSprint, setCollapsedSprint] = useState<Record<string, boolean>>({});
+  
+  const toggleSprintSection = (key: string) => {
+      setCollapsedSprint((prev) => ({
+        ...prev,
+        [key]: !prev[key],
+      }));
+    };
   const [filterSprint, setFilterSprint] = useState<"Sprint" | "Opex">("Sprint");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCliente, setFilterCliente] = useState<string>("");
@@ -92,7 +100,7 @@ export default function TicketsDashboardByAssignee() {
         `
         )
         .eq("sprint", filterSprint)
-        .eq("stato", "In lavorazione")
+        .not("stato", "in", '("Completato","Completato - In attesa di chiusura TAG")')
         .order("numero_priorita", { ascending: true });
 
     const { data, error } = await q;
@@ -187,7 +195,11 @@ export default function TicketsDashboardByAssignee() {
     const { destination, source, draggableId } = result;
 
     if (!destination) return;
-    const samePlace = destination.droppableId === source.droppableId && destination.index === source.index;
+
+    const samePlace =
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index;
+
     if (samePlace) return;
 
     const src = parseDroppable(source.droppableId);
@@ -210,8 +222,6 @@ export default function TicketsDashboardByAssignee() {
       assignee: dstAssigneeId,
       in_lavorazione_ora: dstInWork,
       sprint: filterSprint,
-      ultimo_ping: movedPing,
-      
       
     };
 
@@ -220,7 +230,10 @@ export default function TicketsDashboardByAssignee() {
     nextDst.splice(destination.index, 0, movedUpdated);
 
     const renumberedDst = renumber(nextDst, 10);
-    const renumberedSrc = src.key === dst.key && src.section === dst.section ? [] : renumber(srcWithout, 10);
+    const renumberedSrc =
+      src.key === dst.key && src.section === dst.section
+        ? []
+        : renumber(srcWithout, 10);
 
     let nextAll = [...tickets];
 
@@ -229,25 +242,41 @@ export default function TicketsDashboardByAssignee() {
     } else {
       nextAll = replaceList(nextAll, src.key, src.section, renumberedSrc);
       nextAll = replaceList(nextAll, dst.key, dst.section, renumberedDst);
-      nextAll = nextAll.map((t) => (t.id === draggableId ? movedUpdated : t));
     }
 
     setTickets(nextAll);
 
-    const { error } = await supabase
+    const ticketsToUpdate =
+      src.key === dst.key && src.section === dst.section
+        ? renumberedDst
+        : [...renumberedSrc, ...renumberedDst];
+
+    try {
+  const updates = ticketsToUpdate.map((t) =>
+    supabase
       .from("ticket")
       .update({
-        assignee: dstAssigneeId,
-        in_lavorazione_ora: dstInWork,
-        ultimo_ping: movedPing,
-        sprint: filterSprint,
+        assignee: t.assignee ?? null,
+        in_lavorazione_ora: t.in_lavorazione_ora ?? false,
+        sprint: t.sprint ?? null,
+       
+        numero_priorita: t.numero_priorita ?? null,
       })
-      .eq("id", draggableId);
+      .eq("id", t.id)
+  );
 
-    if (error) {
-      console.error("Errore durante l'update:", error);
-      fetchAll();
-    }
+  const results = await Promise.all(updates);
+
+  const failed = results.find((r) => r.error);
+
+  if (failed?.error) {
+    console.error("Errore durante l'update:", failed.error);
+    fetchAll();
+  }
+} catch (err) {
+  console.error("Errore inatteso durante l'update:", err);
+  fetchAll();
+}
   };
 
   return (
@@ -367,12 +396,15 @@ export default function TicketsDashboardByAssignee() {
 
                   {/* SEZIONE SPRINT/OPEX */}
                   <div className="flex flex-col flex-1">
-                    <div className="flex items-center justify-between px-5 py-4 rounded-l bg-gray-100 text-gray-600 shadow-sm mb-4">
+                    <div
+                      onClick={() => toggleSprintSection(col.key)}
+                      className="flex items-center justify-between px-5 py-4 rounded-l bg-gray-100 text-gray-600 shadow-sm mb-4 cursor-pointer hover:bg-gray-200 transition"
+                    >{collapsedSprint[col.key] ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       <span className="text-[10px] font-black uppercase tracking-widest text-wrap">In {filterSprint}</span>
                       <span className="text-xs font-black bg-white/60 px-2 py-0.5 rounded-lg">{sprintTickets.length}</span>
                     </div>
-
-                    <Droppable droppableId={SPRINT_ID(col.key)}>
+                    {collapsedSprint[col.key] && (
+                      <Droppable droppableId={SPRINT_ID(col.key)}>
                       {(provided, snapshot) => (
                         <div
                           {...provided.droppableProps}
@@ -391,11 +423,14 @@ export default function TicketsDashboardByAssignee() {
                                 </div>
                               )}
                             </Draggable>
+                          
                           ))}
+                          
                           {provided.placeholder}
                         </div>
                       )}
                     </Droppable>
+                    )}
                   </div>
                 </div>
               );
