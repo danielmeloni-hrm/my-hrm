@@ -14,7 +14,7 @@ const STATO_PROGRESS_MAP: Record<string, number> = {
   "Attenzione di Andrea": 85, "Completato - In attesa di chiusura": 95, "Completato": 100
 };
 
-const APPLICATIVI_LIST = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW"];
+const APPLICATIVI_LIST = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW","ESJ","PARAFARMACIA"];
 const PRIORITA_LIST = ["Bassa", "Media", "Alta", "Urgente"];
 const ATTIVITA_LIST = [
   "Preanalisi", "Evolutive GA4", "Evolutive BQ", "Incident Resolution", 
@@ -228,7 +228,8 @@ export default function StoricoTicketPage() {
     filterAttenzioneBusiness,
     sortConfig
   ]);
-
+  const getUrl = (url: string) =>
+  url.startsWith("http") ? url : `https://${url}`;
   const resetFilters = () => {
     setSearchTerm('');
     setSelectedCliente('');
@@ -448,7 +449,7 @@ export default function StoricoTicketPage() {
                         {col.id === 'n_tag' && (
                             t.link_tag ? (
                               <a 
-                                href={t.link_tag} 
+                                href={getUrl(t.link_tag)}
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="inline-block bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded text-[10px] font-mono font-bold hover:bg-blue-600 hover:text-white transition-colors"
