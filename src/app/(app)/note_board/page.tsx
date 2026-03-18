@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Cloud, Zap, ZapOff } from 'lucide-react';
+import { Cloud, Zap, ZapOff, TerminalSquare } from 'lucide-react';
 import SublimeEmbed from '@/components/SublimeEmbed';
 
 const supabase = createClient(
@@ -28,6 +28,7 @@ export default function SublimeSupabaseEditor() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('saved');
   const [bridgeConnected, setBridgeConnected] = useState(false);
   const [connectedFile, setConnectedFile] = useState<string | null>(null);
+  const [terminalStatus, setTerminalStatus] = useState<'idle' | 'open' | 'closed'>('idle');
 
   const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
 
@@ -52,7 +53,18 @@ export default function SublimeSupabaseEditor() {
       console.error('Fetch error:', err);
     }
   }, []);
+  useEffect(() => {
+  const handleOpened = () => setTerminalStatus('open');
+  const handleClosed = () => setTerminalStatus('closed');
 
+  window.addEventListener('sublime-terminal-opened', handleOpened);
+  window.addEventListener('sublime-terminal-closed', handleClosed);
+
+  return () => {
+    window.removeEventListener('sublime-terminal-opened', handleOpened);
+    window.removeEventListener('sublime-terminal-closed', handleClosed);
+  };
+}, []);
   const isValidDate = (dateStr: string) => {
     const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
     if (!match) return false;
@@ -187,10 +199,15 @@ export default function SublimeSupabaseEditor() {
 
     init();
   }, [fetchData]);
-  const handleBridgeStatusChange = useCallback(({ connected, fileName }: { connected: boolean; fileName: string | null }) => {
-    setBridgeConnected(connected);
-    setConnectedFile(fileName);
-  }, []);
+
+  const handleBridgeStatusChange = useCallback(
+    ({ connected, fileName }: { connected: boolean; fileName: string | null }) => {
+      setBridgeConnected(connected);
+      setConnectedFile(fileName);
+    },
+    []
+  );
+
   const handleCodeUpdate = useCallback(
     ({ code, fileName, fullPath }: { code: string; fileName: string; fullPath?: string }) => {
       const lines = code.split('\n');
@@ -212,6 +229,26 @@ export default function SublimeSupabaseEditor() {
     [syncTicketData]
   );
 
+  const handleOpenTerminal = useCallback(() => {
+  if (terminalStatus === 'open') {
+    window.dispatchEvent(
+      new CustomEvent('sublime-close-terminal', {
+        detail: { userId },
+      })
+    );
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('sublime-open-terminal', {
+      detail: {
+        userId,
+        fileName: connectedFile,
+      },
+    })
+  );
+}, [terminalStatus, userId, connectedFile]);
+
   if (loading) {
     return (
       <div className="h-screen w-full bg-[#1e1e1e] text-white flex items-center justify-center font-mono">
@@ -225,50 +262,84 @@ export default function SublimeSupabaseEditor() {
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 min-h-0 p-1">
           <SublimeEmbed
-  socketUrl="https://sublime-bridge-server.onrender.com"
-  userId={userId}
-  bridgeActive={true}
-  // MODIFICA QUI: Collega la funzione handleCodeUpdate che analizza i tag
-  onCodeUpdate={handleCodeUpdate} 
-  onBridgeStatusChange={handleBridgeStatusChange}
-  highlightRules={[
-    { name: 'cliente', regex: /@([^\s]+)/ },
-    { name: 'tag', regex: /#([\w\d]+)/ },
-    { name: 'title', regex: /"(.*?)"/ },
-    { name: 'collaudo', regex: /\(coll:\s*([^)]+)\)/ },
-    { name: 'produzione', regex: /\(prod:\s*([^)]+)\)/ },
-    { name: 'percentuale', regex: /\[perc:\s*([^\]]+)\]/ },
-    { name: 'in_lavorazione', regex: /\{ora\}/ },
-  ]}
-/>
+            socketUrl="https://sublime-bridge-server.onrender.com"
+            userId={userId}
+            bridgeActive={true}
+            onCodeUpdate={handleCodeUpdate}
+            onBridgeStatusChange={handleBridgeStatusChange}
+            highlightRules={[
+              { name: 'cliente', regex: /@([^\s]+)/ },
+              { name: 'tag', regex: /#([\w\d]+)/ },
+              { name: 'title', regex: /"(.*?)"/ },
+              { name: 'collaudo', regex: /\(coll:\s*([^)]+)\)/ },
+              { name: 'produzione', regex: /\(prod:\s*([^)]+)\)/ },
+              { name: 'percentuale', regex: /\[perc:\s*([^\]]+)\]/ },
+              { name: 'in_lavorazione', regex: /\{ora\}/ },
+            ]}
+          />
         </div>
+
         <div
-          className={`h-7 flex items-center justify-between px-3 text-[9px] font-black uppercase shrink-0 ${
+          className={`h-9 flex items-center justify-between px-3 text-[9px] font-black uppercase shrink-0 ${
             saveStatus === 'saving' ? 'bg-amber-600' : 'bg-[#007acc]'
           } text-white`}
         >
-        
-          <div className="flex items-center gap-2">
-            {bridgeConnected ? (
-              <Zap size={14} className="text-green-500" />
-            ) : (
-              <ZapOff size={14} className="text-red-500" />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              {bridgeConnected ? (
+                <Zap size={14} className="text-green-400" />
+              ) : (
+                <ZapOff size={14} className="text-red-300" />
+              )}
+              <span className="text-[10px] font-bold uppercase tracking-tighter">
+                Sublime Bridge: {bridgeConnected ? 'connected' : 'disconnected'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Cloud size={14} className="text-blue-200" />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">
+                Supabase Cloud: OK
+              </span>
+            </div>
+
+            {connectedFile && (
+              <span className="text-[10px] font-bold uppercase tracking-tighter text-blue-100 truncate max-w-[280px]">
+                {connectedFile}
+              </span>
             )}
-            <span className="text-[10px] font-bold uppercase tracking-tighter">
-              Sublime Bridge: {bridgeConnected ? 'connected' : 'disconnected'}
-            </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Cloud size={14} className="text-blue-400" />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">
-              Supabase Cloud: OK
-            </span>
-          </div>
-        
+          <div className="flex gap-3 items-center">
+            <button
+                type="button"
+                onClick={handleOpenTerminal}
+                className={`h-6 px-3 rounded border flex items-center gap-2 transition-colors ${
+                  terminalStatus === 'idle'
+                    ? 'bg-[#1f1f1f]/30 hover:bg-[#1f1f1f]/50 border-white/20 text-white'
+                    : terminalStatus === 'open'
+                    ? 'bg-green-600 hover:bg-green-700 border-green-500 text-white'
+                    : 'bg-red-600 hover:bg-red-700 border-red-500 text-white'
+                }`}
+                title="Gestione terminale"
+              >
+                <TerminalSquare size={12} />
+                <span>
+                  {terminalStatus === 'idle'
+                    ? 'Apri Terminale'
+                    : terminalStatus === 'open'
+                    ? 'Collegamento Avvenuto'
+                    : 'Collegamento Chiuso'}
+                </span>
+              </button>
 
-       
-          <div className="flex gap-4 items-center">
+              <a
+  href="/live_notes.zip"
+  download
+  className="h-6 px-3 rounded bg-[#1f1f1f]/30 hover:bg-[#1f1f1f]/50 border border-white/20 flex items-center gap-2 transition-colors text-white"
+>
+  Scarica live_notes
+</a>
             <span className="flex items-center gap-1">
               <Cloud size={10} />
               {saveStatus === 'saving' ? 'Cloud Syncing...' : 'Cloud Synced'}
