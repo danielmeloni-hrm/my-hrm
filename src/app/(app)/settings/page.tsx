@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { Check, Loader2, Save, User, Lock, LayoutGrid } from 'lucide-react'
 
-type MenuItem = { name: string; path: string }
+type MenuItem = {
+  name: string
+  path: string
+}
 
 export default function SettingsPage() {
   const supabase = createClient()
@@ -16,8 +19,9 @@ export default function SettingsPage() {
       { name: 'Note Board', path: '/note_board' },
       { name: 'Sprint Board', path: '/dashboard' },
       { name: 'Opex Board', path: '/dashboard_opex' },
-      { name: 'I miei Ticket', path: '/i-miei-ticket' },
-      { name: 'Tutti Ticket', path: '/tutti-i-ticket' },
+      { name: 'Tutte Attività', path: '/tutti-i-ticket' },
+      { name: 'Tutte Attività', path: '/tutti-i-ticket' },
+      { name: 'Tutti Incident', path: '/tutti-gli-incident' },
       { name: 'Tutte le Change', path: '/changes' },
       { name: 'Calendario Rilasci', path: '/calendario' },
       { name: 'Calendario Rilasci CHG', path: '/calendario_chg' },
@@ -53,16 +57,14 @@ export default function SettingsPage() {
       setUserEmail(u.user?.email ?? '')
       setUserId(u.user?.id ?? '')
 
-      // carica preferenze sidebar da API (server-side, cookie-safe)
       const res = await fetch('/api/settings/sidebar', { method: 'GET' })
       const json = await res.json().catch(() => null)
 
-      // se non esiste ancora, default: tutte visibili
       const stored = json?.sidebar_visible_paths
       if (Array.isArray(stored) && stored.length > 0) {
         setSelectedPaths(stored)
       } else {
-        setSelectedPaths(allMenuItems.map(m => m.path))
+        setSelectedPaths(allMenuItems.map((m) => m.path))
       }
 
       setLoading(false)
@@ -77,22 +79,35 @@ export default function SettingsPage() {
   const togglePath = (path: string) => {
     setSaveMsg('')
     setSelectedPaths((prev) =>
-      prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
     )
   }
 
   const saveSidebar = async () => {
-  const res = await fetch('/api/settings/sidebar', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sidebar_visible_paths: selectedPaths })
-  })
+    setSaving(true)
+    setSaveMsg('')
 
-  if (!res.ok) return
+    try {
+      const res = await fetch('/api/settings/sidebar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sidebar_visible_paths: selectedPaths }),
+      })
 
-  // 🔔 aggiorna sidebar in tempo reale
-  window.dispatchEvent(new Event('sidebar-updated'))
-}
+      if (!res.ok) {
+        setSaveMsg('Errore durante il salvataggio della sidebar.')
+        setSaving(false)
+        return
+      }
+
+      window.dispatchEvent(new Event('sidebar-updated'))
+      setSaveMsg('Sidebar aggiornata con successo.')
+    } catch {
+      setSaveMsg('Errore durante il salvataggio della sidebar.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const changePassword = async () => {
     setPwdLoading(true)
@@ -132,7 +147,6 @@ export default function SettingsPage() {
     <div className="p-8 max-w-4xl">
       <h1 className="text-2xl font-black tracking-tight text-gray-900 mb-6">Impostazioni</h1>
 
-      {/* ACCOUNT */}
       <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-2xl bg-gray-100">
@@ -143,17 +157,20 @@ export default function SettingsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
-            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">Email</div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+              Email
+            </div>
             <div className="font-bold text-gray-900 break-all">{userEmail || '-'}</div>
           </div>
           <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
-            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">User ID</div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+              User ID
+            </div>
             <div className="font-mono text-xs text-gray-800 break-all">{userId || '-'}</div>
           </div>
         </div>
       </section>
 
-      {/* SIDEBAR */}
       <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
@@ -176,29 +193,32 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        {saveMsg && (
-          <div className="mb-4 text-sm font-bold text-gray-700">{saveMsg}</div>
-        )}
+        {saveMsg && <div className="mb-4 text-sm font-bold text-gray-700">{saveMsg}</div>}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {allMenuItems.map((item) => {
             const checked = selectedPaths.includes(item.path)
+
             return (
               <button
                 key={item.path}
                 onClick={() => togglePath(item.path)}
                 className={`flex items-center justify-between p-4 rounded-2xl border transition ${
-                  checked ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 hover:bg-gray-50'
+                  checked
+                    ? 'border-blue-200 bg-blue-50/30'
+                    : 'border-gray-100 hover:bg-gray-50'
                 }`}
               >
-                <div className="text-left">
+                <div className="text-left min-w-0">
                   <div className="font-bold text-gray-900 text-sm">{item.name}</div>
-                  <div className="text-xs text-gray-400">{item.path}</div>
+                  
                 </div>
 
-                <div className={`w-7 h-7 rounded-xl flex items-center justify-center ${
-                  checked ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
-                }`}>
+                <div
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
+                    checked ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
                   <Check size={16} />
                 </div>
               </button>
@@ -207,7 +227,6 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* PASSWORD */}
       <section className="bg-white border border-gray-100 rounded-3xl p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-2xl bg-gray-100">

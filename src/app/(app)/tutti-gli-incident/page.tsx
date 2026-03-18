@@ -63,7 +63,7 @@ type TicketRow = Ticket & {
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'n_tag', label: 'N° Tag', visible: true, pinned: false },
+  { id: 'n_tag', label: 'N° INC', visible: true, pinned: false },
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
@@ -287,14 +287,14 @@ export default function StoricoTicketPage() {
 
           const { data: profilo, error: profiloError } = await supabase
             .from('profili')
-            .select('all_ticket_settings_colonne')
+            .select('all_incident_settings_colonne')
             .eq('id', user.id)
             .single();
 
           if (profiloError) throw profiloError;
 
           setColumnOrder(
-            mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_ticket_settings_colonne)
+            mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_incident_settings_colonne)
           );
         } else {
           setColumnOrder(DEFAULT_COLUMNS);
@@ -305,7 +305,7 @@ export default function StoricoTicketPage() {
             .from('ticket')
             .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
             .order('ultimo_ping', { ascending: false })
-            .eq('tipologia_ticket', 'Attività'),
+            .eq('tipologia_ticket', 'Incident'),
           supabase.from('profili').select('id, nome_completo'),
           supabase.from('clienti').select('id, nome'),
         ]);
@@ -337,7 +337,7 @@ export default function StoricoTicketPage() {
         .from('ticket')
         .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
         .eq('id', id)
-        .eq('tipologia_ticket', 'Attività')
+        .eq('tipologia_ticket', 'Incident')
         .single();
 
       if (data) {
@@ -352,7 +352,7 @@ export default function StoricoTicketPage() {
     if (currentUserId) {
       await supabase
         .from('profili')
-        .update({ all_ticket_settings_colonne: newConfig })
+        .update({ all_incident_settings_colonne: newConfig })
         .eq('id', currentUserId);
     }
   };
@@ -544,11 +544,11 @@ export default function StoricoTicketPage() {
             
 
             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-              Database <span className="text-slate-400 font-light italic">Attività</span>
+            Database <span className="text-slate-400 font-light italic">Incident</span>
             </h1>
 
             <p className="mt-2 text-sm font-semibold text-slate-500">
-              Numero Attività = <span className="text-slate-900">{filteredTickets.length}</span>
+            Numero Incident = <span className="text-slate-900">{filteredTickets.length}</span>
             </p>
           </div>
 
@@ -582,30 +582,19 @@ export default function StoricoTicketPage() {
               </select>
 
               <select
-                className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
+                className="bg-transparent  py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
                 value={selectedSprint}
                 onChange={(e) => setSelectedSprint(e.target.value)}
               >
                 
-                {SPRINT_LIST.filter((s) => s !== 'Opex').map((s) => (
+                {SPRINT_LIST.filter((s) => s !== 'Sprint').map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
                 ))}
               </select>
 
-              <select
-                className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
-                value={selectedAttivita}
-                onChange={(e) => setSelectedAttivita(e.target.value)}
-              >
-                <option value="">Attività</option>
-                {ATTIVITA_LIST.filter((a) => a !== 'Incident Resolution').map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
+              
 
               <select
                 className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-32"
