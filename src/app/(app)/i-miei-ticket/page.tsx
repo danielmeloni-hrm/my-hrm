@@ -39,7 +39,7 @@ export default function MieiTicketPage() {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'ultimo_ping', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterApp, setFilterApp] = useState('');
-  const [filterAssignee, setFilterAssignee] = useState('me'); 
+  const [filterAssignee, setFilterAssignee] = useState(''); 
   const [selectedMacroarea, setSelectedMacroarea] = useState<'todo' | 'progress' | 'complete' | null>(null);
 
   const APPLICATIVI = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW"];

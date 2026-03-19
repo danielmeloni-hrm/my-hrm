@@ -1,12 +1,12 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useTicket } from '../../hooks/useTicket'
 import MailThread from '@/components/ticket/MailThread'
 import ReleasePipeline from '@/components/ticket/ReleasePipeline'
-import { FieldBlock,SectionLabel,SectionCard  ,PrimaryTextarea } from '@/components/ui/ticket-ui'
+import { SectionLabel, PrimaryTextarea } from '@/components/ui/ticket-ui'
 import {
   ArrowLeft,
   MessageSquare,
@@ -14,7 +14,12 @@ import {
   Layers,
   Star,
   User,
-  Trash2,TriangleAlert,
+  Pencil,
+  ExternalLink,
+  Trash2,
+  TriangleAlert,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 
 const STATO_OPTIONS = [
@@ -84,6 +89,20 @@ const ui = {
   metaBlock: 'flex flex-col gap-2',
 }
 
+type FileLink = {
+  nome_file: string
+  link: string
+}
+
+const defaultSections = {
+  storiaAttivita: true,
+  noteTecniche: true,
+  noteImportanti: true,
+  projectMetrics: true,
+  mailThread: true,
+  releasePipeline: true,
+}
+
 function groupLogsByMonth(logs: string[]) {
   const grouped: Record<string, string[]> = {}
 
@@ -102,15 +121,133 @@ function groupLogsByMonth(logs: string[]) {
 }
 
 export default function TicketDettaglioPage() {
-  const { id } = useParams()
+  const params = useParams()
+  const id = Array.isArray(params?.id) ? params.id[0] : params?.id
+
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
 
   const [deleting, setDeleting] = useState(false)
-  const [showEsselungaDetails, setShowEsselungaDetails] = useState(false)
+  const [showTagEditor, setShowTagEditor] = useState(false)
+  const [showVisibilityPanel, setShowVisibilityPanel] = useState(false)
+
+  const [tempTag, setTempTag] = useState('')
+  const [tempLink, setTempLink] = useState('')
+  const [tempTicketCollegato, setTempTicketCollegato] = useState('')
+  const [tempTicketCollegatoLink, setTempTicketCollegatoLink] = useState('')
+
   const [newLogNote, setNewLogNote] = useState('')
   const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0])
+
+  const [openSections, setOpenSections] = useState(defaultSections)
+
+  const [showFileModal, setShowFileModal] = useState(false)
+  const [newFiles, setNewFiles] = useState<FileLink[]>([{ nome_file: '', link: '' }])
+
+  useEffect(() => {
+    if (!ticketData) return
+
+    setTempTag(ticketData.n_tag || '')
+    setTempLink(ticketData.link_tag || '')
+    setTempTicketCollegato(ticketData.ticket_collegato || '')
+    setTempTicketCollegatoLink(ticketData.ticket_collegato_link || '')
+  }, [ticketData])
+
+  useEffect(() => {
+    const loadTicketSettings = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) return
+
+        const { data, error } = await supabase
+          .from('profili')
+          .select('tickek_setting_colonne')
+          .eq('id', user.id)
+          .single()
+
+        if (error) {
+          console.error('Errore caricamento impostazioni ticket:', error.message)
+          return
+        }
+
+        if (data?.tickek_setting_colonne) {
+          setOpenSections({
+            ...defaultSections,
+            ...data.tickek_setting_colonne,
+          })
+        }
+      } catch (error) {
+        console.error('Errore imprevisto caricamento impostazioni ticket:', error)
+      }
+    }
+
+    loadTicketSettings()
+  }, [supabase])
+
+  const saveTicketSettings = async (settings: typeof defaultSections) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) return
+
+      const { error } = await supabase
+        .from('profili')
+        .update({ tickek_setting_colonne: settings })
+        .eq('id', user.id)
+
+      if (error) {
+        console.error('Errore salvataggio impostazioni ticket:', error.message)
+      }
+    } catch (error) {
+      console.error('Errore imprevisto salvataggio impostazioni ticket:', error)
+    }
+  }
+
+  const toggleSection = async (section: keyof typeof openSections) => {
+    const updated = {
+      ...openSections,
+      [section]: !openSections[section],
+    }
+
+    setOpenSections(updated)
+    await saveTicketSettings(updated)
+  }
+
+  const addFileRow = () => {
+    setNewFiles((prev) => [...prev, { nome_file: '', link: '' }])
+  }
+
+  const removeFile = async (index: number) => {
+    if (!ticketData) return
+
+    const currentFiles = Array.isArray(ticketData.files_link)
+      ? (ticketData.files_link as FileLink[])
+      : []
+
+    const updated = currentFiles.filter((_, i) => i !== index)
+    await handleUpdate('files_link', updated)
+  }
+
+  const saveNewFiles = async () => {
+    if (!ticketData) return
+
+    const validFiles = newFiles.filter((f) => f.nome_file.trim() && f.link.trim())
+    if (validFiles.length === 0) return
+
+    const currentFiles = Array.isArray(ticketData.files_link)
+      ? (ticketData.files_link as FileLink[])
+      : []
+
+    await handleUpdate('files_link', [...currentFiles, ...validFiles])
+    setNewFiles([{ nome_file: '', link: '' }])
+    setShowFileModal(false)
+  }
 
   const getProgressColor = (percent: number) => {
     if (percent < 30) return 'bg-[#dbeafe]'
@@ -118,12 +255,38 @@ export default function TicketDettaglioPage() {
     return 'bg-[#0150a0]'
   }
 
+  const formatDisplayDate = (value?: string | null) => {
+    if (!value) return '—'
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+
+    return date.toLocaleDateString('it-IT')
+  }
+
   const isEsselunga = Boolean(
     clienti.find((c) => c.id === ticketData?.cliente_id)?.nome?.toLowerCase().includes('esselunga')
   )
 
+  const isIncident = ticketData?.tipologia_ticket === 'Incident'
+
+  const summaryCards = [
+    {
+      label: 'Numero di ore',
+      value: '—',
+    },
+    {
+      label: 'Ultimo controllo',
+      value: formatDisplayDate(ticketData?.ultimo_controllo_collaudo),
+    },
+    {
+      label: 'Rilascio in produzione',
+      value: formatDisplayDate(ticketData?.rilascio_in_produzione),
+    },
+  ]
+
   const toggleApplicativo = (app: string) => {
-    const current = Array.isArray(ticketData.applicativo) ? ticketData.applicativo : []
+    const current = Array.isArray(ticketData?.applicativo) ? ticketData.applicativo : []
     const updated = current.includes(app)
       ? current.filter((a: string) => a !== app)
       : [...current, app]
@@ -131,20 +294,8 @@ export default function TicketDettaglioPage() {
     handleUpdate('applicativo', updated)
   }
 
-//  const deleteLogNote = (index: number) => {
-//  const updatedLog = (ticketData.storia_ticket || [])
-//      .filter((_, i) => i !== index)
-//      .sort((a, b) => {
-//        const dateA = a.match(/^\[(\d{4}-\d{2}-\d{2})\]/)?.[1] || ''
-//        const dateB = b.match(/^\[(\d{4}-\d{2}-\d{2})\]/)?.[1] || ''
-//        return dateA.localeCompare(dateB)
-//      })
-//
-//    handleUpdate('storia_ticket', updatedLog)
-//  }
-
-  const addLogNote = () => {
-    if (!newLogNote.trim()) return
+  const addLogNote = async () => {
+    if (!ticketData || !newLogNote.trim()) return
 
     const newEntry = `[${logDate}] ${newLogNote.trim()}`
 
@@ -158,15 +309,25 @@ export default function TicketDettaglioPage() {
       return dateA.localeCompare(dateB)
     })
 
-    handleUpdate('storia_ticket', updatedLog)
+    await handleUpdate('storia_ticket', updatedLog)
     setNewLogNote('')
+  }
+
+  const removeLogNote = async (noteToRemove: string) => {
+    if (!ticketData) return
+
+    const updatedLog = Array.isArray(ticketData.storia_ticket)
+      ? ticketData.storia_ticket.filter((entry: string) => entry !== noteToRemove)
+      : []
+
+    await handleUpdate('storia_ticket', updatedLog)
   }
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
       'Sei sicuro di voler eliminare questo ticket? Questa azione non può essere annullata.'
     )
-    if (!confirmed) return
+    if (!confirmed || !id) return
 
     try {
       setDeleting(true)
@@ -191,7 +352,7 @@ export default function TicketDettaglioPage() {
       </div>
     )
   }
-  
+
   return (
     <div className="min-h-screen bg-[#f8fafc] px-4 py-8 lg:px-12 lg:py-12">
       <div className="max-w-[1600px] mx-auto pb-20">
@@ -208,8 +369,6 @@ export default function TicketDettaglioPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <div className={`${ui.card} px-4 py-3 min-w-[180px]`}>
-              
-
               <button
                 type="button"
                 onClick={() => handleUpdate('in_lavorazione_ora', !ticketData.in_lavorazione_ora)}
@@ -253,38 +412,114 @@ export default function TicketDettaglioPage() {
               <Trash2 size={14} />
               {deleting ? 'Eliminazione...' : 'Elimina ticket'}
             </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowVisibilityPanel((prev) => !prev)}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm font-black uppercase text-[10px] tracking-widest transition-all hover:bg-gray-50"
+              >
+                {showVisibilityPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                Componenti
+              </button>
+
+              {showVisibilityPanel && (
+                <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl p-3 z-50">
+                  <div className="space-y-2">
+                    {[
+                      ['storiaAttivita', 'Storia attività'],
+                      ['noteTecniche', 'Note tecniche'],
+                      ['noteImportanti', 'Note importanti'],
+                      ['projectMetrics', 'Dettagli Ticket SN'],
+                      ['mailThread', 'Mail thread'],
+                      ['releasePipeline', 'Release pipeline'],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => toggleSection(key as keyof typeof openSections)}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+                      >
+                        <span className="text-gray-700 font-semibold">{label}</span>
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            openSections[key as keyof typeof openSections]
+                              ? 'bg-emerald-500'
+                              : 'bg-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className={`${ui.card} p-8 lg:p-10 mb-8`}>
+        <div className={`${ui.card} p-8 lg:p-10 mb-2`}>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-6 items-start">
+            <div>
+              <input
+                type="text"
+                value={ticketData.titolo || ''}
+                onChange={(e) => handleUpdate('titolo', e.target.value)}
+                className="w-full bg-transparent rounded-xl text-3xl lg:text-4xl font-black tracking-tighter text-gray-900 outline-none px-2 py-2 focus:bg-gray-50"
+                placeholder="Titolo del ticket..."
+              />
+            </div>
 
-  <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-6 items-start">
+            <div className="space-y-3 self-start -mt-1 lg:-mt-2">
+              <div className="flex items-center gap-2">
+                {ticketData.link_tag ? (
+                  <a
+                    href={ticketData.link_tag}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-[#0150a0] hover:bg-[#f5f9ff] transition-all"
+                  >
+                    <span className="truncate">{ticketData.n_tag || '#0000'}</span>
+                    <ExternalLink size={14} />
+                  </a>
+                ) : (
+                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-500">
+                    {ticketData.n_tag || '#0000'}
+                  </div>
+                )}
 
-    <input
-      type="text"
-      value={ticketData.titolo || ''}
-      onChange={(e) => handleUpdate('titolo', e.target.value)}
-      className="w-full bg-transparent rounded-xl text-3xl lg:text-4xl font-black tracking-tighter text-gray-900 outline-none px-2 py-2 focus:bg-gray-50"
-      placeholder="Titolo del ticket..."
-    />
+                <button
+                  type="button"
+                  onClick={() => setShowTagEditor(true)}
+                  className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-all"
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
 
-    <div className="space-y-1">
-      
+              <div>
+                {ticketData.ticket_collegato &&
+                  (ticketData.ticket_collegato_link ? (
+                    <a
+                      href={ticketData.ticket_collegato_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full inline-flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-[#0150a0] hover:bg-[#f5f9ff] transition-all"
+                    >
+                      <span className="truncate">{ticketData.ticket_collegato}</span>
+                      <ExternalLink size={14} />
+                    </a>
+                  ) : (
+                    <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-500">
+                      {ticketData.ticket_collegato}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
 
-      <input
-        type="text"
-        value={ticketData.n_tag || ''}
-        onChange={(e) => handleUpdate('n_tag', e.target.value)}
-        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-[#0150a0]/20 focus:border-[#0150a0]/30"
-        placeholder="#0000"
-      />
-    </div>
+          
 
-  </div>
-
-
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 pt-6 border-t border-gray-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 pt-6">
             <div className={ui.metaBlock}>
               <span className={`${ui.label} flex items-center gap-1`}>
                 <Layers size={10} /> Cliente
@@ -310,9 +545,7 @@ export default function TicketDettaglioPage() {
                 value={ticketData.priorita || 'Media'}
                 onChange={(e) => handleUpdate('priorita', e.target.value)}
                 className={`${ui.select} ${
-                  ticketData.priorita === 'Urgente'
-                    ? 'text-red-500 border-red-200 bg-red-50'
-                    : ''
+                  ticketData.priorita === 'Urgente' ? 'text-red-500 border-red-200 bg-red-50' : ''
                 }`}
               >
                 {PRIORITA_OPTIONS.map((p) => (
@@ -379,7 +612,7 @@ export default function TicketDettaglioPage() {
                   step="5"
                   value={ticketData.percentuale_avanzamento || 0}
                   onChange={(e) =>
-                    handleUpdate('percentuale_avanzamento', parseInt(e.target.value))
+                    handleUpdate('percentuale_avanzamento', parseInt(e.target.value, 10))
                   }
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
@@ -405,198 +638,486 @@ export default function TicketDettaglioPage() {
             </div>
           </div>
         </div>
+        
+<div className="grid grid-cols-1 grid-cols-9 gap-4 mb-2">
+  {summaryCards.map((card) => (
+    <div
+      key={card.label}
+      className="rounded-lg border border-[#d9e7f7] bg-white px-3 py-2 shadow-sm"
+    >
+      <div className="text-[8px] font-black uppercase tracking-[0.14em] text-[#7a93b2] mb-1">
+        {card.label}
+      </div>
+
+      <div className="text-sm lg:text-base font-black tracking-tight text-[#0150a0] leading-none">
+        {card.value}
+      </div>
+    </div>
+  ))}
+</div>
+
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           <div className="lg:col-span-8 space-y-6">
-            <div className={`${ui.card} overflow-hidden flex flex-col h-[650px]`}>
-              <div className="px-8 py-4 border-b border-gray-100 flex items-center gap-2 bg-[#f8fbff]">
-                <MessageSquare size={16} className="text-[#0150a0]" />
-                <span className="text-[10px] font-black uppercase text-[#0150a0] tracking-widest">
-                  Storia dell'attività
-                </span>
-              </div>
-
-              <div className="flex flex-col flex-1 border-b border-gray-100">
-                <div className="flex-1 overflow-y-auto p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
-                  {(() => {
-                    const grouped = groupLogsByMonth(ticketData.storia_ticket || [])
-                    const sortedKeys = Object.keys(grouped).sort()
-
-                    return sortedKeys.map((key) => {
-                      const [year, month] = key.split('-')
-                      return (
-                        <div key={key} className="space-y-3">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-[#0150a0]">
-                            {MONTH_NAMES[parseInt(month) - 1]} {year}
-                          </div>
-
-                          <ul className="space-y-2">
-                            {grouped[key].map((note, i) => (
-                              <li
-                                key={i}
-                                className="flex items-start justify-between gap-4 rounded-lg    px-4 py-3"
-                              >
-                                <span className="text-sm text-gray-700">{note}</span>
-
-                                <button
-                                 // onClick={() => deleteLogNote(ticketData.storia_ticket?.indexOf(grouped[key][i])!)         }
-                                  className="shrink-0 text-red-500 text-xs font-black hover:text-red-600"
-                                >
-                                  ✕
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )
-                    })
-                  })()}
+            {openSections.storiaAttivita && (
+              <div className={`${ui.card} overflow-hidden flex flex-col h-[650px]`}>
+                <div className="px-8 py-4 border-b border-gray-100 flex items-center gap-2 bg-[#f8fbff]">
+                  <MessageSquare size={16} className="text-[#0150a0]" />
+                  <span className="text-[10px] font-black uppercase text-[#0150a0] tracking-widest">
+                    Storia dell'attività
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-center">
-  
-  <input
-    type="date"
-    value={logDate}
-    onChange={(e) => setLogDate(e.target.value)}
-    className={`${ui.field} py-2 text-xs`}
-  />
+                <div className="flex flex-col flex-1 border-b border-gray-100">
+                  <div className="flex-1 overflow-y-auto p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
+                    {(() => {
+                      const grouped = groupLogsByMonth(ticketData.storia_ticket || [])
+                      const sortedKeys = Object.keys(grouped).sort()
 
-  <textarea
-    value={newLogNote}
-    onChange={(e) => setNewLogNote(e.target.value)}
-    placeholder="Aggiungi nota..."
-    className={`${ui.textarea} py-2 text-sm`}
-    rows={1}
-  />
+                      return sortedKeys.map((key) => {
+                        const [year, month] = key.split('-')
 
-  <button
-    onClick={addLogNote}
-    className="px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
-  >
-    Aggiungi
-  </button>
+                        return (
+                          <div key={key} className="space-y-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-[#0150a0]">
+                              {MONTH_NAMES[parseInt(month, 10) - 1]} {year}
+                            </div>
 
-</div>
+                            <ul className="space-y-2">
+                              {grouped[key].map((note, i) => {
+                                const rawLog = ((ticketData.storia_ticket || []) as string[]).find(
+                                  (entry: string) => {
+                                    const match = entry.match(/^\[(\d{4})-(\d{2})-(\d{2})\]/)
+                                    if (!match) return false
+
+                                    const [, , logMonth, day] = match
+                                    const formatted = `${day}/${logMonth} ${entry
+                                      .replace(match[0], '')
+                                      .trim()}`
+                                    return formatted === note
+                                  }
+                                )
+
+                                return (
+                                  <li
+                                    key={`${key}-${i}`}
+                                    className="flex items-start justify-between gap-4 rounded-lg px-4 py-3"
+                                  >
+                                    <span className="text-sm text-gray-700">{note}</span>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => rawLog && removeLogNote(rawLog)}
+                                      className="shrink-0 text-red-500 text-xs font-black hover:text-red-600"
+                                    >
+                                      ✕
+                                    </button>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-center">
+                    <input
+                      type="date"
+                      value={logDate}
+                      onChange={(e) => setLogDate(e.target.value)}
+                      className={`${ui.field} py-2 text-xs`}
+                    />
+
+                    <textarea
+                      value={newLogNote}
+                      onChange={(e) => setNewLogNote(e.target.value)}
+                      placeholder="Aggiungi nota..."
+                      className={`${ui.textarea} py-2 text-sm`}
+                      rows={1}
+                    />
+
+                    <button
+                      onClick={addLogNote}
+                      className="px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
+                    >
+                      Aggiungi
+                    </button>
+                  </div>
+                </div>
               </div>
+            )}
 
-              
-            </div>
-            <div className={`${ui.card} overflow-hidden flex flex-col h-[200px]`}>
-              <textarea
-                value={ticketData.note || ''}
-                onChange={(e) => handleUpdate('note', e.target.value)}
-                placeholder="Dettagli tecnici..."
-                className="flex-1 p-8 text-[15px] leading-relaxed outline-none resize-none bg-white text-gray-600"
-              /></div>
-          
+            {openSections.noteTecniche && (
+              <div className={`${ui.card} overflow-hidden flex flex-col h-[200px]`}>
+                <textarea
+                  value={ticketData.note || ''}
+                  onChange={(e) => handleUpdate('note', e.target.value)}
+                  placeholder="Dettagli tecnici..."
+                  className="flex-1 p-8 text-[15px] leading-relaxed outline-none resize-none bg-white text-gray-600"
+                />
+              </div>
+            )}
           </div>
-          
 
           <div className="lg:col-span-4 space-y-8">
-            <div className={`${ui.card} p-6 space-y-4`}>
-  <div className="flex items-center justify-between">
-    <SectionLabel className="flex items-center gap-1 text-[#0150a0]">
-      <TriangleAlert size={10} />
-      Note importanti
-    </SectionLabel>
-
-    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-      {saving ? 'Salvataggio...' : 'Salvato'}
-    </span>
-  </div>
-
-  <PrimaryTextarea
-    value={ticketData.note_importanti || ''}
-    onChange={(e) => handleUpdate('note_importanti', e.target.value)}
-    placeholder="Inserisci note importanti..."
-    rows={4}
-    className="bg-amber-50 border-amber-200 text-gray-800"
-  />
-</div>
-
-
-            {isEsselunga && (
-
-            <div className={`${ui.card} p-8 space-y-8`}>
-              <h3 className={ui.sectionTitle}>Project Metrics</h3>
-
-              <div className="flex flex-col gap-3">
-                <span className={ui.label}>Applicativo</span>
-
-                <div className="flex flex-wrap gap-2">
-                  {APPLICATIVI_OPTIONS.map((app) => {
-                    const active = Array.isArray(ticketData.applicativo)
-                      ? ticketData.applicativo.includes(app)
-                      : false
-
-                    return (
-                      <button
-                        key={app}
-                        type="button"
-                        onClick={() => toggleApplicativo(app)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-all ${
-                          active
-                            ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
-                            : 'bg-[#e6eef8] text-[#0150a0] border-[#d3e0f3] hover:bg-[#d9e7f7]'
-                        }`}
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-3">
+                {Array.isArray(ticketData.files_link) &&
+                  ticketData.files_link.map((file: FileLink, idx: number) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-3 px-4 py-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:border-gray-300 transition-all group"
+                    >
+                      <ExternalLink size={14} className="text-[#0150a0]" />
+                      <a
+                        href={file.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-gray-700 hover:underline"
                       >
-                        {app}
+                        {file.nome_file}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(idx)}
+                        className="ml-2 text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 size={14} />
                       </button>
-                    )
-                  })}
+                    </div>
+                  ))}
+
+                <button
+                  type="button"
+                  onClick={() => setShowFileModal(true)}
+                  className="w-12 h-12 flex items-center justify-center rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-[#0150a0] hover:text-[#0150a0] hover:bg-blue-50 transition-all"
+                >
+                  <span className="text-2xl font-light">+</span>
+                </button>
+              </div>
+            </div>
+
+            {showFileModal && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+                      Aggiungi Documenti
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowFileModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="max-h-[40vh] overflow-y-auto space-y-4 pr-2">
+                    {newFiles.map((f, i) => (
+                      <div
+                        key={i}
+                        className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100"
+                      >
+                        <div className="space-y-1">
+                          <label className={ui.label}>Nome File</label>
+                          <input
+                            type="text"
+                            value={f.nome_file}
+                            onChange={(e) => {
+                              setNewFiles((prev) =>
+                                prev.map((item, index) =>
+                                  index === i ? { ...item, nome_file: e.target.value } : item
+                                )
+                              )
+                            }}
+                            className={ui.field}
+                            placeholder="es. Brief Progetto"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className={ui.label}>Link File</label>
+                          <input
+                            type="url"
+                            value={f.link}
+                            onChange={(e) => {
+                              setNewFiles((prev) =>
+                                prev.map((item, index) =>
+                                  index === i ? { ...item, link: e.target.value } : item
+                                )
+                              )
+                            }}
+                            className={ui.field}
+                            placeholder="https://..."
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addFileRow}
+                    className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400 hover:bg-gray-50 transition-all"
+                  >
+                    + Aggiungi un altro documento
+                  </button>
+
+                  <div className="flex justify-end gap-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFileModal(false)
+                        setNewFiles([{ nome_file: '', link: '' }])
+                      }}
+                      className="px-6 py-2 text-xs font-black uppercase text-gray-400"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveNewFiles}
+                      className="px-8 py-3 bg-[#0150a0] text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#013f82] shadow-lg shadow-blue-900/20"
+                    >
+                      Salva Documenti
+                    </button>
+                  </div>
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className={ui.label}>Story ID</label>
+            {openSections.noteImportanti && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('noteImportanti')}
+                  className="w-full p-6 flex items-center justify-between text-left"
+                >
+                  <SectionLabel className="flex items-center gap-1 text-[#0150a0]">
+                    <TriangleAlert size={10} />
+                    Note importanti
+                  </SectionLabel>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      {saving ? 'Salvataggio...' : 'Salvato'}
+                    </span>
+                    {openSections.noteImportanti ? (
+                      <ChevronUp size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
+                  </div>
+                </button>
+
+                {openSections.noteImportanti && (
+                  <div className="px-6 pb-6">
+                    <PrimaryTextarea
+                      value={ticketData.note_importanti || ''}
+                      onChange={(e) => handleUpdate('note_importanti', e.target.value)}
+                      placeholder="Inserisci note importanti..."
+                      rows={4}
+                      className="bg-amber-50 border-amber-200 text-gray-800"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isEsselunga && openSections.projectMetrics && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('projectMetrics')}
+                  className="w-full p-8 flex items-center justify-between text-left"
+                >
+                  <h3 className={`${ui.sectionTitle} border-b-0 pb-0`}>Dettagli Ticket SN</h3>
+                  {openSections.projectMetrics ? (
+                    <ChevronUp size={16} />
+                  ) : (
+                    <ChevronDown size={16} />
+                  )}
+                </button>
+
+                {openSections.projectMetrics && (
+                  <div className="px-8 pb-8 space-y-8">
+                    <div className="flex flex-col gap-3">
+                      <span className={ui.label}>Applicativo</span>
+
+                      <div className="flex flex-wrap gap-2">
+                        {APPLICATIVI_OPTIONS.map((app) => {
+                          const active = Array.isArray(ticketData.applicativo)
+                            ? ticketData.applicativo.includes(app)
+                            : false
+
+                          return (
+                            <button
+                              key={app}
+                              type="button"
+                              onClick={() => toggleApplicativo(app)}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-all ${
+                                active
+                                  ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                                  : 'bg-[#e6eef8] text-[#0150a0] border-[#d3e0f3] hover:bg-[#d9e7f7]'
+                              }`}
+                            >
+                              {app}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className={ui.label}>Story ID</label>
+                        <input
+                          value={ticketData.numero_storia || ''}
+                          onChange={(e) => handleUpdate('numero_storia', e.target.value)}
+                          className={ui.field}
+                          placeholder="#0000"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={ui.label}>Slot Sprint</label>
+                        <select
+                          value={ticketData.sprint || ''}
+                          onChange={(e) => handleUpdate('sprint', e.target.value)}
+                          className={ui.select}
+                        >
+                          <option value="">Nessuno</option>
+                          {SPRINT_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={ui.label}>Tipo attività</label>
+                      <select
+                        value={ticketData.tipo_di_attivita || ''}
+                        onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
+                        className={ui.select}
+                      >
+                        <option value="">Seleziona tipo</option>
+                        {TIPO_ATTIVITA_OPTIONS.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {openSections.mailThread && (
+              <MailThread ticketData={ticketData} onUpdate={handleUpdate} saving={saving} />
+            )}
+
+            {openSections.releasePipeline && (
+              <ReleasePipeline ticketData={ticketData} onUpdate={handleUpdate} />
+            )}
+          </div>
+        </div>
+
+        {showTagEditor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-6 space-y-5">
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+                Modifica Ticket
+              </h3>
+
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Numero Incident' : 'Numero Tag'}
+                  </label>
                   <input
-                    value={ticketData.numero_storia || ''}
-                    onChange={(e) => handleUpdate('numero_storia', e.target.value)}
-                    className={ui.field}
+                    type="text"
+                    value={tempTag}
+                    onChange={(e) => setTempTag(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#0150a0]/20"
                     placeholder="#0000"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className={ui.label}>Slot Sprint</label>
-                  <select
-                    value={ticketData.sprint || ''}
-                    onChange={(e) => handleUpdate('sprint', e.target.value)}
-                    className={ui.select}
-                  >
-                    <option value="">Nessuno</option>
-                    {SPRINT_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Link Incident' : 'Link Ticket'}
+                  </label>
+                  <input
+                    type="url"
+                    value={tempLink}
+                    onChange={(e) => setTempLink(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-100" />
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Incident Padre' : 'Change collegata'}
+                  </label>
+                  <input
+                    type="text"
+                    value={tempTicketCollegato}
+                    onChange={(e) => setTempTicketCollegato(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="es. TAG0123456"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Link Incident Padre' : 'Link Change collegata'}
+                  </label>
+                  <input
+                    type="url"
+                    value={tempTicketCollegatoLink}
+                    onChange={(e) => setTempTicketCollegatoLink(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="https://..."
+                  />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className={ui.label}>Tipo attività</label>
-                <select
-                  value={ticketData.tipo_di_attivita || ''}
-                  onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
-                  className={ui.select}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTagEditor(false)}
+                  className="px-4 py-2 text-xs font-black uppercase text-gray-500 hover:text-gray-700"
                 >
-                  <option value="">Seleziona tipo</option>
-                  {TIPO_ATTIVITA_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                  Annulla
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleUpdate('n_tag', tempTag)
+                    await handleUpdate('link_tag', tempLink)
+                    await handleUpdate('ticket_collegato', tempTicketCollegato)
+                    await handleUpdate('ticket_collegato_link', tempTicketCollegatoLink)
+                    setShowTagEditor(false)
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#0150a0] text-white text-xs font-black uppercase tracking-widest hover:bg-[#013f82]"
+                >
+                  Salva
+                </button>
               </div>
             </div>
-            )}
-            <MailThread ticketData={ticketData} onUpdate={handleUpdate} saving={saving} />
-            <ReleasePipeline ticketData={ticketData} onUpdate={handleUpdate} />
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
