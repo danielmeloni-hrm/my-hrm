@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import {
-  ArrowLeft,
   ChevronRight,
   Search,
   Settings2,
@@ -60,10 +59,12 @@ type Cliente = {
 type TicketRow = Ticket & {
   clienti?: Cliente | null;
   profili?: Profilo | null;
+  numero_ore?: number;
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'n_tag', label: 'N° INC', visible: true, pinned: false },
+  { id: 'numero_ore', label: 'N° Ore', visible: true, pinned: false },
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
@@ -91,6 +92,8 @@ const getColWidthValue = (id: string) => {
       return 180;
     case 'n_tag':
       return 130;
+    case 'numero_ore':
+      return 110;
     case 'progress':
       return 150;
     case 'cliente':
@@ -114,6 +117,8 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[180px]';
     case 'n_tag':
       return 'min-w-[130px]';
+    case 'numero_ore':
+      return 'min-w-[110px]';
     case 'progress':
       return 'min-w-[150px]';
     case 'cliente':
@@ -139,13 +144,20 @@ const mergeColumnConfig = (
 ): ColumnConfig[] => {
   if (!saved?.length) return defaults;
 
-  const savedMap = new Map(saved.map((col) => [col.id, col]));
-  const merged = defaults.map((def) => ({
-    ...def,
-    ...(savedMap.get(def.id) || {}),
-  }));
+  const defaultMap = new Map(defaults.map((col) => [col.id, col]));
 
-  return normalizeColumns(merged);
+  const mergedFromSaved = saved
+    .filter((col) => defaultMap.has(col.id))
+    .map((savedCol) => ({
+      ...defaultMap.get(savedCol.id)!,
+      ...savedCol,
+    }));
+
+  const missingDefaults = defaults.filter(
+    (def) => !saved.some((savedCol) => savedCol.id === def.id)
+  );
+
+  return normalizeColumns([...mergedFromSaved, ...missingDefaults]);
 };
 
 type SortableColumnItemProps = {
@@ -222,6 +234,39 @@ function SortableColumnItem({
   );
 }
 
+async function fetchTagHoursMap(): Promise<Record<string, number>> {
+  const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco';
+  const gid = '1523798548';
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`;
+
+  const res = await fetch(url);
+  const text = await res.text();
+
+  const jsonText = text.substring(47, text.length - 2);
+  const data = JSON.parse(jsonText);
+
+  const rows = data?.table?.rows || [];
+  const tagHoursMap: Record<string, number> = {};
+
+  const normalizeNumber = (value: unknown) => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    return 0;
+  };
+
+  for (const row of rows) {
+    const tag = row?.c?.[0]?.v?.toString()?.trim();
+    const hours = normalizeNumber(row?.c?.[1]?.v);
+
+    if (!tag) continue;
+    tagHoursMap[tag] = (tagHoursMap[tag] || 0) + hours;
+  }
+
+  return tagHoursMap;
+}
+
 export default function StoricoTicketPage() {
   const supabase = useMemo(() => createClient(), []);
 
@@ -248,8 +293,8 @@ export default function StoricoTicketPage() {
     key: string | null;
     direction: 'asc' | 'desc';
   }>({
-    key: null,
-    direction: 'asc',
+    key: 'n_tag',
+    direction: 'desc',
   });
 
   const sensors = useSensors(
@@ -284,6 +329,7 @@ export default function StoricoTicketPage() {
 
         if (user) {
           setCurrentUserId(user.id);
+          setSelectedAssegnatario(user.id);
 
           const { data: profilo, error: profiloError } = await supabase
             .from('profili')
@@ -300,7 +346,7 @@ export default function StoricoTicketPage() {
           setColumnOrder(DEFAULT_COLUMNS);
         }
 
-        const [tRes, pRes, cRes] = await Promise.all([
+        const [tRes, pRes, cRes, tagHoursMap] = await Promise.all([
           supabase
             .from('ticket')
             .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
@@ -308,13 +354,19 @@ export default function StoricoTicketPage() {
             .eq('tipologia_ticket', 'Incident'),
           supabase.from('profili').select('id, nome_completo'),
           supabase.from('clienti').select('id, nome'),
+          fetchTagHoursMap(),
         ]);
 
         if (tRes.error) throw tRes.error;
         if (pRes.error) throw pRes.error;
         if (cRes.error) throw cRes.error;
 
-        setTickets((tRes.data as TicketRow[]) || []);
+        const ticketsWithHours: TicketRow[] = ((tRes.data as TicketRow[]) || []).map((ticket) => ({
+          ...ticket,
+          numero_ore: ticket.n_tag ? tagHoursMap[ticket.n_tag] || 0 : 0,
+        }));
+
+        setTickets(ticketsWithHours);
         setListaAssegnatari((pRes.data as Profilo[]) || []);
         setListaClienti((cRes.data as Cliente[]) || []);
       } catch (err: any) {
@@ -333,15 +385,31 @@ export default function StoricoTicketPage() {
     const { error } = await supabase.from('ticket').update(updatePayload).eq('id', id);
 
     if (!error) {
-      const { data } = await supabase
-        .from('ticket')
-        .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
-        .eq('id', id)
-        .eq('tipologia_ticket', 'Incident')
-        .single();
+      const [{ data }, tagHoursMap] = await Promise.all([
+        supabase
+          .from('ticket')
+          .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+          .eq('id', id)
+          .eq('tipologia_ticket', 'Incident')
+          .single(),
+        fetchTagHoursMap(),
+      ]);
 
       if (data) {
-        setTickets((prev) => prev.map((t) => (t.id === id ? (data as TicketRow) : t)));
+        const updatedTicket = data as TicketRow;
+
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.id === id
+              ? {
+                  ...updatedTicket,
+                  numero_ore: updatedTicket.n_tag
+                    ? tagHoursMap[updatedTicket.n_tag] || 0
+                    : 0,
+                }
+              : t
+          )
+        );
       }
     }
   };
@@ -416,6 +484,10 @@ export default function StoricoTicketPage() {
           case 'progress':
             aVal = Number(a.percentuale_avanzamento) || 0;
             bVal = Number(b.percentuale_avanzamento) || 0;
+            break;
+          case 'numero_ore':
+            aVal = Number(a.numero_ore) || 0;
+            bVal = Number(b.numero_ore) || 0;
             break;
           case 'cliente':
             aVal = a.clienti?.nome?.toLowerCase() || '';
@@ -541,14 +613,12 @@ export default function StoricoTicketPage() {
       <header className="max-w-[1600px] mx-auto mb-8">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div>
-            
-
             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-            Database <span className="text-slate-400 font-light italic">Incident</span>
+              Database <span className="text-slate-400 font-light italic">Incident</span>
             </h1>
 
             <p className="mt-2 text-sm font-semibold text-slate-500">
-            Numero Incident = <span className="text-slate-900">{filteredTickets.length}</span>
+              Numero Incident = <span className="text-slate-900">{filteredTickets.length}</span>
             </p>
           </div>
 
@@ -582,19 +652,17 @@ export default function StoricoTicketPage() {
               </select>
 
               <select
-                className="bg-transparent  py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
+                className="bg-transparent py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
                 value={selectedSprint}
                 onChange={(e) => setSelectedSprint(e.target.value)}
               >
-                
+                <option value="">Sprint</option>
                 {SPRINT_LIST.filter((s) => s !== 'Sprint').map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
                 ))}
               </select>
-
-              
 
               <select
                 className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-32"
@@ -737,6 +805,15 @@ export default function StoricoTicketPage() {
                             value={t.titolo || ''}
                             onChange={(e) => handleUpdate(t.id, 'titolo', e.target.value)}
                           />
+                        )}
+
+                        {col.id === 'numero_ore' && (
+                          <span className="text-[10px] font-bold text-slate-700">
+                            {(t.numero_ore || 0).toLocaleString('it-IT', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
                         )}
 
                         {col.id === 'tipo_di_attivita' && (

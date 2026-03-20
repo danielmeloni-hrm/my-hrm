@@ -60,6 +60,7 @@ type Cliente = {
 type TicketRow = Ticket & {
   clienti?: Cliente | null;
   profili?: Profilo | null;
+  numero_ore?: number;
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
@@ -79,6 +80,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'data_apertura_attivita', label: 'Apertura Attività', visible: true, pinned: false },
   { id: 'data_chiusura_attivita', label: 'Chiusura Attività', visible: true, pinned: false },
   { id: 'ultimo_ping', label: 'Ultimo Ping', visible: true, pinned: false },
+  { id: 'numero_ore', label: 'N° Ore', visible: true, pinned: false },
 ];
 
 const getColWidthValue = (id: string) => {
@@ -99,6 +101,8 @@ const getColWidthValue = (id: string) => {
       return 140;
     case 'ultimo_ping':
       return 120;
+    case 'numero_ore':
+      return 110;
     default:
       return 130;
   }
@@ -122,6 +126,8 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[140px]';
     case 'ultimo_ping':
       return 'min-w-[120px]';
+    case 'numero_ore':
+      return 'min-w-[110px]';
     default:
       return 'min-w-[130px]';
   }
@@ -243,13 +249,45 @@ export default function StoricoTicketPage() {
 
   const [listaAssegnatari, setListaAssegnatari] = useState<Profilo[]>([]);
   const [listaClienti, setListaClienti] = useState<Cliente[]>([]);
+  async function fetchTagHoursMap(): Promise<Record<string, number>> {
+  const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco';
+  const gid = '1523798548';
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`;
 
+  const res = await fetch(url);
+  const text = await res.text();
+
+  const jsonText = text.substring(47, text.length - 2);
+  const data = JSON.parse(jsonText);
+
+  const rows = data?.table?.rows || [];
+  const tagHoursMap: Record<string, number> = {};
+
+  const normalizeNumber = (value: unknown) => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    return 0;
+  };
+
+  for (const row of rows) {
+    const tag = row?.c?.[0]?.v?.toString()?.trim();
+    const hours = normalizeNumber(row?.c?.[1]?.v);
+
+    if (!tag) continue;
+
+    tagHoursMap[tag] = (tagHoursMap[tag] || 0) + hours;
+  }
+
+  return tagHoursMap;
+}
   const [sortConfig, setSortConfig] = useState<{
     key: string | null;
     direction: 'asc' | 'desc';
   }>({
-    key: null,
-    direction: 'asc',
+    key: 'n_tag',
+    direction: 'desc',
   });
 
   const sensors = useSensors(
@@ -283,38 +321,45 @@ export default function StoricoTicketPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
-          setCurrentUserId(user.id);
+            setCurrentUserId(user.id);
+            setSelectedAssegnatario(user.id);
 
-          const { data: profilo, error: profiloError } = await supabase
-            .from('profili')
-            .select('all_ticket_settings_colonne')
-            .eq('id', user.id)
-            .single();
+            const { data: profilo, error: profiloError } = await supabase
+              .from('profili')
+              .select('all_ticket_settings_colonne')
+              .eq('id', user.id)
+              .single();
 
-          if (profiloError) throw profiloError;
+            if (profiloError) throw profiloError;
 
-          setColumnOrder(
-            mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_ticket_settings_colonne)
-          );
-        } else {
-          setColumnOrder(DEFAULT_COLUMNS);
-        }
+            setColumnOrder(
+              mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_ticket_settings_colonne)
+            );
+          } else {
+            setColumnOrder(DEFAULT_COLUMNS);
+          }
 
-        const [tRes, pRes, cRes] = await Promise.all([
-          supabase
-            .from('ticket')
-            .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
-            .order('ultimo_ping', { ascending: false })
-            .eq('tipologia_ticket', 'Attività'),
-          supabase.from('profili').select('id, nome_completo'),
-          supabase.from('clienti').select('id, nome'),
-        ]);
+        const [tRes, pRes, cRes, tagHoursMap] = await Promise.all([
+            supabase
+              .from('ticket')
+              .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+              .order('ultimo_ping', { ascending: false })
+              .eq('tipologia_ticket', 'Attività'),
+            supabase.from('profili').select('id, nome_completo'),
+            supabase.from('clienti').select('id, nome'),
+            fetchTagHoursMap(),
+          ]);
 
         if (tRes.error) throw tRes.error;
         if (pRes.error) throw pRes.error;
         if (cRes.error) throw cRes.error;
 
-        setTickets((tRes.data as TicketRow[]) || []);
+        const ticketsWithHours: TicketRow[] = ((tRes.data as TicketRow[]) || []).map((ticket) => ({
+      ...ticket,
+      numero_ore: ticket.n_tag ? tagHoursMap[ticket.n_tag] || 0 : 0,
+    }));
+
+    setTickets(ticketsWithHours);
         setListaAssegnatari((pRes.data as Profilo[]) || []);
         setListaClienti((cRes.data as Cliente[]) || []);
       } catch (err: any) {
@@ -333,18 +378,33 @@ export default function StoricoTicketPage() {
     const { error } = await supabase.from('ticket').update(updatePayload).eq('id', id);
 
     if (!error) {
-      const { data } = await supabase
-        .from('ticket')
-        .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
-        .eq('id', id)
-        .eq('tipologia_ticket', 'Attività')
-        .single();
+  const [{ data }, tagHoursMap] = await Promise.all([
+    supabase
+      .from('ticket')
+      .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+      .eq('id', id)
+      .eq('tipologia_ticket', 'Attività')
+      .single(),
+    fetchTagHoursMap(),
+  ]);
 
-      if (data) {
-        setTickets((prev) => prev.map((t) => (t.id === id ? (data as TicketRow) : t)));
-      }
-    }
-  };
+  if (data) {
+    const updatedTicket = data as TicketRow;
+
+    setTickets((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? {
+              ...updatedTicket,
+              numero_ore: updatedTicket.n_tag
+                ? tagHoursMap[updatedTicket.n_tag] || 0
+                : 0,
+            }
+          : t
+      )
+    );
+  }
+}}
 
   const saveUserSettings = async (newConfig: ColumnConfig[]) => {
     setColumnOrder(newConfig);
@@ -749,7 +809,14 @@ export default function StoricoTicketPage() {
                             onChange={(e) => handleUpdate(t.id, 'titolo', e.target.value)}
                           />
                         )}
-
+                        {col.id === 'numero_ore' && (
+                          <span className="text-[10px] font-bold text-slate-700">
+                            {(t.numero_ore || 0).toLocaleString('it-IT', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        )}
                         {col.id === 'tipo_di_attivita' && (
                           <select
                             className="bg-transparent text-[10px] font-bold text-slate-600 outline-none"

@@ -123,11 +123,60 @@ function groupLogsByMonth(logs: string[]) {
 export default function TicketDettaglioPage() {
   const params = useParams()
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id
-
+  const [tagHours, setTagHours] = useState<number | null>(null)
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
+  useEffect(() => {
+  const fetchTagHours = async () => {
+    if (!ticketData?.n_tag) {
+      setTagHours(null)
+      return
+    }
 
+    try {
+      const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco'
+      const gid = '1523798548'
+
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`
+
+      const res = await fetch(url)
+      const text = await res.text()
+
+      // Google restituisce una callback JS, non JSON puro
+      const jsonText = text.substring(47, text.length - 2)
+      const data = JSON.parse(jsonText)
+
+      const rows = data.table.rows || []
+
+      const normalizeNumber = (value: unknown) => {
+        if (typeof value === 'number') return value
+        if (typeof value === 'string') {
+          return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0
+        }
+        return 0
+      }
+
+      const total = rows.reduce((sum: number, row: any) => {
+        const tag = row?.c?.[0]?.v?.toString()?.trim()
+        const hoursValue = row?.c?.[1]?.v
+
+        if (tag === ticketData.n_tag?.trim()) {
+          return sum + normalizeNumber(hoursValue)
+        }
+
+        return sum
+      }, 0)
+
+      setTagHours(total)
+    } catch (error) {
+      console.error('Errore caricamento ore tag:', error)
+      setTagHours(null)
+    }
+  }
+
+  fetchTagHours()
+}, [ticketData?.n_tag])
   const [deleting, setDeleting] = useState(false)
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [showVisibilityPanel, setShowVisibilityPanel] = useState(false)
@@ -271,10 +320,13 @@ export default function TicketDettaglioPage() {
   const isIncident = ticketData?.tipologia_ticket === 'Incident'
 
   const summaryCards = [
-    {
-      label: 'Numero di ore',
-      value: '—',
-    },
+     {
+    label: 'Numero di ore',
+    value: tagHours !== null ? tagHours.toLocaleString('it-IT', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) : '—',
+  },
     {
       label: 'Ultimo Ping',
       value: formatDisplayDate(ticketData?.ultimo_ping),

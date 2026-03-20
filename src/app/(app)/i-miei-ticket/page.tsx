@@ -39,7 +39,7 @@ export default function MieiTicketPage() {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: 'ultimo_ping', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterApp, setFilterApp] = useState('');
-  const [filterAssignee, setFilterAssignee] = useState(''); 
+  const [filterAssignee, setFilterAssignee] = useState('me'); 
   const [selectedMacroarea, setSelectedMacroarea] = useState<'todo' | 'progress' | 'complete' | null>(null);
 
   const APPLICATIVI = ["APPECOM", "ECOM35", "EOL", "IST35", "ESB", "GCW"];
@@ -88,23 +88,36 @@ export default function MieiTicketPage() {
 
   // Fetch dei ticket con filtro assegnatario (UUID)
   useEffect(() => {
-    async function fetchTickets() {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      let query = supabase.from('ticket').select(`*, clienti:cliente_id (nome), profili:assignee (nome)`);
-      
-      if (filterAssignee === 'me' && user) {
-        query = query.eq('assignee', user.id);
-      } else if (filterAssignee !== 'all') {
-        query = query.eq('assignee', filterAssignee);
-      }
+  async function fetchTickets() {
+    setLoading(true);
 
-      const { data, error } = await query;
-      if (!error) setTickets(data || []);
-      setLoading(false);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let query = supabase
+      .from('ticket')
+      .select(`*, clienti:cliente_id (nome), profili:assignee (nome)`);
+
+    if (filterAssignee === 'me') {
+      if (!user) {
+        setTickets([]);
+        setLoading(false);
+        return;
+      }
+      query = query.eq('assignee', user.id);
+    } else if (filterAssignee !== 'all') {
+      query = query.eq('assignee', filterAssignee);
     }
-    fetchTickets();
-  }, [supabase, filterAssignee]);
+
+    const { data, error } = await query;
+
+    if (!error) setTickets(data || []);
+    setLoading(false);
+  }
+
+  fetchTickets();
+}, [supabase, filterAssignee]);
 
   const handleUpdate = async (id: string, field: string, value: any) => {
     setUpdatingId(`${id}-${field}`);
@@ -147,7 +160,7 @@ export default function MieiTicketPage() {
     if (!dateString) return false;
     const diff = (new Date().getTime() - new Date(dateString).getTime()) / (1000 * 3600 * 24);
     return diff > 15;
-  };
+  };  
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse uppercase tracking-widest">Sincronizzazione...</div>;
 
