@@ -276,13 +276,9 @@ export default function TicketDettaglioPage() {
       value: '—',
     },
     {
-      label: 'Ultimo controllo',
-      value: formatDisplayDate(ticketData?.ultimo_controllo_collaudo),
-    },
-    {
-      label: 'Rilascio in produzione',
-      value: formatDisplayDate(ticketData?.rilascio_in_produzione),
-    },
+      label: 'Ultimo Ping',
+      value: formatDisplayDate(ticketData?.ultimo_ping),
+    }
   ]
 
   const toggleApplicativo = (app: string) => {
