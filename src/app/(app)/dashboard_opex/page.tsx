@@ -23,10 +23,7 @@ import {
   closestCenter,
   DragOverlay,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 
 import TicketCard, { Ticket } from "@/components/ticket/TicketCard";
 import TicketDragPreview from "@/components/ticket/TicketDragPreview";
@@ -125,7 +122,7 @@ const statusToColumnId: Record<string, string> = {
   "Attenzione Business": "attenzione-business",
   "Attenzione di Andrea": "attenzione-di-andrea",
   "Completato - In attesa di chiusura": "completato-in-attesa-di-chiusura",
-  "Completato": "completato",
+  Completato: "completato",
 };
 
 const columnIdToStatus: Record<string, string> = {
@@ -138,7 +135,7 @@ const columnIdToStatus: Record<string, string> = {
   "attenzione-business": "Attenzione Business",
   "attenzione-di-andrea": "Attenzione di Andrea",
   "completato-in-attesa-di-chiusura": "Completato - In attesa di chiusura",
-  "completato": "Completato",
+  completato: "Completato",
 };
 
 const ui = {
@@ -164,16 +161,49 @@ function getDaysDiff(date?: string | null) {
   if (!date) return 999;
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return 999;
-  return Math.floor(
-    (new Date().getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
-  );
+  return Math.floor((new Date().getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 function formatDateShort(date?: string | null) {
   if (!date) return "Mai";
   const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return "Mai";
   return d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+}
+
+function visibleColumnsArrayToMap(columnIds?: string[] | null) {
+  const defaultMap = allBoardColumns.reduce(
+    (acc, col) => {
+      acc[col.id] = true;
+      return acc;
+    },
+    {} as Record<string, boolean>
+  );
+
+  if (!Array.isArray(columnIds) || columnIds.length === 0) {
+    return defaultMap;
+  }
+
+  const allFalseMap = allBoardColumns.reduce(
+    (acc, col) => {
+      acc[col.id] = false;
+      return acc;
+    },
+    {} as Record<string, boolean>
+  );
+
+  for (const id of columnIds) {
+    if (id in allFalseMap) {
+      allFalseMap[id] = true;
+    }
+  }
+
+  return allFalseMap;
+}
+
+function visibleColumnsMapToArray(columns: Record<string, boolean>) {
+  return allBoardColumns
+    .map((col) => col.id)
+    .filter((id) => columns[id] !== false);
 }
 
 function DroppableColumn({
@@ -201,8 +231,6 @@ function DroppableColumn({
 }
 
 export default function SprintBoardRefactor() {
-  const VISIBLE_COLUMNS_STORAGE_KEY = "sprint-board-visible-columns";
-
   const [isMounted, setIsMounted] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -222,25 +250,16 @@ export default function SprintBoardRefactor() {
 
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(
     () =>
-      allBoardColumns.reduce(
-        (acc, col) => ({ ...acc, [col.id]: true }),
-        {} as Record<string, boolean>
-      )
+      allBoardColumns.reduce((acc, col) => {
+        acc[col.id] = true;
+        return acc;
+      }, {} as Record<string, boolean>)
   );
 
   const currentStyles = zoomStyles[zoomLevel];
 
   useEffect(() => {
     setIsMounted(true);
-
-    const saved = localStorage.getItem(VISIBLE_COLUMNS_STORAGE_KEY);
-    if (saved) {
-      try {
-        setVisibleColumns(JSON.parse(saved));
-      } catch (error) {
-        console.error("Errore parsing visibleColumns:", error);
-      }
-    }
 
     async function loadData() {
       const {
@@ -249,15 +268,28 @@ export default function SprintBoardRefactor() {
 
       setCurrentUserId(user?.id ?? null);
 
+      if (user?.id) {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profili")
+          .select("kanban_columns")
+          .eq("id", user.id)
+          .single();
+
+        if (profileError) {
+          console.error("Errore caricamento kanban_columns:", profileError.message);
+        } else {
+          setVisibleColumns(
+            visibleColumnsArrayToMap(profileData?.kanban_columns)
+          );
+        }
+      }
+
       const { data, error } = await supabase
         .from("ticket")
-        .select(
-          "*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)"
-        )
-        .eq("tipo_di_attivita", "Incident Resolution");
+        .select("*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)");
 
       if (error) {
-        console.error("Errore nel caricamento dei ticket:", error);
+        console.error("Errore caricamento ticket:", error.message);
         return;
       }
 
@@ -275,37 +307,29 @@ export default function SprintBoardRefactor() {
   }, []);
 
   useEffect(() => {
-    if (!isMounted) return;
-    localStorage.setItem(
-      VISIBLE_COLUMNS_STORAGE_KEY,
-      JSON.stringify(visibleColumns)
-    );
-  }, [visibleColumns, isMounted]);
-
-  useEffect(() => {
     const channel = supabase
       .channel("board-live")
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "ticket" },
         (payload) => {
-          const updatedTicket: Partial<Ticket> = {
-  ...(payload.new as Partial<Ticket>),
-  columnId:
-    statusToColumnId[(payload.new as any).stato] || "non-iniziato",
-};
+          const updatedPatch: Partial<Ticket> = {
+            ...(payload.new as Partial<Ticket>),
+            columnId:
+              statusToColumnId[(payload.new as any).stato] || "non-iniziato",
+          };
 
-setTickets((current) =>
-  current.map((t) =>
-    t.id === payload.new.id ? { ...t, ...updatedTicket } as Ticket : t
-  )
-);
+          setTickets((current) =>
+            current.map((t) =>
+              t.id === payload.new.id ? ({ ...t, ...updatedPatch } as Ticket) : t
+            )
+          );
 
-setSelectedTicket((current) =>
-  current?.id === payload.new.id
-    ? ({ ...current, ...updatedTicket } as Ticket)
-    : current
-);
+          setSelectedTicket((current) =>
+            current?.id === payload.new.id
+              ? ({ ...current, ...updatedPatch } as Ticket)
+              : current
+          );
         }
       )
       .subscribe();
@@ -315,33 +339,42 @@ setSelectedTicket((current) =>
     };
   }, []);
 
-  const handleUpdateTicket = async (id: string, patch: Partial<Ticket>) => {
-    const previousTickets = tickets;
+  const saveKanbanColumns = async (nextVisibleColumns: Record<string, boolean>) => {
+    setVisibleColumns(nextVisibleColumns);
 
+    if (!currentUserId) return;
+
+    const kanbanColumns = visibleColumnsMapToArray(nextVisibleColumns);
+
+    const { error } = await supabase
+      .from("profili")
+      .update({ kanban_columns: kanbanColumns })
+      .eq("id", currentUserId);
+
+    if (error) {
+      console.error("Errore salvataggio kanban_columns:", error.message);
+    }
+  };
+
+  const handleUpdateTicket = async (id: string, patch: Partial<Ticket>) => {
     setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
     setSelectedTicket((prev) =>
-      prev?.id === id ? { ...prev, ...patch } : prev
+      prev?.id === id ? ({ ...prev, ...patch } as Ticket) : prev
     );
 
     const { columnId, ...supabasePatch } = patch;
 
     if (Object.keys(supabasePatch).length === 0) return;
 
-    const { error } = await supabase.from("ticket").update(supabasePatch).eq("id", id);
+    const { error } = await supabase
+      .from("ticket")
+      .update(supabasePatch)
+      .eq("id", id);
 
     if (error) {
       console.error("Errore salvataggio:", error.message);
-      setTickets(previousTickets);
     }
-  };
-
-  const handleToggleInLavorazione = async (ticket: Ticket) => {
-    const nextValue = !ticket.in_lavorazione_ora;
-
-    await handleUpdateTicket(ticket.id, {
-      in_lavorazione_ora: nextValue,
-    });
   };
 
   const sensors = useSensors(
@@ -357,7 +390,6 @@ setSelectedTicket((current) =>
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveTicket(null);
-
     if (!over) return;
 
     const activeId = String(active.id);
@@ -370,7 +402,6 @@ setSelectedTicket((current) =>
     if (!draggedTicket || draggedTicket.columnId === targetColId) return;
 
     const newStatus = columnIdToStatus[targetColId];
-
     const updatePayload: Partial<Ticket> = {
       stato: newStatus,
       ultimo_ping: new Date().toISOString(),
@@ -383,41 +414,48 @@ setSelectedTicket((current) =>
 
   const clientiList = useMemo(() => {
     return Array.from(
-      new Set(
-        tickets.map((t) => t.clienti?.nome).filter(Boolean) as string[]
-      )
+      new Set(tickets.map((t) => t.clienti?.nome).filter(Boolean) as string[])
     ).sort();
   }, [tickets]);
 
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      const search = searchQuery.toLowerCase();
+    return tickets
+      .filter((t) => {
+        const search = searchQuery.toLowerCase();
 
-      const matchesSearch =
-        !searchQuery ||
-        t.titolo?.toLowerCase().includes(search) ||
-        (t.n_tag || "").toLowerCase().includes(search) ||
-        t.clienti?.nome?.toLowerCase().includes(search);
+        const matchesSearch =
+          !searchQuery ||
+          t.titolo.toLowerCase().includes(search) ||
+          (t.n_tag || "").toLowerCase().includes(search);
 
-      const matchesCliente =
-        selectedCliente === "Tutti" || t.clienti?.nome === selectedCliente;
+        const matchesCliente =
+          selectedCliente === "Tutti" || t.clienti?.nome === selectedCliente;
 
-      const matchesSprint =
-        selectedSprint === "Tutti" || t.sprint === selectedSprint;
+        const matchesSprint =
+          selectedSprint === "Tutti" || t.sprint === selectedSprint;
 
-      const matchesExpired =
-        !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
+        const matchesExpired =
+          !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
 
-      const matchesMe = !filterMe || t.assignee === currentUserId;
+        const matchesMe = !filterMe || t.assignee === currentUserId;
 
-      return (
-        matchesSearch &&
-        matchesCliente &&
-        matchesSprint &&
-        matchesExpired &&
-        matchesMe
-      );
-    });
+        return (
+          matchesSearch &&
+          matchesCliente &&
+          matchesSprint &&
+          matchesExpired &&
+          matchesMe
+        );
+      })
+      .sort((a, b) => {
+        if (a.in_lavorazione_ora && !b.in_lavorazione_ora) return -1;
+        if (!a.in_lavorazione_ora && b.in_lavorazione_ora) return 1;
+
+        const tagA = a.n_tag || "";
+        const tagB = b.n_tag || "";
+
+        return tagB.localeCompare(tagA, undefined, { numeric: true });
+      });
   }, [
     tickets,
     searchQuery,
@@ -445,7 +483,6 @@ setSelectedTicket((current) =>
               <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
                 <LayoutDashboard size={22} className="text-[#0150a0]" />
               </div>
-
               <div>
                 <h1 className="text-3xl font-black tracking-tighter text-gray-900 uppercase">
                   Opex Board
@@ -459,28 +496,23 @@ setSelectedTicket((current) =>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setFilterOnlyExpired(!filterOnlyExpired)}
-                className={cn(
-                  "flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all",
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
                   filterOnlyExpired
                     ? "bg-red-500 text-white border-red-600 shadow-lg shadow-red-200"
                     : "bg-white text-gray-600 border-gray-200"
-                )}
+                }`}
               >
-                <Activity
-                  size={12}
-                  className={filterOnlyExpired ? "animate-pulse" : ""}
-                />
+                <Activity size={12} className={filterOnlyExpired ? "animate-pulse" : ""} />
                 Da pingare
               </button>
 
               <button
                 onClick={() => setFilterMe(!filterMe)}
-                className={cn(
-                  "flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all",
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
                   filterMe
                     ? "bg-[#0150a0] text-white border-[#0150a0] shadow-lg shadow-blue-200"
                     : "bg-white text-gray-600 border-gray-200"
-                )}
+                }`}
               >
                 {filterMe ? <User size={12} /> : <Users size={12} />}
                 {filterMe ? "Miei Task" : "Tutti i Task"}
@@ -518,26 +550,25 @@ setSelectedTicket((current) =>
                   className="px-6 py-3.5 bg-gray-50 rounded-xl text-[11px] font-black uppercase border border-transparent focus:border-gray-200 outline-none appearance-none cursor-pointer"
                 >
                   <option value="Tutti">Tutti i Clienti</option>
-                  {clientiList.map((cliente) => (
-                    <option key={cliente} value={cliente}>
-                      {cliente}
+                  {clientiList.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
                     </option>
                   ))}
                 </select>
 
                 <div className="flex bg-gray-100 p-1 rounded-xl">
-                  {(["Opex", "Backlog", "Tutti"] as const).map((sprint) => (
+                  {(["Opex", "Backlog", "Tutti"] as const).map((s) => (
                     <button
-                      key={sprint}
-                      onClick={() => setSelectedSprint(sprint)}
-                      className={cn(
-                        "px-5 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all",
-                        selectedSprint === sprint
+                      key={s}
+                      onClick={() => setSelectedSprint(s)}
+                      className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                        selectedSprint === s
                           ? "bg-white text-gray-900 shadow-sm"
                           : "text-gray-500 hover:text-gray-700"
-                      )}
+                      }`}
                     >
-                      {sprint}
+                      {s}
                     </button>
                   ))}
                 </div>
@@ -556,9 +587,7 @@ setSelectedTicket((current) =>
             {allBoardColumns.map((col) => {
               if (visibleColumns[col.id] === false) return null;
 
-              const columnTickets = filteredTickets.filter(
-                (ticket) => ticket.columnId === col.id
-              );
+              const columnTickets = filteredTickets.filter((t) => t.columnId === col.id);
 
               return (
                 <div
@@ -591,14 +620,14 @@ setSelectedTicket((current) =>
 
                   <DroppableColumn id={col.id} bgColorClass={col.bgColorClass}>
                     <SortableContext
-                      items={columnTickets.map((ticket) => ticket.id)}
+                      items={columnTickets.map((t) => t.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="space-y-3">
-                        {columnTickets.map((ticket) => (
+                        {columnTickets.map((t) => (
                           <TicketCard
-                            key={ticket.id}
-                            ticket={ticket}
+                            key={t.id}
+                            ticket={t}
                             currentStyles={currentStyles}
                             setSelectedTicket={setSelectedTicket}
                             handleUpdateTicket={handleUpdateTicket}
@@ -613,13 +642,10 @@ setSelectedTicket((current) =>
             })}
           </div>
 
-          <DragOverlay adjustScale>
+          <DragOverlay adjustScale={true}>
             {activeTicket && (
               <div className="rotate-2 scale-[1.05] shadow-2xl">
-                <TicketDragPreview
-                  ticket={activeTicket}
-                  currentStyles={currentStyles}
-                />
+                <TicketDragPreview ticket={activeTicket} currentStyles={currentStyles} />
               </div>
             )}
           </DragOverlay>
@@ -633,7 +659,11 @@ setSelectedTicket((current) =>
         formatDateShort={formatDateShort}
         ui={ui}
         cn={cn}
-        handleToggleInLavorazione={handleToggleInLavorazione}
+        handleToggleInLavorazione={(ticket) =>
+          handleUpdateTicket(ticket.id, {
+            in_lavorazione_ora: !ticket.in_lavorazione_ora,
+          })
+        }
         addLogNoteToDb={async (id, logs) => {
           await supabase.from("ticket").update({ storia_ticket: logs }).eq("id", id);
         }}
@@ -657,7 +687,6 @@ setSelectedTicket((current) =>
                   Personalizza la tua vista
                 </p>
               </div>
-
               <button
                 onClick={() => setShowSettings(false)}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -675,12 +704,14 @@ setSelectedTicket((current) =>
                 <div
                   key={col.id}
                   className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-white hover:shadow-md transition-all cursor-pointer"
-                  onClick={() =>
-                    setVisibleColumns((prev) => ({
-                      ...prev,
-                      [col.id]: !prev[col.id],
-                    }))
-                  }
+                  onClick={() => {
+                    const nextVisibleColumns = {
+                      ...visibleColumns,
+                      [col.id]: !visibleColumns[col.id],
+                    };
+
+                    saveKanbanColumns(nextVisibleColumns);
+                  }}
                 >
                   <div className="flex items-center gap-4">
                     <div
@@ -692,18 +723,14 @@ setSelectedTicket((current) =>
                   </div>
 
                   <div
-                    className={cn(
-                      "w-10 h-5 rounded-full relative transition-colors",
-                      visibleColumns[col.id] !== false
-                        ? "bg-[#0150a0]"
-                        : "bg-gray-300"
-                    )}
+                    className={`w-10 h-5 rounded-full relative transition-colors ${
+                      visibleColumns[col.id] !== false ? "bg-[#0150a0]" : "bg-gray-300"
+                    }`}
                   >
                     <div
-                      className={cn(
-                        "absolute top-1 w-3 h-3 bg-white rounded-full transition-transform",
+                      className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-transform ${
                         visibleColumns[col.id] !== false ? "left-6" : "left-1"
-                      )}
+                      }`}
                     />
                   </div>
                 </div>
