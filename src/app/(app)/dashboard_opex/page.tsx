@@ -289,23 +289,23 @@ export default function SprintBoardRefactor() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "ticket" },
         (payload) => {
-          const updatedTicket = {
-            ...(payload.new as Partial<Ticket>),
-            columnId:
-              statusToColumnId[(payload.new as any).stato] || "non-iniziato",
-          };
+          const updatedTicket: Partial<Ticket> = {
+  ...(payload.new as Partial<Ticket>),
+  columnId:
+    statusToColumnId[(payload.new as any).stato] || "non-iniziato",
+};
 
-          setTickets((current) =>
-            current.map((t) =>
-              t.id === payload.new.id ? { ...t, ...updatedTicket } : t
-            )
-          );
+setTickets((current) =>
+  current.map((t) =>
+    t.id === payload.new.id ? { ...t, ...updatedTicket } as Ticket : t
+  )
+);
 
-          setSelectedTicket((current) =>
-            current?.id === payload.new.id
-              ? { ...current, ...updatedTicket }
-              : current
-          );
+setSelectedTicket((current) =>
+  current?.id === payload.new.id
+    ? ({ ...current, ...updatedTicket } as Ticket)
+    : current
+);
         }
       )
       .subscribe();
