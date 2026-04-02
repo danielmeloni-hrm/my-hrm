@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
+import { useSearchParams } from 'next/navigation';
 import {
-  DEFAULT_CLIENTE_NAME,
   APPLICATIVI_LIST,
   TOOL_LIST,
   ATTIVITA_LIST,
@@ -129,7 +129,7 @@ function TicketSquare({
 // --- PAGINA PRINCIPALE ---
 export default function CreateAttivitaOrChangePage() {
   const supabase = useMemo(() => createClient(), []);
-
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<Mode>("attività");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -140,7 +140,9 @@ export default function CreateAttivitaOrChangePage() {
   const [clienti, setClienti] = useState<Cliente[]>([]);
   
   const [success, setSuccess] = useState(false);
-
+  const [showNewCliente, setShowNewCliente] = useState(false);
+  const [newClienteName, setNewClienteName] = useState("");
+  const [creatingCliente, setCreatingCliente] = useState(false);
   const [aForm, setAForm] = useState({
     titolo: "",
     descrizione: "",
@@ -186,40 +188,58 @@ export default function CreateAttivitaOrChangePage() {
   return [];
 }, [mode]);
   useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true);
-        setError(null);
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        const [{ data: pData, error: pError }, { data: cData, error: cError }] = await Promise.all([
+  async function loadData() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const queryCliente = searchParams.get("cliente");
+      const queryTitolo = searchParams.get("titolo");
+      const queryAssignee = searchParams.get("assignee");
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
+
+      const [{ data: pData, error: pError }, { data: cData, error: cError }] =
+        await Promise.all([
           supabase.from("profili").select("id, nome_completo").order("nome_completo"),
           supabase.from("clienti").select("id, nome").order("nome"),
         ]);
 
-        if (pError) throw pError;
-        if (cError) throw cError;
+      if (pError) throw pError;
+      if (cError) throw cError;
 
-        const profiliList = (pData as Profile[]) ?? [];
-        const clientiList = (cData as Cliente[]) ?? [];
+      const profiliList = (pData as Profile[]) ?? [];
+      const clientiList = (cData as Cliente[]) ?? [];
 
-        setProfiles(profiliList);
-        setClienti(clientiList);
-        if (user) {
-        setAForm((p) => ({
-          ...p,
-          assignee: user.id,
-        }));
-      }
-       
-          } catch (err: any) {
-        setError(err.message ?? "Errore durante il caricamento dati");
-      } finally {
-        setLoading(false);
-      }
+      setProfiles(profiliList);
+      setClienti(clientiList);
+
+      const matchedCliente = queryCliente
+        ? clientiList.find(
+            (c) => normalizeString(c.nome) === normalizeString(queryCliente)
+          )
+        : null;
+
+      setAForm((prev) => ({
+        ...prev,
+        titolo: queryTitolo?.trim() || prev.titolo,
+        assignee: queryAssignee || user?.id || prev.assignee,
+        cliente_id: matchedCliente?.id || prev.cliente_id,
+      }));
+    } catch (err: any) {
+      setError(err.message ?? "Errore durante il caricamento dati");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    loadData();
-  }, [supabase]);
+  loadData();
+}, [supabase, searchParams]);
 
   
 
@@ -280,6 +300,55 @@ export default function CreateAttivitaOrChangePage() {
       setError(err.message ?? "Errore durante il salvataggio");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const createNewCliente = async () => {
+    const nomePulito = newClienteName.trim();
+
+    if (!nomePulito) {
+      setError("Inserisci il nome del nuovo cliente");
+      return;
+    }
+
+    const alreadyExists = clienti.some(
+      (c) => normalizeString(c.nome) === normalizeString(nomePulito)
+    );
+
+    if (alreadyExists) {
+      setError("Questo cliente esiste già");
+      return;
+    }
+
+    try {
+      setCreatingCliente(true);
+      setError(null);
+
+      const { data, error } = await supabase
+        .from("clienti")
+        .insert([{ nome: nomePulito }])
+        .select("id, nome")
+        .single();
+
+      if (error) throw error;
+
+      setClienti((prev) =>
+        [...prev, data as Cliente].sort((a, b) =>
+          (a.nome || "").localeCompare(b.nome || "", "it")
+        )
+      );
+
+      setAForm((prev) => ({
+        ...prev,
+        cliente_id: data.id,
+      }));
+
+      setNewClienteName("");
+      setShowNewCliente(false);
+    } catch (err: any) {
+      setError(err.message ?? "Errore durante la creazione del cliente");
+    } finally {
+      setCreatingCliente(false);
     }
   };
   useEffect(() => {
@@ -375,20 +444,58 @@ export default function CreateAttivitaOrChangePage() {
                     />
                   </Field>
 
-                  <Field label="Cliente" hint="Tabella Clienti">
-                    <select
-                      value={aForm.cliente_id}
-                      onChange={(e) => setAForm((p) => ({ ...p, cliente_id: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm font-bold outline-none cursor-pointer"
-                    >
-                      <option value="">Seleziona cliente...</option>
-                      {clienti.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nome}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                 <Field label="Cliente" hint="Tabella Clienti">
+  <div className="space-y-3">
+    <select
+      value={showNewCliente ? "__new__" : aForm.cliente_id}
+      onChange={(e) => {
+        const value = e.target.value;
+
+        if (value === "__new__") {
+          setShowNewCliente(true);
+          setAForm((p) => ({ ...p, cliente_id: "" }));
+          return;
+        }
+
+        setShowNewCliente(false);
+        setAForm((p) => ({ ...p, cliente_id: value }));
+      }}
+      className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm font-bold outline-none cursor-pointer"
+    >
+      <option value="">Seleziona cliente...</option>
+
+      {clienti.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.nome}
+        </option>
+      ))}
+
+      <option value="__new__">+ Aggiungi nuovo cliente</option>
+    </select>
+
+    {showNewCliente && (
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="text"
+          value={newClienteName}
+          onChange={(e) => setNewClienteName(e.target.value)}
+          placeholder="Nome nuovo cliente"
+          className="flex-1 px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm font-bold outline-none"
+        />
+
+        <button
+          type="button"
+          onClick={createNewCliente}
+          disabled={creatingCliente || !newClienteName.trim()}
+          className="px-4 py-3 rounded-2xl text-white text-xs font-black uppercase disabled:opacity-50"
+          style={{ background: BRAND }}
+        >
+          {creatingCliente ? "Salvataggio..." : "Aggiungi"}
+        </button>
+      </div>
+    )}
+  </div>
+</Field>
                     
                   
 

@@ -333,5 +333,6 @@ export const DEFAULT_CLIENTE_NAME = [
   "Leclerc",
   "Azimut/Benetti",
   "HRM",
-  "Pro-Keds"
+  "Pro-Keds",
+  "IPC Messico",
 ] as const;
