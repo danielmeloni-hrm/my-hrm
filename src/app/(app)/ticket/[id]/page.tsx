@@ -23,6 +23,8 @@ import {
 } from 'lucide-react'
 
 const STATO_OPTIONS = [
+  'Non Iniziato',
+  'In stand-by',
   'Attività Sospesa',
   'In lavorazione',
   'In attesa Sviluppo',

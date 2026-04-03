@@ -2,14 +2,28 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase';
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from '@dnd-kit/core';
 
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+
+import { CSS } from '@dnd-kit/utilities';
 import {
   CheckSquare,
   Cloud,
-  Download,
   FileText,
+  Pin,
   Plus,
-  Save,
   Search,
   Square,
   Trash2,
@@ -38,10 +52,12 @@ interface TicketRecord {
   assignee?: string | null;
   link_tag?: string | null;
 }
+
 interface ClienteRecord {
   id: string;
   nome: string;
 }
+
 type NoteType = 'text' | 'todo' | 'taskmanager';
 
 interface TodoItem {
@@ -49,6 +65,8 @@ interface TodoItem {
   text: string;
   done: boolean;
 }
+
+type ShareMode = 'private' | 'shared_view' | 'shared_edit';
 
 interface EditorNote {
   id: string;
@@ -58,9 +76,11 @@ interface EditorNote {
   updated_at: string;
   note_type: NoteType;
   todo_items: TodoItem[];
-  is_shared: boolean;
+  share_mode: ShareMode;
   shared_by_user_id?: string | null;
   shared_at?: string | null;
+  is_pinned?: boolean;
+  sort_order?: number | null;
 }
 
 interface TaskManagerMatch {
@@ -70,15 +90,36 @@ interface TaskManagerMatch {
   tag: string | null;
   title: string | null;
   note: string;
+  stato?: string | null;
   percentuale_avanzamento?: number | null;
   rilascio_in_collaudo?: string | null;
   rilascio_in_produzione?: string | null;
   matchedTicket?: TicketRecord | null;
-  queryField?: 'n_tag' | 'titolo' | null;
+  queryField?: 'n_tag' | null;
   queryValue?: string | null;
   valid: boolean;
   reason?: string;
   warning?: boolean;
+}
+
+const VALID_STATI = [
+  'NON INIZIATO',
+  'COMPLETATO',
+  'IN STAND-BY',
+  'IN LAVORAZIONE',
+  'ATTENZIONE BUSINESS',
+] as const;
+
+const STATO_MAP: Record<string, string> = {
+  'NON INIZIATO': 'Non Iniziato',
+  'COMPLETATO': 'Completato',
+  'IN STAND-BY': 'In stand-by',
+  'IN LAVORAZIONE': 'In lavorazione',
+  'ATTENZIONE BUSINESS': 'Attenzione Business',
+};
+
+function isTicketStartLine(line: string) {
+  return /^\s*-\s+/.test(line);
 }
 
 function normalizeString(value: unknown) {
@@ -90,6 +131,61 @@ function normalizeString(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
+function extractClientName(line: string) {
+  const quotedMatch = line.match(/@"([^"]+)"/);
+  if (quotedMatch) return quotedMatch[1].trim();
+
+  const simpleMatch = line.match(/@([^\s]+)/);
+  if (simpleMatch) return simpleMatch[1].trim();
+
+  return null;
+}
+
+function extractStato(line: string): string | null {
+  const matches = [...line.matchAll(/\(([^)]+)\)/g)];
+
+  for (const match of matches) {
+    const candidate = match[1].trim().toUpperCase();
+    if (VALID_STATI.includes(candidate as (typeof VALID_STATI)[number])) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function normalizeStato(stato: string | null | undefined) {
+  if (!stato) return null;
+  return STATO_MAP[stato] || stato;
+}
+function SortableTabItem({
+  note,
+  isActive,
+  children,
+}: {
+  note: EditorNote;
+  isActive: boolean;
+  children: React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id: note.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
 export default function SublimeLikeEditorPage() {
   const [userId, setUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -112,36 +208,44 @@ export default function SublimeLikeEditorPage() {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
-  const getCreateTicketTooltip = useCallback((match: TaskManagerMatch) => {
-  const hasCliente = Boolean(match.clientName?.trim());
-  const hasTitolo = Boolean(match.title?.trim());
+  const [shareLoadingId, setShareLoadingId] = useState<string | null>(null);
+  const [showScanPanel, setShowScanPanel] = useState(false);
+  const matchStats = useMemo(() => {
+  let matched = 0;
+  let issues = 0;
+  let noMatch = 0;
 
-  if (hasCliente && hasTitolo) return 'Crea ticket';
-  if (!hasCliente && hasTitolo) return 'Inserisci cliente nella nota';
-  if (hasCliente && !hasTitolo) return 'Inserisci titolo nella nota';
-  return 'Inserisci cliente e titolo nella nota';
-}, []);
-
-const canCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
-  return Boolean(match.clientName?.trim() && match.title?.trim() && !match.matchedTicket);
-}, []);
-
-const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
-  if (!canCreateTicketFromMatch(match)) return;
-
-  const params = new URLSearchParams({
-    cliente: match.clientName!.trim(),
-    titolo: match.title!.trim(),
-    assignee: userId,
+  taskMatches.forEach((m) => {
+    if (!m.matchedTicket) {
+      noMatch++;
+    } else if (!m.valid) {
+      issues++;
+    } else {
+      matched++;
+    }
   });
 
-  window.open(`/new_ticket?${params.toString()}`, '_blank', 'noopener,noreferrer');
-}, [canCreateTicketFromMatch, userId]);
+  return { matched, issues, noMatch };
+}, [taskMatches]);
   const activeNote = useMemo(
     () => notes.find((n) => n.id === activeNoteId) || null,
     [notes, activeNoteId]
   );
+const isOwnerOfActiveNote = useMemo(() => {
+  return Boolean(activeNote && activeNote.user_id === userId);
+}, [activeNote, userId]);
 
+const canReadActiveNote = useMemo(() => {
+  if (!activeNote) return false;
+  if (activeNote.user_id === userId) return true;
+  return activeNote.share_mode === 'shared_view' || activeNote.share_mode === 'shared_edit';
+}, [activeNote, userId]);
+
+const canEditActiveNote = useMemo(() => {
+  if (!activeNote) return false;
+  if (activeNote.user_id === userId) return true;
+  return activeNote.share_mode === 'shared_edit';
+}, [activeNote, userId]);
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return notes;
@@ -156,71 +260,157 @@ const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
     return Array.from({ length: totalLines }, (_, i) => i + 1);
   }, [activeNote]);
 
-  const fetchTickets = useCallback(async () => {
-  try {
-    const { data, error } = await supabase
-      .from('ticket')
-      .select(`
-        id,
-        cliente_id,
-        n_tag,
-        titolo,
-        in_lavorazione_ora,
-        numero_priorita,
-        rilascio_in_collaudo,
-        rilascio_in_produzione,
-        note,
-        percentuale_avanzamento,
-        clienti ( nome )
-      `)
-      .order('n_tag', { ascending: false });
+  const getCreateTicketTooltip = useCallback((match: TaskManagerMatch) => {
+    const hasCliente = Boolean(match.clientName?.trim());
+    const hasTitolo = Boolean(match.title?.trim());
 
-    if (error) {
-      console.error('Errore caricamento ticket:', error);
-      return;
-    }
+    if (hasCliente && hasTitolo) return 'Crea ticket';
+    if (!hasCliente && hasTitolo) return 'Inserisci cliente nella nota';
+    if (hasCliente && !hasTitolo) return 'Inserisci titolo nella nota';
+    return 'Inserisci cliente e titolo nella nota';
+  }, []);
 
-    if (data) {
-      const formatted: TicketRecord[] = data.map((t: any) => ({
-        id: t.id,
-        cliente_id: t.cliente_id ?? null,
-        n_tag: String(t.n_tag || '').trim(),
-        titolo: String(t.titolo || '').trim(),
-        in_lavorazione_ora: Boolean(t.in_lavorazione_ora),
-        numero_priorita: t.numero_priorita ?? null,
-        rilascio_in_collaudo: t.rilascio_in_collaudo ?? null,
-        rilascio_in_produzione: t.rilascio_in_produzione ?? null,
-        note: t.note ?? null,
-        percentuale_avanzamento: t.percentuale_avanzamento ?? null,
-        cliente: t.clienti ? String(t.clienti.nome || '').trim() : '',
+  const canCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
+    return Boolean(match.clientName?.trim() && match.title?.trim() && !match.matchedTicket);
+  }, []);
+
+const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
+  if (!activeNote || !isOwnerOfActiveNote) return;
+  if (!canCreateTicketFromMatch(match)) return;
+
+  const params = new URLSearchParams({
+    cliente: match.clientName!.trim(),
+    titolo: match.title!.trim(),
+    assignee: userId,
+  });
+
+  window.open(`/new_ticket?${params.toString()}`, '_blank', 'noopener,noreferrer');
+}, [activeNote, isOwnerOfActiveNote, canCreateTicketFromMatch, userId]);
+const sensors = useSensors(
+  useSensor(PointerSensor, {
+    activationConstraint: {
+      distance: 6,
+    },
+  })
+);
+const saveNotesOrder = useCallback(
+  async (orderedNotes: EditorNote[]) => {
+    try {
+      const updates = orderedNotes.map((note, index) => ({
+        id: note.id,
+        sort_order: index,
       }));
 
-      setAllTickets(formatted);
-    }
-  } catch (err) {
-    console.error('Errore fetch ticket:', err);
-  }
-}, []);
-const fetchClienti = useCallback(async () => {
-  try {
-    const { data, error } = await supabase
-      .from('clienti')
-      .select('id, nome')
-      .order('nome', { ascending: true });
+      for (const item of updates) {
+        const { error } = await supabase
+          .from('editor_notes')
+          .update({ sort_order: item.sort_order })
+          .eq('id', item.id);
 
-    if (error) {
-      console.error('Errore caricamento clienti:', error);
-      return;
+        if (error) {
+          console.error('Errore update sort_order:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Errore saveNotesOrder:', err);
     }
+  },
+  []
+);
+const handleDragEnd = useCallback(
+  async (event: any) => {
+    const { active, over } = event;
 
-    setClienti((data || []).map((c: any) => ({
-      id: c.id,
-      nome: String(c.nome || '').trim(),
-    })));
-  } catch (err) {
-    console.error('Errore fetchClienti:', err);
-  }
-}, []);
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = notes.findIndex((n) => n.id === active.id);
+    const newIndex = notes.findIndex((n) => n.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(notes, oldIndex, newIndex).map((note, index) => ({
+      ...note,
+      sort_order: index,
+    }));
+
+    setNotes(sortTabs(reordered));
+    await saveNotesOrder(reordered);
+  },
+  [notes, saveNotesOrder]
+);
+  const fetchTickets = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('ticket')
+        .select(`
+          id,
+          cliente_id,
+          n_tag,
+          titolo,
+          in_lavorazione_ora,
+          numero_priorita,
+          rilascio_in_collaudo,
+          rilascio_in_produzione,
+          note,
+          percentuale_avanzamento,
+          stato,
+          sprint,
+          clienti ( nome )
+        `)
+        .order('n_tag', { ascending: false });
+
+      if (error) {
+        console.error('Errore caricamento ticket:', error);
+        return;
+      }
+
+      if (data) {
+        const formatted: TicketRecord[] = data.map((t: any) => ({
+          id: t.id,
+          cliente_id: t.cliente_id ?? null,
+          n_tag: String(t.n_tag || '').trim(),
+          titolo: String(t.titolo || '').trim(),
+          in_lavorazione_ora: Boolean(t.in_lavorazione_ora),
+          numero_priorita: t.numero_priorita ?? null,
+          rilascio_in_collaudo: t.rilascio_in_collaudo ?? null,
+          rilascio_in_produzione: t.rilascio_in_produzione ?? null,
+          note: t.note ?? null,
+          percentuale_avanzamento: t.percentuale_avanzamento ?? null,
+          stato: t.stato ?? null,
+          sprint: t.sprint ?? null,
+          cliente: t.clienti ? String(t.clienti.nome || '').trim() : '',
+        }));
+
+        setAllTickets(formatted);
+      }
+    } catch (err) {
+      console.error('Errore fetch ticket:', err);
+    }
+  }, []);
+
+  const fetchClienti = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('clienti')
+        .select('id, nome')
+        .order('nome', { ascending: true });
+
+      if (error) {
+        console.error('Errore caricamento clienti:', error);
+        return;
+      }
+
+      setClienti(
+        (data || []).map((c: any) => ({
+          id: c.id,
+          nome: String(c.nome || '').trim(),
+        }))
+      );
+    } catch (err) {
+      console.error('Errore fetchClienti:', err);
+    }
+  }, []);
+
   const normalizeNote = (note: any): EditorNote => ({
     id: note.id,
     user_id: note.user_id,
@@ -234,17 +424,20 @@ const fetchClienti = useCallback(async () => {
         ? 'taskmanager'
         : 'text',
     todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
-      is_shared: Boolean(note.is_shared),
-  shared_by_user_id: note.shared_by_user_id ?? null,
-  shared_at: note.shared_at ?? null,
+    share_mode:
+      note.share_mode === 'shared_view' || note.share_mode === 'shared_edit'
+        ? note.share_mode
+        : note.is_shared
+        ? 'shared_view'
+        : 'private',
+    shared_by_user_id: note.shared_by_user_id ?? null,
+    shared_at: note.shared_at ?? null,
+    is_pinned: Boolean(note.is_pinned),
+    sort_order: typeof note.sort_order === 'number' ? note.sort_order : null,
   });
 
   const createNote = useCallback(
-    async (
-      uid: string,
-      fileName?: string,
-      type: NoteType = 'text'
-    ): Promise<EditorNote | null> => {
+    async (uid: string, fileName?: string, type: NoteType = 'text'): Promise<EditorNote | null> => {
       const rawName =
         fileName?.trim() ||
         `${
@@ -255,26 +448,28 @@ const fetchClienti = useCallback(async () => {
             : 'note'
         }-${Date.now()}`;
 
-      const finalName = rawName.endsWith('') ? rawName : `${rawName}`;
+      const finalName = rawName.trim() || 'untitled';
 
       try {
         setSaveStatus('saving');
 
         const { data, error } = await supabase
-            .from('editor_notes')
-            .insert({
-              user_id: uid,
-              file_name: finalName,
-              content: '',
-              note_type: type,
-              todo_items: [],
-              updated_at: new Date().toISOString(),
-              is_shared: false,
-              shared_by_user_id: null,
-              shared_at: null,
-            })
-            .select()
-            .single();
+          .from('editor_notes')
+          .insert({
+            user_id: uid,
+            file_name: finalName,
+            content: '',
+            note_type: type,
+            todo_items: [],
+            updated_at: new Date().toISOString(),
+            share_mode: 'private',
+            shared_by_user_id: null,
+            shared_at: null,
+            is_pinned: false,
+            sort_order: Date.now(),
+          })
+          .select()
+          .single();
 
         if (error) {
           console.error('Errore creazione nota:', error);
@@ -292,28 +487,40 @@ const fetchClienti = useCallback(async () => {
     },
     []
   );
-  const isOwnerOfActiveNote = useMemo(() => {
-  return Boolean(activeNote && activeNote.user_id === userId);
-}, [activeNote, userId]);
-const canManageNote = useCallback(
-  (note: EditorNote) => note.user_id === userId,
-  [userId]
-);
-const [shareLoadingId, setShareLoadingId] = useState<string | null>(null);
+  function sortTabs(items: EditorNote[]) {
+    return [...items].sort((a, b) => {
+      const pinnedA = a.is_pinned ? 1 : 0;
+      const pinnedB = b.is_pinned ? 1 : 0;
 
-const toggleShareNote = useCallback(
+      if (pinnedA !== pinnedB) return pinnedB - pinnedA;
+
+      const orderA = a.sort_order ?? 0;
+      const orderB = b.sort_order ?? 0;
+
+      if (orderA !== orderB) return orderA - orderB;
+
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
+  }
+  const canManageNote = useCallback((note: EditorNote) => note.user_id === userId, [userId]);
+  function getNextShareMode(current?: ShareMode): ShareMode {
+    if (!current || current === 'private') return 'shared_view';
+    if (current === 'shared_view') return 'shared_edit';
+    return 'private';
+  }
+  const toggleShareNote = useCallback(
   async (note: EditorNote) => {
     if (!canManageNote(note)) return;
 
     try {
       setShareLoadingId(note.id);
 
-      const nextShared = !note.is_shared;
+      const nextShareMode = getNextShareMode(note.share_mode);
 
       const payload = {
-        is_shared: nextShared,
-        shared_by_user_id: nextShared ? userId : null,
-        shared_at: nextShared ? new Date().toISOString() : null,
+        share_mode: nextShareMode,
+        shared_by_user_id: nextShareMode !== 'private' ? userId : null,
+        shared_at: nextShareMode !== 'private' ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       };
 
@@ -346,22 +553,36 @@ const toggleShareNote = useCallback(
   },
   [canManageNote, userId]
 );
+
   const loadNotes = useCallback(
   async (uid: string) => {
     try {
       const { data, error } = await supabase
         .from('editor_notes')
         .select('*')
-        .or(`user_id.eq.${uid},is_shared.eq.true`)
-        .order('updated_at', { ascending: false });
+        .in('share_mode', ['private', 'shared_view', 'shared_edit']);
 
       if (error) {
-        console.error('Errore caricamento note:', error);
+        console.error('Errore caricamento note:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
         setNotes([]);
         return;
       }
 
-      const loadedNotes = (data || []).map(normalizeNote);
+      const visibleNotes = sortTabs(
+        (data || []).filter(
+          (note) =>
+            note.user_id === uid ||
+            note.share_mode === 'shared_view' ||
+            note.share_mode === 'shared_edit'
+        )
+      );
+
+      const loadedNotes = visibleNotes.map(normalizeNote);
       setNotes(loadedNotes);
 
       if (loadedNotes.length > 0) {
@@ -375,64 +596,139 @@ const toggleShareNote = useCallback(
       }
     } catch (err) {
       console.error('Errore loadNotes:', err);
+      setNotes([]);
     }
   },
   [createNote]
 );
+const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
+const togglePinNote = useCallback(
+  async (note: EditorNote) => {
+    if (!canManageNote(note)) return;
 
+    try {
+      const nextPinned = !note.is_pinned;
+      const payload = {
+        is_pinned: nextPinned,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('editor_notes')
+        .update(payload)
+        .eq('id', note.id)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('Errore toggle pin note:', error);
+        return;
+      }
+
+      setNotes((prev) =>
+        sortTabs(
+          prev.map((n) =>
+            n.id === note.id
+              ? {
+                  ...n,
+                  ...payload,
+                }
+              : n
+          )
+        )
+      );
+    } catch (err) {
+      console.error('Errore togglePinNote:', err);
+    }
+  },
+  [canManageNote, userId]
+);
   const persistNote = useCallback(
-    async (noteId: string, patch: Partial<EditorNote>) => {
-      try {
-        setSaveStatus('saving');
+      async (noteId: string, patch: Partial<EditorNote>) => {
+        try {
+          setSaveStatus('saving');
 
-        const now = new Date().toISOString();
-        const payload: any = { updated_at: now };
+          const now = new Date().toISOString();
+          const payload: any = { updated_at: now };
 
-        if (patch.content !== undefined) payload.content = patch.content;
-        if (patch.file_name !== undefined) payload.file_name = patch.file_name;
-        if (patch.note_type !== undefined) payload.note_type = patch.note_type;
-        if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
+          if (patch.content !== undefined) payload.content = patch.content;
+          if (patch.file_name !== undefined) payload.file_name = patch.file_name;
+          if (patch.note_type !== undefined) payload.note_type = patch.note_type;
+          if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
+          if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
+          if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
+          if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
+          if ((patch as any).is_pinned !== undefined) payload.is_pinned = (patch as any).is_pinned;
+          if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
 
-        const { error } = await supabase
-          .from('editor_notes')
-          .update(payload)
-          .eq('id', noteId)
-          .eq('user_id', userId);
+          const noteToUpdate = notes.find((n) => n.id === noteId);
 
-        if (error) {
-          console.error('Errore salvataggio nota:', error);
+          if (!noteToUpdate) {
+            setSaveStatus('error');
+            return false;
+          }
+
+          const isOwner = noteToUpdate.user_id === userId;
+          const isSharedEdit = noteToUpdate.share_mode === 'shared_edit';
+
+          // owner: può aggiornare tutto
+          // shared_edit non-owner: può aggiornare solo contenuto/todo_items
+          if (!isOwner) {
+            if (!isSharedEdit) {
+              setSaveStatus('error');
+              return false;
+            }
+
+            const allowedNonOwnerKeys = ['content', 'todo_items', 'updated_at'];
+            const invalidKey = Object.keys(payload).find(
+              (key) => !allowedNonOwnerKeys.includes(key)
+            );
+
+            if (invalidKey) {
+              setSaveStatus('error');
+              return false;
+            }
+          }
+
+          const { data, error } = await supabase
+            .from('editor_notes')
+            .update(payload)
+            .eq('id', noteId)
+            .select()
+            .single();
+
+          if (error) {
+            console.error('Errore salvataggio nota:', error);
+            setSaveStatus('error');
+            return false;
+          }
+
+          const updatedNote = data ? normalizeNote(data) : null;
+
+          setNotes((prev) =>
+            sortTabs(
+              prev.map((note) =>
+                note.id === noteId
+                  ? {
+                      ...note,
+                      ...(updatedNote || patch),
+                      updated_at: now,
+                    }
+                  : note
+              )
+            )
+          );
+
+          setSaveStatus('saved');
+          return true;
+        } catch (err) {
+          console.error('Errore persistNote:', err);
           setSaveStatus('error');
           return false;
         }
-
-        setNotes((prev) =>
-          [...prev]
-            .map((note) =>
-              note.id === noteId
-                ? {
-                    ...note,
-                    ...patch,
-                    updated_at: now,
-                  }
-                : note
-            )
-            .sort(
-              (a, b) =>
-                new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-            )
-        );
-
-        setSaveStatus('saved');
-        return true;
-      } catch (err) {
-        console.error('Errore persistNote:', err);
-        setSaveStatus('error');
-        return false;
-      }
-    },
-    [userId]
-  );
-
+      },
+      [userId, notes]
+    );
+    
   const deleteNote = useCallback(
     async (noteId: string) => {
       try {
@@ -502,97 +798,106 @@ const toggleShareNote = useCallback(
     return `${y}-${m}-${d}`;
   };
 
-  const syncTicketData = useCallback(async (allLines: string[], startIndex: number) => {
-    const firstLine = allLines[startIndex];
-    const clientMatch = firstLine.match(/@([^\s]+)/);
-    const tagMatch = firstLine.match(/#([\w\d]+)/);
-    const titleMatch = firstLine.match(/"(.*?)"/);
+  const syncTicketData = useCallback(
+    async (allLines: string[], startIndex: number) => {
+      const firstLine = allLines[startIndex];
 
-    if (!clientMatch) return;
+      if (!isTicketStartLine(firstLine)) return;
 
-    const clientName = clientMatch[1].toLowerCase();
-    const tag = tagMatch ? tagMatch[1].toUpperCase() : null;
-    const title = titleMatch ? titleMatch[1] : null;
+      const clientName = extractClientName(firstLine);
+      const tagMatch = firstLine.match(/#([\w\d-]+)/);
+      const titleMatch = firstLine.match(/"(.*?)"/);
+      const stato = extractStato(firstLine);
 
-    const multiLineNote: string[] = [];
-    const firstLineClean = firstLine
-      .replace(/@([^\s]+)/g, '')
-      .replace(/#([\w\d]+)/g, '')
-      .replace(/"(.*?)"/g, '')
-      .replace(/\(coll:.*?\)/g, '')
-      .replace(/\(prod:.*?\)/g, '')
-      .replace(/\[perc:.*?\]/g, '')
-      .trim();
+      const tag = tagMatch ? tagMatch[1].trim().toUpperCase() : null;
+      const title = titleMatch ? titleMatch[1].trim() : null;
 
-    if (firstLineClean) multiLineNote.push(firstLineClean);
+      if (!clientName || !tag) return;
 
-    for (let i = startIndex + 1; i < allLines.length; i++) {
-      if (allLines[i].includes('@')) break;
-      const content = allLines[i].trim();
-      if (content) multiLineNote.push(content);
-    }
-    
+      const multiLineNote: string[] = [];
 
-    const finalNote = multiLineNote.join('\n');
-    let queryField = '';
-    let queryValue = '';
+      const firstLineClean = firstLine
+        .replace(/^\s*-\s+/, '')
+        .replace(/@"([^"]+)"/g, '')
+        .replace(/@([^\s]+)/g, '')
+        .replace(/#([\w\d-]+)/g, '')
+        .replace(/"(.*?)"/g, '')
+        .replace(/\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|ATTENZIONE BUSINESS)\)/gi, '')
+        .replace(/\(coll:.*?\)/gi, '')
+        .replace(/\(prod:.*?\)/gi, '')
+        .replace(/\[perc:.*?\]/gi, '')
+        .trim();
 
-    if (clientName === 'esselunga') {
-      if (!tag) return;
-      queryField = 'n_tag';
-      queryValue = tag;
-    } else {
-      if (!title) return;
-      queryField = 'titolo';
-      queryValue = title;
-    }
+      if (firstLineClean) multiLineNote.push(firstLineClean);
 
-    const updates: any = { note: finalNote };
-
-    const percMatch = firstLine.match(/\[perc:\s*([^\]]+)\]/);
-    if (percMatch) {
-      const val = percMatch[1].trim().toLowerCase();
-      if (val === 'null') {
-        updates.percentuale_avanzamento = null;
-      } else {
-        const num = parseInt(val.replace('%', ''), 10);
-        if (!isNaN(num)) updates.percentuale_avanzamento = num;
-      }
-    }
-
-    const collMatch = firstLine.match(/\(coll:\s*([^)]+)\)/);
-    const prodMatch = firstLine.match(/\(prod:\s*([^)]+)\)/);
-
-    if (collMatch && isValidDate(collMatch[1])) {
-      updates.rilascio_in_collaudo = parseDateToISO(collMatch[1]);
-    }
-
-    if (prodMatch && isValidDate(prodMatch[1])) {
-      updates.rilascio_in_produzione = parseDateToISO(prodMatch[1]);
-    }
-
-    try {
-      const { error } = await supabase
-        .from('ticket')
-        .update(updates)
-        .eq(queryField, queryValue);
-
-      if (error) {
-        console.error('Errore sync ticket:', error);
-        return;
+      for (let i = startIndex + 1; i < allLines.length; i++) {
+        if (isTicketStartLine(allLines[i])) break;
+        const content = allLines[i].trim();
+        if (content) multiLineNote.push(content);
       }
 
-      setAllTickets((prev) =>
-        prev.map((t) => {
-          const isMatch =
-            queryField === 'n_tag' ? t.n_tag === queryValue : t.titolo === queryValue;
-          return isMatch ? { ...t, ...updates } : t;
-        })
-      );
-    } catch (err) {
-      console.error('Errore sync ticket:', err);
-    }
-  }, []);
+      const finalNote = multiLineNote.join('\n');
+      const statoNormalizzato = normalizeStato(stato);
+
+      const updates: any = {
+        note: finalNote,
+      };
+
+      if (statoNormalizzato !== null) {
+        updates.stato = statoNormalizzato;
+        updates.in_lavorazione_ora = statoNormalizzato === 'In lavorazione';
+      }
+
+      const percMatch = firstLine.match(/\[perc:\s*([^\]]+)\]/i);
+      if (percMatch) {
+        const val = percMatch[1].trim().toLowerCase();
+        if (val === 'null') {
+          updates.percentuale_avanzamento = null;
+        } else {
+          const num = parseInt(val.replace('%', ''), 10);
+          if (!isNaN(num)) updates.percentuale_avanzamento = num;
+        }
+      }
+
+      const collMatch = firstLine.match(/\(coll:\s*([^)]+)\)/i);
+      const prodMatch = firstLine.match(/\(prod:\s*([^)]+)\)/i);
+
+      if (collMatch && isValidDate(collMatch[1])) {
+        updates.rilascio_in_collaudo = parseDateToISO(collMatch[1]);
+      }
+
+      if (prodMatch && isValidDate(prodMatch[1])) {
+        updates.rilascio_in_produzione = parseDateToISO(prodMatch[1]);
+      }
+
+      try {
+        const matchedTicket = allTickets.find(
+          (t) =>
+            normalizeString(t.cliente) === normalizeString(clientName) &&
+            normalizeString(t.n_tag) === normalizeString(tag)
+        );
+
+        if (!matchedTicket) return;
+
+        const { error } = await supabase
+          .from('ticket')
+          .update(updates)
+          .eq('id', matchedTicket.id);
+
+        if (error) {
+          console.error('Errore sync ticket:', error);
+          return;
+        }
+
+        setAllTickets((prev) =>
+          prev.map((t) => (t.id === matchedTicket.id ? { ...t, ...updates } : t))
+        );
+      } catch (err) {
+        console.error('Errore sync ticket:', err);
+      }
+    },
+    [allTickets]
+  );
 
   const updateCursorPosition = useCallback(() => {
     const textarea = editorRef.current;
@@ -614,22 +919,26 @@ const toggleShareNote = useCallback(
 
       for (let startIndex = 0; startIndex < lines.length; startIndex++) {
         const firstLine = lines[startIndex];
-        if (!firstLine.includes('@')) continue;
 
-        const clientMatch = firstLine.match(/@([^\s]+)/);
+        if (!isTicketStartLine(firstLine)) continue;
+
+        const clientName = extractClientName(firstLine);
         const tagMatch = firstLine.match(/#([\w\d-]+)/);
         const titleMatch = firstLine.match(/"(.*?)"/);
+        const stato = extractStato(firstLine);
 
-        const clientName = clientMatch ? clientMatch[1].trim() : null;
         const tag = tagMatch ? tagMatch[1].trim().toUpperCase() : null;
         const title = titleMatch ? titleMatch[1].trim() : null;
 
         const noteLines: string[] = [];
 
         const firstLineClean = firstLine
+          .replace(/^\s*-\s+/, '')
+          .replace(/@"([^"]+)"/g, '')
           .replace(/@([^\s]+)/g, '')
           .replace(/#([\w\d-]+)/g, '')
           .replace(/"(.*?)"/g, '')
+          .replace(/\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|ATTENZIONE BUSINESS)\)/gi, '')
           .replace(/\(coll:.*?\)/gi, '')
           .replace(/\(prod:.*?\)/gi, '')
           .replace(/\[perc:.*?\]/gi, '')
@@ -640,7 +949,7 @@ const toggleShareNote = useCallback(
         }
 
         for (let i = startIndex + 1; i < lines.length; i++) {
-          if (lines[i].includes('@')) break;
+          if (isTicketStartLine(lines[i])) break;
           const contentLine = lines[i].trim();
           if (contentLine) noteLines.push(contentLine);
         }
@@ -669,8 +978,7 @@ const toggleShareNote = useCallback(
         const rilascio_in_produzione =
           prodMatch && isValidDate(prodMatch[1]) ? parseDateToISO(prodMatch[1]) : undefined;
 
-        const normalizedClient = normalizeString(clientName);
-        let queryField: 'n_tag' | 'titolo' | null = null;
+        let queryField: 'n_tag' | null = null;
         let queryValue: string | null = null;
         let matchedTicket: TicketRecord | null = null;
         let valid = true;
@@ -679,53 +987,25 @@ const toggleShareNote = useCallback(
         if (!clientName) {
           valid = false;
           reason = 'Cliente mancante';
-        } else // PRIORITÀ: titolo per tutti
-if (title) {
-  queryField = 'titolo';
-  queryValue = title;
+        } else if (!tag) {
+          valid = false;
+          reason = 'TAG mancante';
+        } else {
+          queryField = 'n_tag';
+          queryValue = tag;
 
-  matchedTicket =
-    allTickets.find(
-      (t) => normalizeString(t.titolo) === normalizeString(title)
-    ) || null;
+          matchedTicket =
+            allTickets.find(
+              (t) =>
+                normalizeString(t.cliente) === normalizeString(clientName) &&
+                normalizeString(t.n_tag) === normalizeString(tag)
+            ) || null;
 
-  if (!matchedTicket) {
-    valid = false;
-    reason = 'Nessun ticket trovato per titolo';
-  }
-  if (matchedTicket) {
-  const ticketClient = normalizeString(matchedTicket.cliente);
-  const noteClient = normalizeString(clientName);
-
-  if (ticketClient !== noteClient) {
-    valid = false;
-    reason = `Cliente diverso (ticket: ${matchedTicket.cliente})`;
-  }
-}
-}
-// FALLBACK: solo per Esselunga → tag
-else if (normalizedClient === 'esselunga' && tag) {
-  queryField = 'n_tag';
-  queryValue = tag;
-
-  matchedTicket =
-    allTickets.find(
-      (t) => normalizeString(t.n_tag) === normalizeString(tag)
-    ) || null;
-
-  if (!matchedTicket) {
-    valid = false;
-    reason = 'Nessun ticket trovato per TAG';
-  }
-}
-// ERRORE
-else {
-  valid = false;
-  reason =
-    normalizedClient === 'esselunga'
-      ? 'Serve titolo o #TAG'
-      : 'Serve il "titolo"';
-}
+          if (!matchedTicket) {
+            valid = false;
+            reason = 'Nessun ticket trovato per cliente + TAG';
+          }
+        }
 
         results.push({
           lineIndex: startIndex,
@@ -734,6 +1014,7 @@ else {
           tag,
           title,
           note,
+          stato,
           percentuale_avanzamento,
           rilascio_in_collaudo,
           rilascio_in_produzione,
@@ -757,6 +1038,7 @@ else {
       setScanStatus('scanning');
       const matches = extractTaskManagerEntries(activeNote.content || '');
       setTaskMatches(matches);
+      setShowScanPanel(true);
       setScanStatus('done');
     } catch (err) {
       console.error('Errore scansione taskmanager:', err);
@@ -767,18 +1049,20 @@ else {
   const handleUpdateMatchedTickets = useCallback(async () => {
     if (!activeNote || activeNote.note_type !== 'taskmanager') return;
     if (!taskMatches.length) return;
-
+    if (!isOwnerOfActiveNote) return;
     try {
       setUpdateStatus('updating');
 
       for (const match of taskMatches) {
-        if (!match.valid || !match.queryField || !match.queryValue) continue;
-        if (!match.queryField || !match.queryValue) continue;
+        if (!match.valid || !match.matchedTicket?.id) continue;
+
+        const statoNormalizzato = normalizeStato(match.stato);
+
         const updates: any = {
           note: match.note || null,
           sprint: 'Sprint',
-          in_lavorazione_ora: true,
-          stato: 'In lavorazione',
+          stato: statoNormalizzato,
+          in_lavorazione_ora: statoNormalizzato === 'In lavorazione',
         };
 
         if (match.percentuale_avanzamento !== undefined) {
@@ -796,7 +1080,7 @@ else {
         const { error } = await supabase
           .from('ticket')
           .update(updates)
-          .eq(match.queryField, match.queryValue);
+          .eq('id', match.matchedTicket.id);
 
         if (error) {
           console.error('Errore aggiornamento ticket:', error, match);
@@ -804,18 +1088,14 @@ else {
         }
 
         setAllTickets((prev) =>
-          prev.map((t) => {
-            const isMatch =
-              match.queryField === 'n_tag'
-                ? normalizeString(t.n_tag) === normalizeString(match.queryValue)
-                : normalizeString(t.titolo) === normalizeString(match.queryValue);
-
-            return isMatch ? { ...t, ...updates } : t;
-          })
+          prev.map((t) => (t.id === match.matchedTicket?.id ? { ...t, ...updates } : t))
         );
       }
 
       setUpdateStatus('done');
+      setTimeout(() => {
+        setUpdateStatus('idle');
+      }, 2000);
     } catch (err) {
       console.error('Errore update matched tickets:', err);
       setUpdateStatus('error');
@@ -824,7 +1104,11 @@ else {
 
   const handleEditorChange = useCallback(
     (value: string) => {
-      if (!activeNote || (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager')) {
+      if (
+        !activeNote ||
+        (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager') ||
+        !canEditActiveNote
+      ) {
         return;
       }
 
@@ -852,7 +1136,7 @@ else {
         const lines = value.split('\n');
 
         lines.forEach((line, idx) => {
-          if (line.includes('@')) {
+          if (isTicketStartLine(line)) {
             if (syncTimeoutRef.current[idx]) {
               clearTimeout(syncTimeoutRef.current[idx]);
             }
@@ -864,7 +1148,7 @@ else {
         });
       }
     },
-    [activeNote, persistNote, syncTicketData]
+    [activeNote, persistNote, syncTicketData, canEditActiveNote]
   );
 
   const handleCreateNote = useCallback(
@@ -885,11 +1169,7 @@ else {
 
       if (!created) return;
 
-      setNotes((prev) =>
-        [created, ...prev].sort(
-          (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-      );
+      setNotes((prev) => sortTabs([created, ...prev]));
       setActiveNoteId(created.id);
       setTaskMatches([]);
       setShowPreview(false);
@@ -898,42 +1178,23 @@ else {
   );
 
   const handleDeleteNote = useCallback(async () => {
-    if (!activeNote) return;
+    if (!activeNote || !isOwnerOfActiveNote) return;
     await deleteNote(activeNote.id);
   }, [activeNote, deleteNote]);
 
   const handleManualSave = useCallback(async () => {
-    if (!activeNote) return;
+    if (!activeNote || !canEditActiveNote) return;
     await persistNote(activeNote.id, {
       content: activeNote.content,
       note_type: activeNote.note_type,
       todo_items: activeNote.todo_items,
       file_name: activeNote.file_name,
     });
-  }, [activeNote, persistNote]);
-
-  const handleDownload = useCallback(() => {
-    if (!activeNote) return;
-
-    const textToDownload =
-      activeNote.note_type === 'todo'
-        ? activeNote.todo_items.map((item) => `${item.done ? '[x]' : '[ ]'} ${item.text}`).join('\n')
-        : activeNote.content;
-
-    const blob = new Blob([textToDownload], {
-      type: 'text/plain;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = activeNote.file_name;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [activeNote]);
+  }, [activeNote, persistNote,canEditActiveNote]);
 
   const updateActiveTodoItems = useCallback(
     async (updater: (items: TodoItem[]) => TodoItem[]) => {
-      if (!activeNote || activeNote.note_type !== 'todo') return;
+      if (!activeNote || activeNote.note_type !== 'todo' || !canEditActiveNote) return;
 
       const nextItems = updater(activeNote.todo_items || []);
 
@@ -957,7 +1218,7 @@ else {
         persistNote(activeNote.id, { todo_items: nextItems });
       }, 500);
     },
-    [activeNote, persistNote]
+    [activeNote, persistNote, canEditActiveNote]
   );
 
   const addTodoItem = useCallback(() => {
@@ -1000,7 +1261,7 @@ else {
 
   const changeNoteType = useCallback(
     async (nextType: NoteType) => {
-      if (!activeNote || activeNote.note_type === nextType) return;
+      if (!activeNote || activeNote.note_type === nextType || !isOwnerOfActiveNote) return;
 
       const patch: Partial<EditorNote> =
         nextType === 'text'
@@ -1025,7 +1286,7 @@ else {
       setShowPreview(false);
       await persistNote(activeNote.id, patch);
     },
-    [activeNote, persistNote]
+    [activeNote, persistNote, isOwnerOfActiveNote]
   );
 
   useEffect(() => {
@@ -1099,7 +1360,7 @@ else {
 
       try {
         setLoading(true);
-        await await Promise.all([fetchTickets(), fetchClienti(), loadNotes(userId)]);
+        await Promise.all([fetchTickets(), fetchClienti(), loadNotes(userId)]);
       } catch (err) {
         console.error('Errore initData:', err);
       } finally {
@@ -1109,53 +1370,67 @@ else {
 
     initData();
   }, [authReady, userId, fetchTickets, fetchClienti, loadNotes]);
+
   const isClienteMismatch = useCallback((match: TaskManagerMatch) => {
-  return Boolean(
-    match.matchedTicket &&
-      !match.valid &&
-      match.reason &&
-      match.reason.toLowerCase().includes('cliente')
+    return Boolean(
+      match.matchedTicket &&
+        !match.valid &&
+        match.reason &&
+        match.reason.toLowerCase().includes('cliente')
+    );
+  }, []);
+
+  const handleFixCliente = useCallback(
+    async (match: TaskManagerMatch) => {
+      if (!activeNote || activeNote.note_type !== 'taskmanager') return;
+      if (!isOwnerOfActiveNote) return;
+      if (!match.matchedTicket?.cliente) return;
+
+      const key = `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`;
+
+      try {
+        setFixingClienteKey(key);
+
+        const correctClient = match.matchedTicket.cliente.trim();
+        const lines = (activeNote.content || '').split('\n');
+
+        if (match.lineIndex < 0 || match.lineIndex >= lines.length) return;
+
+        const originalLine = lines[match.lineIndex];
+
+        const clientToken = correctClient.includes(' ')
+          ? `@"${correctClient}"`
+          : `@${correctClient}`;
+
+        const updatedLine = originalLine.replace(/@"([^"]+)"|@([^\s]+)/, clientToken);
+
+        lines[match.lineIndex] = updatedLine;
+
+        const updatedContent = lines.join('\n');
+
+        setNotes((prev) =>
+          prev.map((note) =>
+            note.id === activeNote.id
+              ? {
+                  ...note,
+                  content: updatedContent,
+                  updated_at: new Date().toISOString(),
+                }
+              : note
+          )
+        );
+
+        await persistNote(activeNote.id, { content: updatedContent });
+
+        const rescanned = extractTaskManagerEntries(updatedContent);
+        setTaskMatches(rescanned);
+      } finally {
+        setFixingClienteKey(null);
+      }
+    },
+    [activeNote, persistNote, extractTaskManagerEntries, isOwnerOfActiveNote]
   );
-}, []);
 
-const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
-  if (!activeNote || activeNote.note_type !== 'taskmanager') return;
-  if (!match.matchedTicket?.cliente) return;
-
-  const correctClient = match.matchedTicket.cliente.trim();
-  const lines = (activeNote.content || '').split('\n');
-
-  if (match.lineIndex < 0 || match.lineIndex >= lines.length) return;
-
-  const originalLine = lines[match.lineIndex];
-
-  const clientToken = correctClient.includes(' ')
-    ? `@"${correctClient}"`
-    : `@${correctClient}`;
-
-  const updatedLine = originalLine.replace(/@"([^"]+)"|@([^\s]+)/, clientToken);
-
-  lines[match.lineIndex] = updatedLine;
-
-  const updatedContent = lines.join('\n');
-
-  setNotes((prev) =>
-    prev.map((note) =>
-      note.id === activeNote.id
-        ? {
-            ...note,
-            content: updatedContent,
-            updated_at: new Date().toISOString(),
-          }
-        : note
-    )
-  );
-
-  await persistNote(activeNote.id, { content: updatedContent });
-
-  const rescanned = extractTaskManagerEntries(updatedContent);
-  setTaskMatches(rescanned);
-}, [activeNote, persistNote, extractTaskManagerEntries]);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -1173,6 +1448,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
     setScanStatus('idle');
     setUpdateStatus('idle');
     setShowPreview(false);
+    setShowScanPanel(false);
   }, [activeNoteId]);
 
   if (loading) {
@@ -1190,7 +1466,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
       </div>
     );
   }
-
+  
   return (
     <div className="h-screen w-full bg-[#1e1e1e] text-[#d4d4d4] font-mono flex overflow-hidden">
       <aside className="w-[290px] bg-[#252526] border-r border-white/10 flex flex-col shrink-0">
@@ -1242,7 +1518,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
           <button
             type="button"
             onClick={handleDeleteNote}
-            disabled={!activeNote || notes.length <= 1}
+            disabled={!activeNote || notes.length <= 1 || !isOwnerOfActiveNote}
             className="w-10 h-9 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] disabled:opacity-40 text-white flex items-center justify-center"
             title="Elimina nota"
           >
@@ -1251,73 +1527,127 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {filteredNotes.map((note) => {
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={filteredNotes.map((note) => note.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {filteredNotes.map((note) => {
             const isActive = note.id === activeNoteId;
 
             return (
+              <SortableTabItem key={note.id} note={note} isActive={isActive}>
               <div
-  key={note.id}
-  className={`w-full px-3 py-2 border-l-2 transition ${
-    isActive
-      ? 'bg-[#1e1e1e] border-l-[#ffd700] text-white'
-      : 'bg-transparent border-l-transparent text-[#cccccc] hover:bg-white/5'
-  }`}
->
-  <div className="flex items-start justify-between gap-2">
-    <button
-      type="button"
-      onClick={() => setActiveNoteId(note.id)}
-      className="flex-1 min-w-0 text-left"
-    >
-      <div className="flex items-center gap-2">
-        {note.note_type === 'todo' ? (
-          <CheckSquare size={13} className="text-violet-300 shrink-0" />
-        ) : note.note_type === 'taskmanager' ? (
-          <FileText size={13} className="text-amber-300 shrink-0" />
-        ) : (
-          <FileText size={13} className="text-sky-300 shrink-0" />
-        )}
+                 
+                  onMouseEnter={() => setHoveredNoteId(note.id)}
+                  onMouseLeave={() => setHoveredNoteId((prev) => (prev === note.id ? null : prev))}
+                  className={`w-full px-3 py-2 border-l-2 transition  ${
+                  isActive
+                    ? 'bg-[#1e1e1e] border-l-[#ffd700] text-white'
+                    : 'bg-transparent border-l-transparent text-[#cccccc] hover:bg-white/5'
+                  }`}
+                >
+                <div className="flex items-start justify-between gap-2">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveNoteId(note.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveNoteId(note.id);
+                      }
+                    }}
+                    className="flex-1 min-w-0 text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      {hoveredNoteId === note.id && canManageNote(note) ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePinNote(note);
+                          }}
+                          className={`shrink-0 rounded p-0.5 transition ${
+                            note.is_pinned
+                              ? 'text-yellow-300 hover:text-yellow-200'
+                              : 'text-white/50 hover:text-yellow-300'
+                          }`}
+                          title={note.is_pinned ? 'Rimuovi pin' : 'Metti in alto'}
+                        >
+                          <Pin size={13} />
+                        </button>
+                      ) : note.note_type === 'todo' ? (
+                        <CheckSquare size={13} className="text-violet-300 shrink-0" />
+                      ) : note.note_type === 'taskmanager' ? (
+                        <FileText size={13} className="text-amber-300 shrink-0" />
+                      ) : (
+                        <FileText size={13} className="text-sky-300 shrink-0" />
+                      )}
 
-        <div className="text-sm truncate">{note.file_name}</div>
+                      <div className="text-sm truncate">{note.file_name}</div>
+                      {note.is_pinned && <Pin size={11} className="text-yellow-300 shrink-0" />}
 
-        {note.is_shared && (
-          <span className="shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] text-green-300">
-            shared
-          </span>
-        )}
-      </div>
+                      {note.share_mode === 'shared_view' && (
+                        <span className="shrink-0 rounded bg-yellow-500/20 px-1.5 py-0.5 text-[9px] text-yellow-300">
+                          shared-view
+                        </span>
+                      )}
 
-      <div className="mt-1 text-[10px] text-white/45 truncate">
-        {new Date(note.updated_at).toLocaleString()}
-      </div>
-    </button>
+                      {note.share_mode === 'shared_edit' && (
+                        <span className="shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] text-green-300">
+                          shared-edit
+                        </span>
+                      )}
+                    </div>
 
-    {canManageNote(note) && (
-      <button
-        type="button"
-        title={note.is_shared ? 'Rendi privata' : 'Condividi con tutti'}
-        onClick={(e) => {
-          e.stopPropagation();
-          toggleShareNote(note);
-        }}
-        disabled={shareLoadingId === note.id}
-        className={`mt-0.5 h-8 w-8 shrink-0 rounded flex items-center justify-center transition ${
-          note.is_shared
-            ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
-            : 'bg-white/10 text-white/60 hover:bg-white/20'
-        } disabled:opacity-50`}
-      >
-        <Users size={14} />
-      </button>
-    )}
-  </div>
-</div>
+                    <div className="mt-1 text-[10px] text-white/45 truncate">
+                      {new Date(note.updated_at).toLocaleString()}
+                    </div>
+                  </div>
+
+                  {canManageNote(note) && (
+                  <button
+                    type="button"
+                    title={
+                      note.share_mode === 'private'
+                        ? 'Condividi in sola lettura'
+                        : note.share_mode === 'shared_view'
+                        ? 'Condividi in modifica'
+                        : 'Rimuovi condivisione'
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleShareNote(note);
+                    }}
+                    disabled={shareLoadingId === note.id}
+                    className={`mt-0.5 h-8 w-8 shrink-0 rounded flex items-center justify-center transition ${
+                      note.share_mode === 'shared_view'
+                        ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+                        : note.share_mode === 'shared_edit'
+                        ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
+                        : 'bg-white/10 text-white/60 hover:bg-white/20'
+                    } disabled:opacity-50`}
+                  >
+                    <Users size={14} />
+                  </button>
+                )}
+                 
+                </div>
+              </div></SortableTabItem>
             );
           })}
 
           {filteredNotes.length === 0 && (
             <div className="px-3 py-4 text-xs text-white/40">Nessuna nota trovata</div>
           )}
+                
+    </SortableContext>
+  </DndContext>
         </div>
       </aside>
 
@@ -1325,6 +1655,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
         <div className="h-12 px-4 bg-[#2d2d2d] border-b border-white/10 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <input
+              disabled={!isOwnerOfActiveNote}
               value={activeNote?.file_name || ''}
               onChange={(e) => {
                 if (!activeNote) return;
@@ -1337,17 +1668,21 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                 );
               }}
               onBlur={(e) => {
-                if (!activeNote) return;
+                if (!activeNote || !isOwnerOfActiveNote) return;
                 const trimmed = e.target.value.trim() || 'untitled';
-                const finalName = trimmed.endsWith('') ? trimmed : `${trimmed}`;
-                persistNote(activeNote.id, { file_name: finalName });
+                persistNote(activeNote.id, { file_name: trimmed });
               }}
-              className="bg-transparent outline-none text-sm text-white font-semibold min-w-0 max-w-[420px] border border-transparent focus:border-white/20 rounded px-2 py-1"
+              className={`bg-transparent outline-none text-sm text-white font-semibold min-w-0 max-w-[420px] border rounded px-2 py-1 ${
+                isOwnerOfActiveNote
+                  ? 'border-transparent focus:border-white/20'
+                  : 'border-transparent opacity-60 cursor-not-allowed'
+              }`}
             />
 
             <select
               value={activeNote?.note_type || 'text'}
               onChange={(e) => changeNoteType(e.target.value as NoteType)}
+              disabled={!isOwnerOfActiveNote}
               className="bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white outline-none"
             >
               <option value="text">Nota testuale</option>
@@ -1360,6 +1695,23 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                 ? `Ultima modifica: ${new Date(activeNote.updated_at).toLocaleString()}`
                 : ''}
             </span>
+            {activeNote && (
+            <span
+              className={`text-[10px] px-2 py-1 rounded ${
+                activeNote.share_mode === 'shared_view'
+                  ? 'bg-yellow-500/20 text-yellow-300'
+                  : activeNote.share_mode === 'shared_edit'
+                  ? 'bg-green-500/20 text-green-300'
+                  : 'bg-white/10 text-white/50'
+              }`}
+            >
+              {activeNote.share_mode === 'shared_view'
+                ? 'shared-view'
+                : activeNote.share_mode === 'shared_edit'
+                ? 'shared-edit'
+                : 'private'}
+            </span>
+          )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -1374,19 +1726,29 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                 </button>
 
                 <button
-                  type="button"
-                  onClick={handleUpdateMatchedTickets}
-                  disabled={!taskMatches.length}
-                  className="h-9 px-3 rounded bg-[#0e639c] hover:bg-[#1177bb] disabled:opacity-50 text-white text-sm"
-                >
-                  Aggiorna ticket
-                </button>
+                type="button"
+                onClick={handleUpdateMatchedTickets}
+                disabled={!taskMatches.length || !isOwnerOfActiveNote || updateStatus === 'updating'}
+                className={`h-9 px-3 rounded text-white text-sm transition ${
+                  updateStatus === 'done'
+                    ? 'bg-green-600'
+                    : updateStatus === 'error'
+                    ? 'bg-red-600'
+                    : updateStatus === 'updating'
+                    ? 'bg-yellow-600'
+                    : 'bg-[#0e639c] hover:bg-[#1177bb]'
+                } disabled:opacity-50`}
+              >
+                {updateStatus === 'updating'
+                  ? 'Aggiornamento...'
+                  : updateStatus === 'done'
+                  ? '✔ Aggiornato'
+                  : updateStatus === 'error'
+                  ? 'Errore'
+                  : 'Aggiorna ticket'}
+              </button>
               </>
             )}
-
-            
-
-            
           </div>
         </div>
 
@@ -1397,6 +1759,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                 <button
                   type="button"
                   onClick={addTodoItem}
+                  disabled={!canEditActiveNote}
                   className="h-9 px-3 rounded bg-[#5a3ea7] hover:bg-[#6d4fc4] text-white text-sm flex items-center gap-2"
                 >
                   <Plus size={14} />
@@ -1413,6 +1776,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                     <button
                       type="button"
                       onClick={() => toggleTodoItem(item.id)}
+                      disabled={!canEditActiveNote}
                       className="text-white/80 hover:text-white shrink-0"
                     >
                       {item.done ? (
@@ -1426,6 +1790,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                       value={item.text}
                       onChange={(e) => changeTodoItemText(item.id, e.target.value)}
                       placeholder="Scrivi attività..."
+                      disabled={!canEditActiveNote}
                       className={`flex-1 bg-transparent outline-none text-sm ${
                         item.done ? 'line-through text-white/40' : 'text-white'
                       }`}
@@ -1434,6 +1799,7 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                     <button
                       type="button"
                       onClick={() => deleteTodoItem(item.id)}
+                      disabled={!canEditActiveNote}
                       className="text-white/60 hover:text-red-400 shrink-0"
                     >
                       <Trash2 size={15} />
@@ -1456,162 +1822,197 @@ const handleFixCliente = useCallback(async (match: TaskManagerMatch) => {
                 ))}
               </div>
 
-              <div className="flex-1 min-w-0 grid grid-cols-2">
-                <div className="relative border-r border-white/10">
-                  <textarea
-                    ref={editorRef}
-                    value={activeNote?.content || ''}
-                    onChange={(e) => handleEditorChange(e.target.value)}
-                    onClick={updateCursorPosition}
-                    onKeyUp={updateCursorPosition}
-                    onSelect={updateCursorPosition}
-                    spellCheck={false}
-                    className="w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white"
-                    placeholder={`Esempio:
-@Esselunga #TAG123 "Errore login checkout" [perc: 50] (coll: 12/08/2025) (prod: 20/08/2025)
+              <div className="flex-1 min-w-0 relative">
+  <div className="h-full pr-0">
+    <textarea
+      ref={editorRef}
+      value={activeNote?.content || ''}
+      onChange={(e) => handleEditorChange(e.target.value)}
+      onClick={updateCursorPosition}
+      onKeyUp={updateCursorPosition}
+      onSelect={updateCursorPosition}
+      spellCheck={false}
+      readOnly={!canEditActiveNote}
+      className={`w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white ${
+        !canEditActiveNote ? 'opacity-80 cursor-not-allowed' : ''
+      }`}
+      placeholder={`Esempio:
+- @Esselunga #TAG123 (IN LAVORAZIONE) "Errore login checkout" [perc: 50] (coll: 12/08/2025) (prod: 20/08/2025)
 Analisi iniziale completata
 In attesa test utente
 
-@Sika "Dashboard KPI Vendite" [perc: 80]
+- @Sika #TAG456 (IN STAND-BY) "Dashboard KPI Vendite" [perc: 80]
 Altra nota`}
-                    style={{ tabSize: 2 }}
-                  />
-                </div>
-
-                <div className="overflow-auto p-4 space-y-3 bg-[#202020]">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-bold uppercase tracking-wider text-white/50">
-                      Risultato scansione
-                    </div>
-                    <div className="text-[10px] uppercase text-white/40">
-                      {scanStatus === 'scanning'
-                        ? 'Scansione...'
-                        : scanStatus === 'done'
-                        ? 'Scansione completata'
-                        : scanStatus === 'error'
-                        ? 'Errore scansione'
-                        : 'In attesa'}
-                    </div>
-                  </div>
-
-                  {taskMatches.length === 0 ? (
-  <div className="text-sm text-white/40">
-    Nessuna scansione eseguita
+      style={{ tabSize: 2 }}
+    />
   </div>
-) : (
-  taskMatches.map((match, idx) => (
-   <div
-  key={`${match.lineIndex}-${idx}`}
-  className={`rounded border p-3 ${
-    match.matchedTicket && !match.valid && match.reason?.toLowerCase().includes('cliente')
-      ? 'border-yellow-500/30 bg-yellow-500/10'
-      : match.valid
-      ? 'border-green-500/30 bg-green-500/10'
-      : 'border-red-500/30 bg-red-500/10'
-  }`}
->
-  <div className="flex items-start justify-between gap-3 mb-2">
-    <div className="text-xs text-white/50">
-      Riga {match.lineIndex + 1}
-    </div>
-     {match.reason && (
-    <div
-      className={`mt-2 text-xs ${
-        match.reason.toLowerCase().includes('cliente')
-          ? 'text-yellow-300'
-          : 'text-red-300'
-      }`}
-    >
-      {match.reason.toLowerCase().includes('cliente') ? '⚠️' : '❌'} {match.reason}
-    </div>
-  )}
 
-  {match.matchedTicket && (
-    <div className="mt-2 text-xs text-green-300">
-      ✅ Ticket:
-      <div>
-        • {match.matchedTicket.titolo} ({match.matchedTicket.n_tag})
-      </div>
-    </div>
-  )}
-    {!match.matchedTicket && (
+  <div
+    className={`absolute top-0 right-0 h-full transition-all duration-300 ease-in-out ${
+      showScanPanel ? 'w-[420px]' : 'w-0'
+    }`}
+  >
+    <div
+      className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full`}
+    >
       <button
         type="button"
-        title={getCreateTicketTooltip(match)}
-        onClick={() => handleCreateTicketFromMatch(match)}
-        disabled={!canCreateTicketFromMatch(match)}
-        className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
-          canCreateTicketFromMatch(match)
-            ? 'bg-green-600 hover:bg-green-500 text-white'
-            : 'bg-white/10 text-white/40 cursor-not-allowed'
-        }`}
+        onClick={() => setShowScanPanel((prev) => !prev)}
+        className="h-28 w-8 rounded-l-md border border-r-0 border-white/10 bg-[#2a2a2a] hover:bg-[#333] text-white/70 hover:text-white text-[10px] tracking-wide uppercase flex items-center justify-center"
+        title={showScanPanel ? 'Nascondi risultato scansione' : 'Mostra risultato scansione'}
       >
-        +
+        <span
+          className="[writing-mode:vertical-rl] rotate-180 select-none"
+        >
+          Scan
+        </span>
       </button>
-    )}
-  </div>
-
-  <div className="space-y-1 text-sm text-white">
-    <div>
-      <strong>Cliente:</strong> {match.clientName || '-'}
-    </div>
-    <div>
-      <strong>Titolo:</strong> {match.title || '-'}
-    </div>
-    <div>
-      <strong>Tag:</strong> {match.tag || '-'}
-    </div>
-    <div>
-      <strong>Match su:</strong> {match.queryField || '-'}
-    </div>
-    <div>
-      <strong>Valore:</strong> {match.queryValue || '-'}
-    </div>
-  </div>
-
- 
-
-  <div className="mt-3 text-xs text-white/80 space-y-1">
-    <div>
-      <strong>Percentuale:</strong> {match.percentuale_avanzamento ?? '-'}
-    </div>
-    <div>
-      <strong>Collaudo:</strong> {match.rilascio_in_collaudo || '-'}
-    </div>
-    <div>
-      <strong>Produzione:</strong> {match.rilascio_in_produzione || '-'}
-    </div>
-  </div>
-
-  {match.note && (
-    <div className="mt-2 text-xs text-white/70 whitespace-pre-wrap">
-      <strong>Note:</strong> {match.note}
     </div>
 
-
-        
-      )}
-      {isClienteMismatch(match) && (
-  <div className="mt-3">
-    <button
-      type="button"
-      onClick={() => handleFixCliente(match)}
-      disabled={fixingClienteKey === `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`}
-      className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
+    <div
+      className={`h-full border-l border-white/10 bg-[#202020] overflow-hidden ${
+        showScanPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      } transition-opacity duration-200`}
     >
-      {fixingClienteKey === `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
-        ? 'Fix in corso...'
-        : 'Fix Cliente'}
-    </button>
-  </div>
-)}
-      
-    </div>
-    
-  ))
-)}
+      <div className="h-full overflow-auto p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-bold uppercase tracking-wider text-white/50">
+            Risultato scansione
+          </div>
+          <div className="text-[10px] uppercase text-white/40">
+            {scanStatus === 'scanning'
+              ? 'Scansione...'
+              : scanStatus === 'done'
+              ? 'Scansione completata'
+              : scanStatus === 'error'
+              ? 'Errore scansione'
+              : 'In attesa'}
+          </div>
+        </div>
+
+        {taskMatches.length === 0 ? (
+          <div className="text-sm text-white/40">Nessuna scansione eseguita</div>
+        ) : (
+          taskMatches.map((match, idx) => (
+            <div
+              key={`${match.lineIndex}-${idx}`}
+              className={`rounded border p-3 ${
+                match.matchedTicket &&
+                !match.valid &&
+                match.reason?.toLowerCase().includes('cliente')
+                  ? 'border-yellow-500/30 bg-yellow-500/10'
+                  : match.valid
+                  ? 'border-green-500/30 bg-green-500/10'
+                  : 'border-red-500/30 bg-red-500/10'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="text-xs text-white/50">Riga {match.lineIndex + 1}</div>
+
+                <div className="flex items-start gap-3">
+                  {match.reason && (
+                    <div
+                      className={`mt-2 text-xs ${
+                        match.reason.toLowerCase().includes('cliente')
+                          ? 'text-yellow-300'
+                          : 'text-red-300'
+                      }`}
+                    >
+                      {match.reason.toLowerCase().includes('cliente') ? '⚠️' : '❌'} {match.reason}
+                    </div>
+                  )}
+
+                  {!match.matchedTicket && isOwnerOfActiveNote && (
+                    <button
+                      type="button"
+                      title={getCreateTicketTooltip(match)}
+                      onClick={() => handleCreateTicketFromMatch(match)}
+                      disabled={!canCreateTicketFromMatch(match)}
+                      className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
+                        canCreateTicketFromMatch(match)
+                          ? 'bg-green-600 hover:bg-green-500 text-white'
+                          : 'bg-white/10 text-white/40 cursor-not-allowed'
+                      }`}
+                    >
+                      +
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {match.matchedTicket && (
+                <div className="mt-2 mb-3 text-xs text-green-300">
+                  ✅ Ticket:
+                  <div>
+                    • {match.matchedTicket.titolo} ({match.matchedTicket.n_tag})
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1 text-sm text-white">
+                <div>
+                  <strong>Cliente:</strong> {match.clientName || '-'}
+                </div>
+                <div>
+                  <strong>Titolo:</strong> {match.title || '-'}
+                </div>
+                <div>
+                  <strong>Tag:</strong> {match.tag || '-'}
+                </div>
+                <div>
+                  <strong>Stato:</strong> {match.stato || '-'}
+                </div>
+                <div>
+                  <strong>Match su:</strong> {match.queryField || '-'}
+                </div>
+                <div>
+                  <strong>Valore:</strong> {match.queryValue || '-'}
+                </div>
+              </div>
+
+              <div className="mt-3 text-xs text-white/80 space-y-1">
+                <div>
+                  <strong>Percentuale:</strong> {match.percentuale_avanzamento ?? '-'}
+                </div>
+                <div>
+                  <strong>Collaudo:</strong> {match.rilascio_in_collaudo || '-'}
+                </div>
+                <div>
+                  <strong>Produzione:</strong> {match.rilascio_in_produzione || '-'}
+                </div>
+              </div>
+
+              {match.note && (
+                <div className="mt-2 text-xs text-white/70 whitespace-pre-wrap">
+                  <strong>Note:</strong> {match.note}
+                </div>
+              )}
+
+              {isClienteMismatch(match) && isOwnerOfActiveNote && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleFixCliente(match)}
+                    disabled={
+                      fixingClienteKey ===
+                      `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+                    }
+                    className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
+                  >
+                    {fixingClienteKey ===
+                    `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+                      ? 'Fix in corso...'
+                      : 'Fix Cliente'}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </div>
+</div>
             </>
           ) : !showPreview ? (
             <>
@@ -1632,7 +2033,10 @@ Altra nota`}
                   onKeyUp={updateCursorPosition}
                   onSelect={updateCursorPosition}
                   spellCheck={false}
-                  className="w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white"
+                  readOnly={!canEditActiveNote}
+                  className={`w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white ${
+                    !canEditActiveNote ? 'opacity-80 cursor-not-allowed' : ''
+                  }`}   
                   placeholder="Scrivi qui le tue note..."
                   style={{ tabSize: 2 }}
                 />
@@ -1692,7 +2096,21 @@ Altra nota`}
             ) : (
               <span>{activeNote?.todo_items?.length || 0} attività</span>
             )}
-            <span>{allTickets.length} ticket caricati</span>
+            {activeNote?.note_type === 'taskmanager' ? (
+              <div className="flex items-center gap-3 text-[11px]">
+               <span className="text-green-400" title="Ticket trovati e validi">
+                ✅ {matchStats.matched}
+              </span>
+              <span className="text-yellow-300" title="Ticket con problemi">
+                ⚠️ {matchStats.issues}
+              </span>
+              <span className="text-red-400" title="Nessun ticket trovato">
+                ❌ {matchStats.noMatch}
+              </span>
+              </div>
+            ) : (
+              <span>{allTickets.length} ticket caricati</span>
+            )}
           </div>
         </div>
       </main>
