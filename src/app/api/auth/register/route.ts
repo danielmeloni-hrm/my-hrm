@@ -35,11 +35,15 @@ export async function POST(request: NextRequest) {
     }
   )
 
-  const { data, error } = await supabase.auth.signUp({
+  const { error } = await supabase.auth.signUp({
     email: cleanEmail,
     password: cleanPassword,
     options: {
       emailRedirectTo: `${request.nextUrl.origin}/login`,
+      data: {
+        nome: cleanNome,
+        cognome: cleanCognome,
+      },
     },
   })
 
@@ -49,26 +53,6 @@ export async function POST(request: NextRequest) {
       { ok: false, message: error.message },
       { status: 400 }
     )
-  }
-
-  const user = data.user
-
-  if (user) {
-    const nomeCompleto = `${cleanNome} ${cleanCognome}`
-
-    const { error: profileError } = await supabase.from('profili').insert({
-      id: user.id,
-      nome: cleanNome,
-      nome_completo: nomeCompleto,
-    })
-
-    if (profileError) {
-      console.log('PROFILE INSERT ERROR:', profileError)
-      return NextResponse.json(
-        { ok: false, message: "Utente creato ma profilo non salvato" },
-        { status: 500 }
-      )
-    }
   }
 
   return response
