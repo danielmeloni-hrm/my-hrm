@@ -14,6 +14,9 @@ import {
   AlertTriangle,
   Pin,
   PinOff,
+  CheckCircle2,
+  CircleOff,
+  Repeat,Repeat2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -61,6 +64,7 @@ type TicketRow = Ticket & {
   clienti?: Cliente | null;
   profili?: Profilo | null;
   numero_ore?: number;
+  ricorsivo?:boolean;
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
@@ -68,6 +72,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
+  { id: 'ricorsivo', label: 'Ricorsivo', visible: true, pinned: false },
   { id: 'stato', label: 'Stato', visible: true, pinned: false },
   { id: 'progress', label: 'Avanzamento %', visible: true, pinned: false },
   { id: 'assignee', label: 'Assegnatario', visible: true, pinned: false },
@@ -103,6 +108,8 @@ const getColWidthValue = (id: string) => {
       return 120;
     case 'numero_ore':
       return 110;
+    case 'ricorsivo':
+  return 120;
     default:
       return 130;
   }
@@ -118,6 +125,8 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[180px]';
     case 'n_tag':
       return 'min-w-[130px]';
+    case 'ricorsivo':
+  return 'min-w-[120px]';
     case 'progress':
       return 'min-w-[150px]';
     case 'cliente':
@@ -230,7 +239,7 @@ function SortableColumnItem({
 
 export default function StoricoTicketPage() {
   const supabase = useMemo(() => createClient(), []);
-
+  const [selectedRicorsivo, setSelectedRicorsivo] = useState<'' | 'si' | 'no'>('');
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -453,14 +462,20 @@ export default function StoricoTicketPage() {
       const matchesAttivita = selectedAttivita === '' || t.tipo_di_attivita === selectedAttivita;
       const matchesAttenzione =
         !filterAttenzioneBusiness || t.stato === 'Attenzione Business';
-
+      const matchesRicorsivo =
+        selectedRicorsivo === ''
+          ? true
+          : selectedRicorsivo === 'si'
+          ? !!t.ricorsivo
+          : !t.ricorsivo;
       return (
         matchesSearch &&
         matchesCliente &&
         matchesAssegnatario &&
         matchesStato &&
         matchesSprint &&
-        matchesAttivita &&
+        matchesAttivita && 
+        matchesRicorsivo  &&
         matchesAttenzione
       );
     });
@@ -560,6 +575,7 @@ export default function StoricoTicketPage() {
     setSelectedSprint('');
     setSelectedAttivita('');
     setFilterAttenzioneBusiness(false);
+    setSelectedRicorsivo('');
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -653,7 +669,7 @@ export default function StoricoTicketPage() {
                   </option>
                 ))}
               </select>
-
+             
               <select
                 className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
                 value={selectedAttivita}
@@ -693,7 +709,36 @@ export default function StoricoTicketPage() {
                 ))}
               </select>
             </div>
+                <div className="flex items-center gap-2">
+  <span className="text-[10px] font-bold uppercase text-slate-400">Ricorsivo</span>
 
+  <button
+    type="button"
+    onClick={() =>
+      setSelectedRicorsivo((prev) =>
+        prev === '' ? 'si' : prev === 'si' ? 'no' : ''
+      )
+    }
+    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${
+      selectedRicorsivo === 'si'
+        ? 'bg-blue-50 text-blue-600 border-blue-200'
+        : selectedRicorsivo === 'no'
+        ? 'bg-slate-100 text-slate-600 border-slate-200'
+        : 'bg-white text-slate-400 border-slate-200'
+    }`}
+  >
+    <span
+      className={`h-2.5 w-2.5 rounded-full ${
+        selectedRicorsivo === 'si'
+          ? 'bg-blue-500'
+          : selectedRicorsivo === 'no'
+          ? 'bg-slate-500'
+          : 'bg-slate-300'
+      }`}
+    />
+    {selectedRicorsivo === '' ? 'Tutti' : selectedRicorsivo === 'si' ? 'Sì' : 'No'}
+  </button>
+</div>
             <button
               onClick={() => setFilterAttenzioneBusiness(!filterAttenzioneBusiness)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-tight transition-all border ${
@@ -711,7 +756,8 @@ export default function StoricoTicketPage() {
               selectedAssegnatario ||
               selectedSprint ||
               selectedAttivita ||
-              selectedStato ||
+              selectedStato || 
+              selectedRicorsivo || 
               filterAttenzioneBusiness) && (
               <button
                 onClick={resetFilters}
@@ -924,7 +970,21 @@ export default function StoricoTicketPage() {
                             }
                           />
                         )}
-
+                        {col.id === 'ricorsivo' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdate(t.id, 'ricorsivo', !t.ricorsivo)}
+                            className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold uppercase transition-all ${
+                              t.ricorsivo
+                                ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+                                : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
+                            }`}
+                            title={t.ricorsivo ? 'Ricorsivo: Sì' : 'Ricorsivo: No'}
+                          >
+                            <Repeat2 size={12} />
+                            {t.ricorsivo ? 'Sì' : 'No'}
+                          </button>
+                        )}
                         {col.id === 'progress' && (
                           <div className="flex items-center gap-2 w-28 group/progress">
                             <div className="relative">

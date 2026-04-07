@@ -40,7 +40,15 @@ const cn = (...xs: Array<string | false | undefined | null>) => xs.filter(Boolea
 function normalizeString(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
+function getClientePrefix(nome: string | null | undefined) {
+  const cleaned = String(nome ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
 
+  return cleaned.slice(0, 3);
+}
 
 
 // --- COMPONENTI UI ---
@@ -156,6 +164,8 @@ export default function CreateAttivitaOrChangePage() {
     numero_priorita: 100,
     in_lavorazione_ora: true,
     n_tag: "",
+    ricorsivo: false,
+    progetto_separato: false,
     link_tag: "",
     stato: "Aperto" as StatoTicket,
     priorita: PRIORITA_LIST[0] as PrioritaTicket,
@@ -175,6 +185,54 @@ export default function CreateAttivitaOrChangePage() {
     note_hrm: "",
     note_sviluppatori: "",
   });
+  const [suggestedTag, setSuggestedTag] = useState("");
+useEffect(() => {
+  async function generateSuggestedTag() {
+    if (!aForm.cliente_id) {
+      setSuggestedTag("");
+      return;
+    }
+
+    try {
+      const cliente = clienti.find((c) => c.id === aForm.cliente_id);
+      const prefix = getClientePrefix(cliente?.nome);
+
+      if (!prefix) {
+        setSuggestedTag("");
+        return;
+      }
+
+      // 🔹 filtro diverso in base a progetto_separato
+      let query = supabase
+        .from("ticket")
+        .select("*", { count: "exact", head: true })
+        .eq("cliente_id", aForm.cliente_id);
+
+      if (aForm.progetto_separato) {
+        query = query.eq("progetto_separato", true);
+      } else {
+        query = query.or("progetto_separato.is.null,progetto_separato.eq.false");
+      }
+
+      const { count, error } = await query;
+
+      if (error) throw error;
+
+      const progressivo = (count ?? 0) + 1;
+
+      const tag = aForm.progetto_separato
+        ? `${prefix}PRJ${progressivo}`
+        : `${prefix}${progressivo}`;
+
+      setSuggestedTag(tag);
+    } catch (err) {
+      console.error("Errore generazione n_tag suggerito:", err);
+      setSuggestedTag("");
+    }
+  }
+
+  generateSuggestedTag();
+}, [aForm.cliente_id, aForm.progetto_separato, clienti, supabase]);
   const esselungaId = useMemo(() => {
   const cliente = clienti.find(
     (c) => normalizeString(c.nome) === "esselunga"
@@ -275,7 +333,9 @@ export default function CreateAttivitaOrChangePage() {
           cliente_id: aForm.cliente_id,
           numero_priorita: aForm.numero_priorita || 100,
           in_lavorazione_ora: aForm.in_lavorazione_ora,
-          n_tag: aForm.n_tag.trim() || null,
+          n_tag: aForm.n_tag.trim() || suggestedTag || null,
+          ricorsivo: aForm.ricorsivo,
+          progetto_separato: aForm.progetto_separato,
           priorita: aForm.priorita,
           utente_id: user.id,
           link_tag: aForm.link_tag.trim() || null,
@@ -500,16 +560,20 @@ export default function CreateAttivitaOrChangePage() {
                     
                   
 
-                  <Field label={`N° ${
-                          mode === "incident"
-                            ? "Incident"
-                            : "TAG"
-                        }`} hint="ID Ticket">
+                  <Field
+                    label={`N° ${mode === "incident" ? "Incident" : "TAG"}`}
+                    hint="ID Ticket"
+                  >
                     <input
                       type="text"
                       value={aForm.n_tag}
+                      placeholder={
+                        mode === "attività"
+                          ? suggestedTag || "Inserisci ID ticket"
+                          : "Inserisci ID Incident"
+                      }
                       onChange={(e) => setAForm((p) => ({ ...p, n_tag: e.target.value }))}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none"
+                      className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none placeholder:text-slate-300"
                     />
                   </Field>
                   <Field
@@ -605,6 +669,55 @@ export default function CreateAttivitaOrChangePage() {
                       ))}
                     </select>
                   </Field>
+              
+<div className="md:col-span-2">
+  <Field label="Opzioni Ticket" hint="Flag aggiuntivi">
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => setAForm((p) => ({ ...p, ricorsivo: !p.ricorsivo }))}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-black transition-all border",
+          aForm.ricorsivo
+            ? "bg-blue-50 text-blue-700 border-blue-200 shadow-sm"
+            : "bg-white text-slate-400 border-slate-200 hover:text-slate-700 hover:border-slate-300"
+        )}
+      >
+        <span
+          className={cn(
+            "h-2.5 w-2.5 rounded-full",
+            aForm.ricorsivo ? "bg-blue-600" : "bg-slate-300"
+          )}
+        />
+        Attività ricorsiva
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          setAForm((p) => ({
+            ...p,
+            progetto_separato: !p.progetto_separato,
+          }))
+        }
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-black transition-all border",
+          aForm.progetto_separato
+            ? "bg-violet-50 text-violet-700 border-violet-200 shadow-sm"
+            : "bg-white text-slate-400 border-slate-200 hover:text-slate-700 hover:border-slate-300"
+        )}
+      >
+        <span
+          className={cn(
+            "h-2.5 w-2.5 rounded-full",
+            aForm.progetto_separato ? "bg-violet-600" : "bg-slate-300"
+          )}
+        />
+        Progetto separato
+      </button>
+    </div>
+  </Field>
+</div>
 
                   <div className="md:col-span-2">
                     <Field label="Descrizione">

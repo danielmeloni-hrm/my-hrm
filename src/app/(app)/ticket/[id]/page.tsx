@@ -20,6 +20,8 @@ import {
   TriangleAlert,
   ChevronDown,
   ChevronUp,
+  CalendarRange,
+  Pin,
 } from 'lucide-react'
 
 const STATO_OPTIONS = [
@@ -101,6 +103,7 @@ const defaultSections = {
   noteTecniche: true,
   noteImportanti: true,
   projectMetrics: true,
+  gestioneHRM: true,
   mailThread: true,
   releasePipeline: true,
 }
@@ -129,56 +132,57 @@ export default function TicketDettaglioPage() {
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
+
   useEffect(() => {
-  const fetchTagHours = async () => {
-    if (!ticketData?.n_tag) {
-      setTagHours(null)
-      return
-    }
+    const fetchTagHours = async () => {
+      const voceCalendario = ticketData?.voce_calendario?.trim()
 
-    try {
-      const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco'
-      const gid = '1523798548'
-
-      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`
-
-      const res = await fetch(url)
-      const text = await res.text()
-
-      // Google restituisce una callback JS, non JSON puro
-      const jsonText = text.substring(47, text.length - 2)
-      const data = JSON.parse(jsonText)
-
-      const rows = data.table.rows || []
-
-      const normalizeNumber = (value: unknown) => {
-        if (typeof value === 'number') return value
-        if (typeof value === 'string') {
-          return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0
-        }
-        return 0
+      if (!voceCalendario) {
+        setTagHours(null)
+        return
       }
 
-      const total = rows.reduce((sum: number, row: any) => {
-        const tag = row?.c?.[0]?.v?.toString()?.trim()
-        const hoursValue = row?.c?.[1]?.v
+      try {
+        const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco'
+        const gid = '1523798548'
+        const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`
 
-        if (tag === ticketData.n_tag?.trim()) {
-          return sum + normalizeNumber(hoursValue)
+        const res = await fetch(url)
+        const text = await res.text()
+
+        const jsonText = text.substring(47, text.length - 2)
+        const data = JSON.parse(jsonText)
+        const rows = data.table.rows || []
+
+        const normalizeNumber = (value: unknown) => {
+          if (typeof value === 'number') return value
+          if (typeof value === 'string') {
+            return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0
+          }
+          return 0
         }
 
-        return sum
-      }, 0)
+        const total = rows.reduce((sum: number, row: any) => {
+          const voce = row?.c?.[0]?.v?.toString()?.trim()
+          const hoursValue = row?.c?.[1]?.v
 
-      setTagHours(total)
-    } catch (error) {
-      console.error('Errore caricamento ore tag:', error)
-      setTagHours(null)
+          if (voce === voceCalendario) {
+            return sum + normalizeNumber(hoursValue)
+          }
+
+          return sum
+        }, 0)
+
+        setTagHours(total)
+      } catch (error) {
+        console.error('Errore caricamento ore attività:', error)
+        setTagHours(null)
+      }
     }
-  }
 
-  fetchTagHours()
-}, [ticketData?.n_tag])
+    fetchTagHours()
+  }, [ticketData?.voce_calendario])
+
   const [deleting, setDeleting] = useState(false)
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [showVisibilityPanel, setShowVisibilityPanel] = useState(false)
@@ -322,17 +326,24 @@ export default function TicketDettaglioPage() {
   const isIncident = ticketData?.tipologia_ticket === 'Incident'
 
   const summaryCards = [
-     {
-    label: 'Numero di ore',
-    value: tagHours !== null ? tagHours.toLocaleString('it-IT', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }) : '—',
-  },
+    ...(ticketData?.pin_ore_in_header
+      ? [
+          {
+            label: 'Numero di ore',
+            value:
+              tagHours !== null
+                ? tagHours.toLocaleString('it-IT', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })
+                : '—',
+          },
+        ]
+      : []),
     {
       label: 'Ultimo Ping',
       value: formatDisplayDate(ticketData?.ultimo_ping),
-    }
+    },
   ]
 
   const toggleApplicativo = (app: string) => {
@@ -481,6 +492,7 @@ export default function TicketDettaglioPage() {
                       ['noteTecniche', 'Note tecniche'],
                       ['noteImportanti', 'Note importanti'],
                       ['projectMetrics', 'Dettagli Ticket SN'],
+                      ['gestioneHRM', 'Gestione HRM'],
                       ['mailThread', 'Mail thread'],
                       ['releasePipeline', 'Release pipeline'],
                     ].map(([key, label]) => (
@@ -566,8 +578,6 @@ export default function TicketDettaglioPage() {
               </div>
             </div>
           </div>
-
-          
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 pt-6">
             <div className={ui.metaBlock}>
@@ -688,24 +698,23 @@ export default function TicketDettaglioPage() {
             </div>
           </div>
         </div>
-        
-<div className="grid grid-cols-1 grid-cols-9 gap-4 mb-2">
-  {summaryCards.map((card) => (
-    <div
-      key={card.label}
-      className="rounded-lg border border-[#d9e7f7] bg-white px-3 py-2 shadow-sm"
-    >
-      <div className="text-[8px] font-black uppercase tracking-[0.14em] text-[#7a93b2] mb-1">
-        {card.label}
-      </div>
 
-      <div className="text-sm lg:text-base font-black tracking-tight text-[#0150a0] leading-none">
-        {card.value}
-      </div>
-    </div>
-  ))}
-</div>
+        <div className="grid grid-cols-1 grid-cols-9 gap-4 mb-2">
+          {summaryCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-lg border border-[#d9e7f7] bg-white px-3 py-2 shadow-sm"
+            >
+              <div className="text-[8px] font-black uppercase tracking-[0.14em] text-[#7a93b2] mb-1">
+                {card.label}
+              </div>
 
+              <div className="text-sm lg:text-base font-black tracking-tight text-[#0150a0] leading-none">
+                {card.value}
+              </div>
+            </div>
+          ))}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           <div className="lg:col-span-8 space-y-6">
@@ -1063,6 +1072,76 @@ export default function TicketDettaglioPage() {
                           </option>
                         ))}
                       </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {openSections.gestioneHRM && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('gestioneHRM')}
+                  className="w-full p-8 flex items-center justify-between text-left"
+                >
+                  <h3 className={`${ui.sectionTitle} border-b-0 pb-0`}>Gestione HRM</h3>
+                  {openSections.gestioneHRM ? (
+                    <ChevronUp size={16} />
+                  ) : (
+                    <ChevronDown size={16} />
+                  )}
+                </button>
+
+                {openSections.gestioneHRM && (
+                  <div className="px-8 pb-8 space-y-8">
+                    <div className="space-y-2">
+                      <label className={`${ui.label} flex items-center gap-1`}>
+                        <CalendarRange size={10} />
+                        Voce calendario
+                      </label>
+                      <input
+                        value={ticketData.voce_calendario || ''}
+                        onChange={(e) => handleUpdate('voce_calendario', e.target.value)}
+                        className={ui.field}
+                        placeholder="Voce usata per il conteggio ore"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                      <div className="space-y-2">
+                        <label className={ui.label}>Numero di ore</label>
+                        <div className="flex items-center justify-between rounded-xl border border-[#d9e7f7] bg-[#f8fbff] px-4 py-4">
+                          <div>
+                            <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7a93b2]">
+                              Totale attività
+                            </div>
+                            <div className="mt-1 text-2xl font-black tracking-tight text-[#0150a0]">
+                              {tagHours !== null
+                                ? tagHours.toLocaleString('it-IT', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleUpdate('pin_ore_in_header', !ticketData.pin_ore_in_header)
+                        }
+                        className={`inline-flex items-center gap-2 px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                          ticketData.pin_ore_in_header
+                            ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Pin size={14} />
+                        {ticketData.pin_ore_in_header ? 'Pinned in alto' : 'Pin in alto'}
+                      </button>
                     </div>
                   </div>
                 )}
