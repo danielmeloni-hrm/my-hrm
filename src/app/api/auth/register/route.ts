@@ -2,7 +2,19 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function POST(request: NextRequest) {
-  const { email, password } = await request.json()
+  const { email, password, nome, cognome } = await request.json()
+
+  const cleanEmail = String(email || '').trim()
+  const cleanPassword = String(password || '')
+  const cleanNome = String(nome || '').trim()
+  const cleanCognome = String(cognome || '').trim()
+
+  if (!cleanNome || !cleanCognome) {
+    return NextResponse.json(
+      { ok: false, message: 'Nome e cognome sono obbligatori' },
+      { status: 400 }
+    )
+  }
 
   const response = NextResponse.json({ ok: true })
 
@@ -24,22 +36,40 @@ export async function POST(request: NextRequest) {
   )
 
   const { data, error } = await supabase.auth.signUp({
-    email: String(email || '').trim(),
-    password: String(password || ''),
+    email: cleanEmail,
+    password: cleanPassword,
     options: {
-      // dopo conferma email (se attiva) o subito (se disattiva)
       emailRedirectTo: `${request.nextUrl.origin}/login`,
     },
   })
 
-    if (error) {
-    console.log("REGISTER ERROR:", error)
+  if (error) {
+    console.log('REGISTER ERROR:', error)
     return NextResponse.json(
-        { ok: false, message: error.message },
-        { status: 400 }
+      { ok: false, message: error.message },
+      { status: 400 }
     )
-    }
+  }
 
-  // Nota: se hai "Confirm email" attivo, user potrebbe essere creato ma session null
+  const user = data.user
+
+  if (user) {
+    const nomeCompleto = `${cleanNome} ${cleanCognome}`
+
+    const { error: profileError } = await supabase.from('profili').insert({
+      id: user.id,
+      nome: cleanNome,
+      nome_completo: nomeCompleto,
+    })
+
+    if (profileError) {
+      console.log('PROFILE INSERT ERROR:', profileError)
+      return NextResponse.json(
+        { ok: false, message: "Utente creato ma profilo non salvato" },
+        { status: 500 }
+      )
+    }
+  }
+
   return response
 }
