@@ -15,7 +15,8 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
-
+  const [nome, setNome] = useState('')
+  const [cognome, setCognome] = useState('')
   const router = useRouter()
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -41,7 +42,12 @@ export default function RegisterPage() {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password }),
+      body: JSON.stringify({ 
+        email: cleanEmail, 
+        password,
+        nome,
+        cognome
+      }),
     })
 
     const j = await res.json().catch(() => null)
@@ -108,7 +114,37 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleRegister} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+  <div>
+    <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">
+      Nome
+    </label>
+    <input
+      required
+      type="text"
+      value={nome}
+      onChange={(e) => setNome(e.target.value)}
+      className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-[#0150a0] text-black"
+      placeholder="Nome"
+    />
+  </div>
+
+  <div>
+    <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">
+      Cognome
+    </label>
+    <input
+      required
+      type="text"
+      value={cognome}
+      onChange={(e) => setCognome(e.target.value)}
+      className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-[#0150a0] text-black"
+      placeholder="Cognome"
+    />
+  </div>
+</div>
           <div>
+
             <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Email</label>
             <div className="relative">
               <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
