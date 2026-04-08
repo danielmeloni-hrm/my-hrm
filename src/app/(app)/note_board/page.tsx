@@ -95,11 +95,14 @@ interface TaskManagerMatch {
   rilascio_in_collaudo?: string | null;
   rilascio_in_produzione?: string | null;
   matchedTicket?: TicketRecord | null;
-  queryField?: 'n_tag' | null;
+  queryField?: 'n_tag' | 'title' | null;
   queryValue?: string | null;
   valid: boolean;
   reason?: string;
   warning?: boolean;
+
+  tagOnlyTicket?: TicketRecord | null;
+  clienteMismatch?: boolean;
 }
 
 const VALID_STATI = [
@@ -107,6 +110,7 @@ const VALID_STATI = [
   'COMPLETATO',
   'IN STAND-BY',
   'IN LAVORAZIONE',
+  'IN LAVORAZIONE OGGI',
   'ATTENZIONE BUSINESS',
 ] as const;
 
@@ -115,6 +119,7 @@ const STATO_MAP: Record<string, string> = {
   'COMPLETATO': 'Completato',
   'IN STAND-BY': 'In stand-by',
   'IN LAVORAZIONE': 'In lavorazione',
+  'IN LAVORAZIONE OGGI': 'In lavorazione',
   'ATTENZIONE BUSINESS': 'Attenzione Business',
 };
 
@@ -157,6 +162,10 @@ function extractStato(line: string): string | null {
 function normalizeStato(stato: string | null | undefined) {
   if (!stato) return null;
   return STATO_MAP[stato] || stato;
+}
+function getInLavorazioneOra(stato: string | null | undefined) {
+  if (!stato) return false;
+  return stato.trim().toUpperCase() === 'IN LAVORAZIONE OGGI';
 }
 function SortableTabItem({
   note,
@@ -271,28 +280,34 @@ const canEditActiveNote = useMemo(() => {
   }, []);
 
   const canCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
-    return Boolean(match.clientName?.trim() && match.title?.trim() && !match.matchedTicket);
-  }, []);
+  return Boolean(
+    match.clientName?.trim() &&
+      match.tag?.trim() &&
+      !match.matchedTicket &&
+      !match.clienteMismatch
+  );
+}, []);
 
-const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
+ const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
   if (!activeNote || !isOwnerOfActiveNote) return;
   if (!canCreateTicketFromMatch(match)) return;
 
-  const params = new URLSearchParams({
-    cliente: match.clientName!.trim(),
-    titolo: match.title!.trim(),
-    assignee: userId,
-  });
+  const params = new URLSearchParams();
+
+  if (match.clientName?.trim()) params.set('cliente', match.clientName.trim());
+  if (match.title?.trim()) params.set('titolo', match.title.trim());
+  if (match.tag?.trim()) params.set('n_tag', match.tag.trim());
+  if (match.stato?.trim()) params.set('stato', normalizeStato(match.stato) || match.stato.trim());
+  if (match.percentuale_avanzamento !== undefined && match.percentuale_avanzamento !== null) {
+    params.set('percentuale_avanzamento', String(match.percentuale_avanzamento));
+  }
+  if (match.rilascio_in_collaudo) params.set('rilascio_in_collaudo', match.rilascio_in_collaudo);
+  if (match.rilascio_in_produzione) params.set('rilascio_in_produzione', match.rilascio_in_produzione);
+  if (match.note?.trim()) params.set('note', match.note.trim());
+  if (userId) params.set('assignee', userId);
 
   window.open(`/new_ticket?${params.toString()}`, '_blank', 'noopener,noreferrer');
 }, [activeNote, isOwnerOfActiveNote, canCreateTicketFromMatch, userId]);
-const sensors = useSensors(
-  useSensor(PointerSensor, {
-    activationConstraint: {
-      distance: 6,
-    },
-  })
-);
 const saveNotesOrder = useCallback(
   async (orderedNotes: EditorNote[]) => {
     try {
@@ -812,7 +827,8 @@ const togglePinNote = useCallback(
       const tag = tagMatch ? tagMatch[1].trim().toUpperCase() : null;
       const title = titleMatch ? titleMatch[1].trim() : null;
 
-      if (!clientName || !tag) return;
+      if (!clientName) return;
+      if (!tag && !title) return;
 
       const multiLineNote: string[] = [];
 
@@ -845,7 +861,7 @@ const togglePinNote = useCallback(
 
       if (statoNormalizzato !== null) {
         updates.stato = statoNormalizzato;
-        updates.in_lavorazione_ora = statoNormalizzato === 'In lavorazione';
+        updates.in_lavorazione_ora = getInLavorazioneOra(stato);
       }
 
       const percMatch = firstLine.match(/\[perc:\s*([^\]]+)\]/i);
@@ -871,13 +887,29 @@ const togglePinNote = useCallback(
       }
 
       try {
-        const matchedTicket = allTickets.find(
-          (t) =>
-            normalizeString(t.cliente) === normalizeString(clientName) &&
-            normalizeString(t.n_tag) === normalizeString(tag)
-        );
+        let matchedTicket: TicketRecord | null = null;
 
-        if (!matchedTicket) return;
+        // 1) match prioritario: cliente + tag
+          if (tag) {
+            matchedTicket =
+              allTickets.find(
+                (t) =>
+                  normalizeString(t.cliente) === normalizeString(clientName) &&
+                  normalizeString(t.n_tag) === normalizeString(tag)
+              ) || null;
+          }
+
+          // 2) fallback: cliente + titolo, solo se tag assente
+          if (!matchedTicket && !tag && title) {
+            matchedTicket =
+              allTickets.find(
+                (t) =>
+                  normalizeString(t.cliente) === normalizeString(clientName) &&
+                  normalizeString(t.titolo) === normalizeString(title)
+              ) || null;
+          }
+
+          if (!matchedTicket) return;
 
         const { error } = await supabase
           .from('ticket')
@@ -978,52 +1010,82 @@ const togglePinNote = useCallback(
         const rilascio_in_produzione =
           prodMatch && isValidDate(prodMatch[1]) ? parseDateToISO(prodMatch[1]) : undefined;
 
-        let queryField: 'n_tag' | null = null;
-        let queryValue: string | null = null;
-        let matchedTicket: TicketRecord | null = null;
-        let valid = true;
-        let reason = '';
+        let queryField: 'n_tag' | 'title' | null = null;
+let queryValue: string | null = null;
+let matchedTicket: TicketRecord | null = null;
+let tagOnlyTicket: TicketRecord | null = null;
+let clienteMismatch = false;
+let valid = true;
+let reason = '';
 
-        if (!clientName) {
-          valid = false;
-          reason = 'Cliente mancante';
-        } else if (!tag) {
-          valid = false;
-          reason = 'TAG mancante';
-        } else {
-          queryField = 'n_tag';
-          queryValue = tag;
+if (!clientName) {
+  valid = false;
+  reason = 'Cliente mancante';
+} else if (tag) {
+  queryField = 'n_tag';
+  queryValue = tag;
 
-          matchedTicket =
-            allTickets.find(
-              (t) =>
-                normalizeString(t.cliente) === normalizeString(clientName) &&
-                normalizeString(t.n_tag) === normalizeString(tag)
-            ) || null;
+  matchedTicket =
+    allTickets.find(
+      (t) =>
+        normalizeString(t.cliente) === normalizeString(clientName) &&
+        normalizeString(t.n_tag) === normalizeString(tag)
+    ) || null;
 
-          if (!matchedTicket) {
-            valid = false;
-            reason = 'Nessun ticket trovato per cliente + TAG';
-          }
-        }
+  if (!matchedTicket) {
+    tagOnlyTicket =
+      allTickets.find(
+        (t) => normalizeString(t.n_tag) === normalizeString(tag)
+      ) || null;
 
+    if (tagOnlyTicket) {
+      matchedTicket = tagOnlyTicket;
+      clienteMismatch = true;
+      valid = false;
+      reason = 'Cliente diverso rispetto al ticket con questo TAG';
+    } else {
+      valid = false;
+      reason = 'Nessun ticket trovato per cliente + TAG';
+    }
+  }
+} else if (title) {
+  queryField = 'title';
+  queryValue = title;
+
+  matchedTicket =
+    allTickets.find(
+      (t) =>
+        normalizeString(t.cliente) === normalizeString(clientName) &&
+        normalizeString(t.titolo) === normalizeString(title)
+    ) || null;
+
+  if (!matchedTicket) {
+    valid = false;
+    reason = 'Nessun ticket trovato per cliente + titolo';
+  }
+} else {
+  valid = false;
+  reason = 'TAG e titolo mancanti';
+}
         results.push({
-          lineIndex: startIndex,
-          rawLine: firstLine,
-          clientName,
-          tag,
-          title,
-          note,
-          stato,
-          percentuale_avanzamento,
-          rilascio_in_collaudo,
-          rilascio_in_produzione,
-          matchedTicket,
-          queryField,
-          queryValue,
-          valid,
-          reason: valid ? undefined : reason,
-        });
+  lineIndex: startIndex,
+  rawLine: firstLine,
+  clientName,
+  tag,
+  title,
+  note,
+  stato,
+  percentuale_avanzamento,
+  rilascio_in_collaudo,
+  rilascio_in_produzione,
+  matchedTicket,
+  queryField,
+  queryValue,
+  valid,
+  reason: valid ? undefined : reason,
+  tagOnlyTicket,
+  clienteMismatch,
+});
       }
 
       return results;
@@ -1062,7 +1124,7 @@ const togglePinNote = useCallback(
           note: match.note || null,
           sprint: 'Sprint',
           stato: statoNormalizzato,
-          in_lavorazione_ora: statoNormalizzato === 'In lavorazione',
+          in_lavorazione_ora: getInLavorazioneOra(match.stato),
         };
 
         if (match.percentuale_avanzamento !== undefined) {
@@ -1348,7 +1410,13 @@ const togglePinNote = useCallback(
       subscription.unsubscribe();
     };
   }, []);
-
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    })
+  );
   useEffect(() => {
     const initData = async () => {
       if (!authReady) return;
@@ -1371,14 +1439,9 @@ const togglePinNote = useCallback(
     initData();
   }, [authReady, userId, fetchTickets, fetchClienti, loadNotes]);
 
-  const isClienteMismatch = useCallback((match: TaskManagerMatch) => {
-    return Boolean(
-      match.matchedTicket &&
-        !match.valid &&
-        match.reason &&
-        match.reason.toLowerCase().includes('cliente')
-    );
-  }, []);
+ const isClienteMismatch = useCallback((match: TaskManagerMatch) => {
+  return Boolean(match.clienteMismatch && match.matchedTicket);
+}, []);
 
   const handleFixCliente = useCallback(
     async (match: TaskManagerMatch) => {
@@ -1897,9 +1960,7 @@ Altra nota`}
             <div
               key={`${match.lineIndex}-${idx}`}
               className={`rounded border p-3 ${
-                match.matchedTicket &&
-                !match.valid &&
-                match.reason?.toLowerCase().includes('cliente')
+                isClienteMismatch(match)
                   ? 'border-yellow-500/30 bg-yellow-500/10'
                   : match.valid
                   ? 'border-green-500/30 bg-green-500/10'
@@ -1910,51 +1971,66 @@ Altra nota`}
                 <div className="text-xs text-white/50">Riga {match.lineIndex + 1}</div>
 
                 <div className="flex items-start gap-3">
-                  {match.reason && (
-                    <div
-                      className={`mt-2 text-xs ${
-                        match.reason.toLowerCase().includes('cliente')
-                          ? 'text-yellow-300'
-                          : 'text-red-300'
-                      }`}
-                    >
-                      {match.reason.toLowerCase().includes('cliente') ? '⚠️' : '❌'} {match.reason}
-                    </div>
-                  )}
+  {match.reason && (
+    <div
+      className={`mt-2 text-xs ${
+        isClienteMismatch(match) ? 'text-yellow-300' : 'text-red-300'
+      }`}
+    >
+      {isClienteMismatch(match) ? '⚠️' : '❌'} {match.reason}
+    </div>
+  )}
 
-                  {!match.matchedTicket && isOwnerOfActiveNote && (
-                    <button
-                      type="button"
-                      title={getCreateTicketTooltip(match)}
-                      onClick={() => handleCreateTicketFromMatch(match)}
-                      disabled={!canCreateTicketFromMatch(match)}
-                      className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
-                        canCreateTicketFromMatch(match)
-                          ? 'bg-green-600 hover:bg-green-500 text-white'
-                          : 'bg-white/10 text-white/40 cursor-not-allowed'
-                      }`}
-                    >
-                      +
-                    </button>
-                  )}
-                </div>
+  {isClienteMismatch(match) && isOwnerOfActiveNote ? (
+    <button
+      type="button"
+      onClick={() => handleFixCliente(match)}
+      disabled={
+        fixingClienteKey ===
+        `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+      }
+      className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
+    >
+      {fixingClienteKey ===
+      `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+        ? 'Fix in corso...'
+        : 'Fix Cliente'}
+    </button>
+  ) : !match.matchedTicket && isOwnerOfActiveNote ? (
+    <button
+      type="button"
+      title={getCreateTicketTooltip(match)}
+      onClick={() => handleCreateTicketFromMatch(match)}
+      disabled={!canCreateTicketFromMatch(match)}
+      className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
+        canCreateTicketFromMatch(match)
+          ? 'bg-green-600 hover:bg-green-500 text-white'
+          : 'bg-white/10 text-white/40 cursor-not-allowed'
+      }`}
+    >
+      +
+    </button>
+  ) : null}
+</div>
               </div>
 
               {match.matchedTicket && (
-                <div className="mt-2 mb-3 text-xs text-green-300">
-                  ✅ Ticket:
-                  <div>
-                    • {match.matchedTicket.titolo} ({match.matchedTicket.n_tag})
+                  <div
+                    className={`mt-2 mb-3 text-xs ${
+                      isClienteMismatch(match) ? 'text-yellow-300' : 'text-green-300'
+                    }`}
+                  >
+                    {isClienteMismatch(match) ? '' : '✅ Ticket Trovato'}
+                    
                   </div>
-                </div>
-              )}
+)}
 
               <div className="space-y-1 text-sm text-white">
                 <div>
                   <strong>Cliente:</strong> {match.clientName || '-'}
                 </div>
                 <div>
-                  <strong>Titolo:</strong> {match.title || '-'}
+                  <strong>Titolo:</strong> {match.title?.trim() || match.matchedTicket?.titolo?.trim() || '-'}
                 </div>
                 <div>
                   <strong>Tag:</strong> {match.tag || '-'}
@@ -1988,24 +2064,7 @@ Altra nota`}
                 </div>
               )}
 
-              {isClienteMismatch(match) && isOwnerOfActiveNote && (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => handleFixCliente(match)}
-                    disabled={
-                      fixingClienteKey ===
-                      `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
-                    }
-                    className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
-                  >
-                    {fixingClienteKey ===
-                    `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
-                      ? 'Fix in corso...'
-                      : 'Fix Cliente'}
-                  </button>
-                </div>
-              )}
+              
             </div>
           ))
         )}

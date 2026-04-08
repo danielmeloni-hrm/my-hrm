@@ -23,6 +23,7 @@ type Mode = "attività" |"incident" | "change";
 type Profile = { id: string; nome_completo: string | null };
 type Cliente = { id: string; nome: string | null };
 type StatoTicket = (typeof STATO_TICKET_LIST)[number];
+
 type PrioritaTicket = (typeof PRIORITA_LIST)[number];
 const BRAND = "#0150a0";
 const BRAND_BG = "#eaf2fb";
@@ -255,6 +256,12 @@ useEffect(() => {
       const queryCliente = searchParams.get("cliente");
       const queryTitolo = searchParams.get("titolo");
       const queryAssignee = searchParams.get("assignee");
+      const queryNTag = searchParams.get("n_tag");
+      const queryStato = searchParams.get("stato");
+      const queryPercentuale = searchParams.get("percentuale_avanzamento");
+      const queryCollaudo = searchParams.get("rilascio_in_collaudo");
+      const queryProduzione = searchParams.get("rilascio_in_produzione");
+      const queryNote = searchParams.get("note");
 
       const {
         data: { user },
@@ -289,6 +296,9 @@ useEffect(() => {
         titolo: queryTitolo?.trim() || prev.titolo,
         assignee: queryAssignee || user?.id || prev.assignee,
         cliente_id: matchedCliente?.id || prev.cliente_id,
+        n_tag: queryNTag?.trim() || prev.n_tag,
+        stato: (queryStato as StatoTicket) || prev.stato,
+        descrizione: queryNote?.trim() || prev.descrizione,
       }));
     } catch (err: any) {
       setError(err.message ?? "Errore durante il caricamento dati");
@@ -569,7 +579,7 @@ useEffect(() => {
                       value={aForm.n_tag}
                       placeholder={
                         mode === "attività"
-                          ? suggestedTag || "Inserisci ID ticket"
+                          ? suggestedTag || "Inserisci ID ticket" 
                           : "Inserisci ID Incident"
                       }
                       onChange={(e) => setAForm((p) => ({ ...p, n_tag: e.target.value }))}
