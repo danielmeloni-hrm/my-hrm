@@ -23,9 +23,11 @@ export default function SettingsPage() {
       { name: 'Tutte Attività', path: '/tutti-i-ticket' },
       { name: 'Tutti Incident', path: '/tutti-gli-incident' },
       { name: 'Tutte le Change', path: '/changes' },
+      { name: 'Documenti & Progetti', path: '/progetti' },
       { name: 'Calendario Rilasci', path: '/calendario' },
       { name: 'Calendario Rilasci CHG', path: '/calendario_chg' },
       { name: 'Report', path: '/report_progetti' },
+      { name: 'Password',  path: '/password' },
     ],
     []
   )

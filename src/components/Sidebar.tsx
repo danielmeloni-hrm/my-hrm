@@ -15,7 +15,7 @@ import {
   PlusCircle,
   StickyNote,
   Kanban,
-  CalendarDays,
+  CalendarDays,KeyRound,BookMarked,
 } from 'lucide-react'
 
 type MenuItem = {
@@ -67,9 +67,11 @@ export default function Sidebar() {
       { name: 'Tutte Attività', icon: <Ticket size={20} />, path: '/tutti-i-ticket' },
       { name: 'Tutti Incident', icon: <Ticket size={20} />, path: '/tutti-gli-incident' },
       { name: 'Tutte le Change', icon: <Ticket size={20} />, path: '/changes' },
+      { name: 'Documenti & Progetti', icon: <BookMarked size={20} />, path: '/progetti' },
       { name: 'Calendario Rilasci', icon: <CalendarDays size={20} />, path: '/calendario' },
       { name: 'Calendario Rilasci CHG', icon: <CalendarDays size={20} />, path: '/calendario_chg' },
       { name: 'Report', icon: <BarChart3 size={20} />, path: '/report_progetti' },
+      { name: 'Password', icon: <KeyRound size={20} />, path: '/password' },
       
     ],
     []
