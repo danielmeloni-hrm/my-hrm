@@ -20,21 +20,23 @@ export type Profilo = { id: string; nome?: string; nome_completo?: string; avata
 export type Ticket = {
   id: string;
   titolo: string;
-  n_tag?: string;
-  note_importanti?: string;
-  applicativo?: string | string[];
-  percentuale_avanzamento?: number;
-  ultimo_ping?: string | null;
+  stato: string;
+  n_tag?: string | null;
+  numero_priorita?: number | null;
   in_lavorazione_ora?: boolean;
-  stato?: string;
-  sprint?: "Sprint" | "Backlog" | "Tutti";
-  assignee?: string;
-  profili?: Profilo | null;
-  clienti?: Cliente | null;
+  ultimo_ping?: string | null;
+  sprint?: string | null;
+  assignee?: string | null;
+  clienti?: {
+    id: string;
+    nome: string;
+  } | null;
+  profili?: {
+    id: string;
+    nome?: string | null;
+    nome_completo?: string | null;
+  } | null;
   columnId: string;
-  descrizione?: string;
-  board_status?: string;
-  storia_ticket?: string[];
 };
 
 type TicketCardProps = {
