@@ -39,6 +39,8 @@ type BoardColumn = {
   textColorClass: string;
 };
 
+type SortMode = "priorita" | "n_tag";
+
 const allBoardColumns: BoardColumn[] = [
   {
     id: "attivita-sospesa",
@@ -206,6 +208,12 @@ function visibleColumnsMapToArray(columns: Record<string, boolean>) {
     .filter((id) => columns[id] !== false);
 }
 
+function extractTagNumber(tag?: string | null) {
+  if (!tag) return 0;
+  const match = String(tag).match(/\d+/);
+  return match ? parseInt(match[0], 10) : 0;
+}
+
 function DroppableColumn({
   id,
   bgColorClass,
@@ -237,13 +245,12 @@ export default function SprintBoardRefactor() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCliente, setSelectedCliente] = useState("Tutti");
-  const [selectedSprint, setSelectedSprint] = useState<
-    "Sprint" | "Backlog" | "Tutti"
-  >("Sprint");
+  const [selectedSprint, setSelectedSprint] = useState<"Sprint" | "Backlog" | "Tutti">("Sprint");
   const [filterOnlyExpired, setFilterOnlyExpired] = useState(false);
   const [filterMe, setFilterMe] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [zoomLevel] = useState<1 | 2 | 3 | 4 | 5>(2);
+  const [sortMode, setSortMode] = useState<SortMode>("priorita");
 
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -278,9 +285,7 @@ export default function SprintBoardRefactor() {
         if (profileError) {
           console.error("Errore caricamento kanban_columns:", profileError.message);
         } else {
-          setVisibleColumns(
-            visibleColumnsArrayToMap(profileData?.kanban_columns)
-          );
+          setVisibleColumns(visibleColumnsArrayToMap(profileData?.kanban_columns));
         }
       }
 
@@ -315,8 +320,7 @@ export default function SprintBoardRefactor() {
         (payload) => {
           const updatedPatch: Partial<Ticket> = {
             ...(payload.new as Partial<Ticket>),
-            columnId:
-              statusToColumnId[(payload.new as any).stato] || "non-iniziato",
+            columnId: statusToColumnId[(payload.new as any).stato] || "non-iniziato",
           };
 
           setTickets((current) =>
@@ -367,10 +371,7 @@ export default function SprintBoardRefactor() {
 
     if (Object.keys(supabasePatch).length === 0) return;
 
-    const { error } = await supabase
-      .from("ticket")
-      .update(supabasePatch)
-      .eq("id", id);
+    const { error } = await supabase.from("ticket").update(supabasePatch).eq("id", id);
 
     if (error) {
       console.error("Errore salvataggio:", error.message);
@@ -434,8 +435,7 @@ export default function SprintBoardRefactor() {
         const matchesSprint =
           selectedSprint === "Tutti" || t.sprint === selectedSprint;
 
-        const matchesExpired =
-          !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
+        const matchesExpired = !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
 
         const matchesMe = !filterMe || t.assignee === currentUserId;
 
@@ -448,13 +448,27 @@ export default function SprintBoardRefactor() {
         );
       })
       .sort((a, b) => {
+        // 1. in lavorazione ora prima
         if (a.in_lavorazione_ora && !b.in_lavorazione_ora) return -1;
         if (!a.in_lavorazione_ora && b.in_lavorazione_ora) return 1;
 
-        const tagA = a.n_tag || "";
-        const tagB = b.n_tag || "";
+        const priorityA = a.numero_priorita ?? Number.MAX_SAFE_INTEGER;
+        const priorityB = b.numero_priorita ?? Number.MAX_SAFE_INTEGER;
+        const tagA = extractTagNumber(a.n_tag);
+        const tagB = extractTagNumber(b.n_tag);
 
-        return tagB.localeCompare(tagA, undefined, { numeric: true });
+        // 2. ordinamento scelto
+        if (sortMode === "priorita") {
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+          return tagB - tagA;
+        }
+
+        if (tagA !== tagB) {
+          return tagB - tagA;
+        }
+        return priorityA - priorityB;
       });
   }, [
     tickets,
@@ -464,6 +478,7 @@ export default function SprintBoardRefactor() {
     filterOnlyExpired,
     filterMe,
     currentUserId,
+    sortMode,
   ]);
 
   if (!isMounted) {
@@ -571,6 +586,29 @@ export default function SprintBoardRefactor() {
                       {s}
                     </button>
                   ))}
+                </div>
+
+                <div className="flex bg-gray-100 p-1 rounded-xl">
+                  <button
+                    onClick={() => setSortMode("priorita")}
+                    className={`px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                      sortMode === "priorita"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    Priorità
+                  </button>
+                  <button
+                    onClick={() => setSortMode("n_tag")}
+                    className={`px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
+                      sortMode === "n_tag"
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    N° TAG
+                  </button>
                 </div>
               </div>
             </div>

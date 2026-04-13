@@ -129,10 +129,11 @@ export default function TicketDettaglioPage() {
   const params = useParams()
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id
   const [tagHours, setTagHours] = useState<number | null>(null)
+  const [canShowTicketHours, setCanShowTicketHours] = useState<boolean>(false)
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
-
+  
   useEffect(() => {
     const fetchTagHours = async () => {
       const voceCalendario = ticketData?.voce_calendario?.trim()
@@ -210,40 +211,7 @@ export default function TicketDettaglioPage() {
   }, [ticketData])
 
   useEffect(() => {
-    const loadTicketSettings = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) return
-
-        const { data, error } = await supabase
-          .from('profili')
-          .select('tickek_setting_colonne')
-          .eq('id', user.id)
-          .single()
-
-        if (error) {
-          console.error('Errore caricamento impostazioni ticket:', error.message)
-          return
-        }
-
-        if (data?.tickek_setting_colonne) {
-          setOpenSections({
-            ...defaultSections,
-            ...data.tickek_setting_colonne,
-          })
-        }
-      } catch (error) {
-        console.error('Errore imprevisto caricamento impostazioni ticket:', error)
-      }
-    }
-
-    loadTicketSettings()
-  }, [supabase])
-
-  const saveTicketSettings = async (settings: typeof defaultSections) => {
+  const loadProfileSettings = async () => {
     try {
       const {
         data: { user },
@@ -251,28 +219,34 @@ export default function TicketDettaglioPage() {
 
       if (!user) return
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profili')
-        .update({ tickek_setting_colonne: settings })
+        .select('ore_ticket')
         .eq('id', user.id)
+        .single()
 
       if (error) {
-        console.error('Errore salvataggio impostazioni ticket:', error.message)
+        console.error('Errore caricamento profilo:', error.message)
+        return
       }
+
+      setCanShowTicketHours(data?.ore_ticket === true)
     } catch (error) {
-      console.error('Errore imprevisto salvataggio impostazioni ticket:', error)
+      console.error('Errore imprevisto caricamento profilo:', error)
     }
   }
 
-  const toggleSection = async (section: keyof typeof openSections) => {
-    const updated = {
-      ...openSections,
-      [section]: !openSections[section],
-    }
+  loadProfileSettings()
+}, [supabase])
 
-    setOpenSections(updated)
-    await saveTicketSettings(updated)
-  }
+  
+
+  const toggleSection = (section: keyof typeof openSections) => {
+  setOpenSections((prev) => ({
+    ...prev,
+    [section]: !prev[section],
+  }))
+}
 
   const addFileRow = () => {
     setNewFiles((prev) => [...prev, { nome_file: '', link: '' }])
@@ -326,7 +300,7 @@ export default function TicketDettaglioPage() {
   const isIncident = ticketData?.tipologia_ticket === 'Incident'
 
   const summaryCards = [
-    ...(ticketData?.pin_ore_in_header
+    ...(canShowTicketHours
       ? [
           {
             label: 'Numero di ore',

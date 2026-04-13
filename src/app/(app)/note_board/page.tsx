@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  useDroppable,
 } from '@dnd-kit/core';
 
 import {
@@ -28,6 +29,9 @@ import {
   Square,
   Trash2,
   Users,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
 } from 'lucide-react';
 
 const supabase = createClient();
@@ -58,6 +62,12 @@ interface ClienteRecord {
   nome: string;
 }
 
+interface NoteGroup {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
 type NoteType = 'text' | 'todo' | 'taskmanager';
 
 interface TodoItem {
@@ -81,6 +91,7 @@ interface EditorNote {
   shared_at?: string | null;
   is_pinned?: boolean;
   sort_order?: number | null;
+  group_name?: string | null;
 }
 
 interface TaskManagerMatch {
@@ -100,7 +111,6 @@ interface TaskManagerMatch {
   valid: boolean;
   reason?: string;
   warning?: boolean;
-
   tagOnlyTicket?: TicketRecord | null;
   clienteMismatch?: boolean;
 }
@@ -163,26 +173,43 @@ function normalizeStato(stato: string | null | undefined) {
   if (!stato) return null;
   return STATO_MAP[stato] || stato;
 }
+
 function getInLavorazioneOra(stato: string | null | undefined) {
   if (!stato) return false;
   return stato.trim().toUpperCase() === 'IN LAVORAZIONE OGGI';
 }
+
+function stripIgnoredSegments(value: string) {
+  return value.replace(/\/\/[\s\S]*?\/\//g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function sortTabs(items: EditorNote[]) {
+  return [...items].sort((a, b) => {
+    const pinnedA = a.is_pinned ? 1 : 0;
+    const pinnedB = b.is_pinned ? 1 : 0;
+
+    if (pinnedA !== pinnedB) return pinnedB - pinnedA;
+
+    const orderA = a.sort_order ?? 0;
+    const orderB = b.sort_order ?? 0;
+
+    if (orderA !== orderB) return orderA - orderB;
+
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  });
+}
+
 function SortableTabItem({
   note,
-  isActive,
   children,
 }: {
   note: EditorNote;
   isActive: boolean;
   children: React.ReactNode;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id: note.id });
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: note.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -191,6 +218,28 @@ function SortableTabItem({
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+function DroppableGroup({
+  id,
+  children,
+}: {
+  id: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`border-b border-white/5 transition-colors ${
+        isOver ? 'bg-white/5' : ''
+      }`}
+    >
       {children}
     </div>
   );
@@ -204,6 +253,7 @@ export default function SublimeLikeEditorPage() {
   const [fixingClienteKey, setFixingClienteKey] = useState<string | null>(null);
   const [allTickets, setAllTickets] = useState<TicketRecord[]>([]);
   const [notes, setNotes] = useState<EditorNote[]>([]);
+  const [noteGroups, setNoteGroups] = useState<NoteGroup[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -212,54 +262,81 @@ export default function SublimeLikeEditorPage() {
 
   const [taskMatches, setTaskMatches] = useState<TaskManagerMatch[]>([]);
   const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle');
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done' | 'error'>('idle');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done' | 'error'>(
+    'idle'
+  );
+
+  const [newGroupName, setNewGroupName] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
   const [shareLoadingId, setShareLoadingId] = useState<string | null>(null);
   const [showScanPanel, setShowScanPanel] = useState(false);
+  const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
+
   const matchStats = useMemo(() => {
-  let matched = 0;
-  let issues = 0;
-  let noMatch = 0;
+    let matched = 0;
+    let issues = 0;
+    let noMatch = 0;
 
-  taskMatches.forEach((m) => {
-    if (!m.matchedTicket) {
-      noMatch++;
-    } else if (!m.valid) {
-      issues++;
-    } else {
-      matched++;
-    }
-  });
+    taskMatches.forEach((m) => {
+      if (!m.matchedTicket) {
+        noMatch++;
+      } else if (!m.valid) {
+        issues++;
+      } else {
+        matched++;
+      }
+    });
 
-  return { matched, issues, noMatch };
-}, [taskMatches]);
+    return { matched, issues, noMatch };
+  }, [taskMatches]);
+
   const activeNote = useMemo(
     () => notes.find((n) => n.id === activeNoteId) || null,
     [notes, activeNoteId]
   );
-const isOwnerOfActiveNote = useMemo(() => {
-  return Boolean(activeNote && activeNote.user_id === userId);
-}, [activeNote, userId]);
 
-const canReadActiveNote = useMemo(() => {
-  if (!activeNote) return false;
-  if (activeNote.user_id === userId) return true;
-  return activeNote.share_mode === 'shared_view' || activeNote.share_mode === 'shared_edit';
-}, [activeNote, userId]);
+  const isOwnerOfActiveNote = useMemo(() => {
+    return Boolean(activeNote && activeNote.user_id === userId);
+  }, [activeNote, userId]);
 
-const canEditActiveNote = useMemo(() => {
-  if (!activeNote) return false;
-  if (activeNote.user_id === userId) return true;
-  return activeNote.share_mode === 'shared_edit';
-}, [activeNote, userId]);
+  const canReadActiveNote = useMemo(() => {
+    if (!activeNote) return false;
+    if (activeNote.user_id === userId) return true;
+    return activeNote.share_mode === 'shared_view' || activeNote.share_mode === 'shared_edit';
+  }, [activeNote, userId]);
+
+  const canEditActiveNote = useMemo(() => {
+    if (!activeNote) return false;
+    if (activeNote.user_id === userId) return true;
+    return activeNote.share_mode === 'shared_edit';
+  }, [activeNote, userId]);
+
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return notes;
-    return notes.filter((note) => note.file_name.toLowerCase().includes(q));
+    return notes.filter(
+      (note) =>
+        note.file_name.toLowerCase().includes(q) ||
+        (note.group_name || 'Generale').toLowerCase().includes(q)
+    );
   }, [notes, search]);
+
+  const groupedNotes = useMemo(() => {
+    return noteGroups.map((group) => {
+      const groupItems = sortTabs(
+        filteredNotes.filter(
+          (note) => (note.group_name || 'Generale').trim() === group.name.trim()
+        )
+      );
+
+      return [group.name, groupItems] as const;
+    });
+  }, [noteGroups, filteredNotes]);
 
   const lineNumbers = useMemo(() => {
     if (!activeNote || (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager')) {
@@ -269,47 +346,50 @@ const canEditActiveNote = useMemo(() => {
     return Array.from({ length: totalLines }, (_, i) => i + 1);
   }, [activeNote]);
 
-  const getCreateTicketTooltip = useCallback((match: TaskManagerMatch) => {
-    const hasCliente = Boolean(match.clientName?.trim());
-    const hasTitolo = Boolean(match.title?.trim());
+  const normalizeNote = (note: any): EditorNote => ({
+    id: note.id,
+    user_id: note.user_id,
+    file_name: note.file_name,
+    content: note.content || '',
+    updated_at: note.updated_at,
+    note_type:
+      note.note_type === 'todo'
+        ? 'todo'
+        : note.note_type === 'taskmanager'
+        ? 'taskmanager'
+        : 'text',
+    todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
+    share_mode:
+      note.share_mode === 'shared_view' || note.share_mode === 'shared_edit'
+        ? note.share_mode
+        : note.is_shared
+        ? 'shared_view'
+        : 'private',
+    shared_by_user_id: note.shared_by_user_id ?? null,
+    shared_at: note.shared_at ?? null,
+    is_pinned: Boolean(note.is_pinned),
+    sort_order: typeof note.sort_order === 'number' ? note.sort_order : null,
+    group_name: note.group_name ?? 'Generale',
+  });
 
-    if (hasCliente && hasTitolo) return 'Crea ticket';
-    if (!hasCliente && hasTitolo) return 'Inserisci cliente nella nota';
-    if (hasCliente && !hasTitolo) return 'Inserisci titolo nella nota';
-    return 'Inserisci cliente e titolo nella nota';
+  const canManageNote = useCallback((note: EditorNote) => note.user_id === userId, [userId]);
+
+  function getNextShareMode(current?: ShareMode): ShareMode {
+    if (!current || current === 'private') return 'shared_view';
+    if (current === 'shared_view') return 'shared_edit';
+    return 'private';
+  }
+
+  const getCreateTicketTooltip = useCallback((match: TaskManagerMatch) => {
+    if (match.matchedTicket) return 'Ticket già esistente';
+    return 'Crea ticket';
   }, []);
 
   const canCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
-  return Boolean(
-    match.clientName?.trim() &&
-      match.tag?.trim() &&
-      !match.matchedTicket &&
-      !match.clienteMismatch
-  );
-}, []);
+    return !match.matchedTicket;
+  }, []);
 
- const handleCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
-  if (!activeNote || !isOwnerOfActiveNote) return;
-  if (!canCreateTicketFromMatch(match)) return;
-
-  const params = new URLSearchParams();
-
-  if (match.clientName?.trim()) params.set('cliente', match.clientName.trim());
-  if (match.title?.trim()) params.set('titolo', match.title.trim());
-  if (match.tag?.trim()) params.set('n_tag', match.tag.trim());
-  if (match.stato?.trim()) params.set('stato', normalizeStato(match.stato) || match.stato.trim());
-  if (match.percentuale_avanzamento !== undefined && match.percentuale_avanzamento !== null) {
-    params.set('percentuale_avanzamento', String(match.percentuale_avanzamento));
-  }
-  if (match.rilascio_in_collaudo) params.set('rilascio_in_collaudo', match.rilascio_in_collaudo);
-  if (match.rilascio_in_produzione) params.set('rilascio_in_produzione', match.rilascio_in_produzione);
-  if (match.note?.trim()) params.set('note', match.note.trim());
-  if (userId) params.set('assignee', userId);
-
-  window.open(`/new_ticket?${params.toString()}`, '_blank', 'noopener,noreferrer');
-}, [activeNote, isOwnerOfActiveNote, canCreateTicketFromMatch, userId]);
-const saveNotesOrder = useCallback(
-  async (orderedNotes: EditorNote[]) => {
+  const saveNotesOrder = useCallback(async (orderedNotes: EditorNote[]) => {
     try {
       const updates = orderedNotes.map((note, index) => ({
         id: note.id,
@@ -329,30 +409,160 @@ const saveNotesOrder = useCallback(
     } catch (err) {
       console.error('Errore saveNotesOrder:', err);
     }
-  },
-  []
-);
-const handleDragEnd = useCallback(
-  async (event: any) => {
-    const { active, over } = event;
+  }, []);
 
-    if (!over || active.id === over.id) return;
+  const loadGroups = useCallback(async (uid: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('editor_note_groups')
+        .select('id, name, sort_order')
+        .eq('user_id', uid)
+        .order('sort_order', { ascending: true });
 
-    const oldIndex = notes.findIndex((n) => n.id === active.id);
-    const newIndex = notes.findIndex((n) => n.id === over.id);
+      if (error) {
+        console.error('Errore caricamento gruppi:', error);
+        setNoteGroups([]);
+        return;
+      }
 
-    if (oldIndex === -1 || newIndex === -1) return;
+      const loadedGroups: NoteGroup[] = (data || []).map((g: any) => ({
+        id: g.id,
+        name: String(g.name || '').trim(),
+        sort_order: typeof g.sort_order === 'number' ? g.sort_order : 0,
+      }));
 
-    const reordered = arrayMove(notes, oldIndex, newIndex).map((note, index) => ({
-      ...note,
-      sort_order: index,
-    }));
+      const hasGenerale = loadedGroups.some(
+        (g) => g.name.trim().toLowerCase() === 'generale'
+      );
 
-    setNotes(sortTabs(reordered));
-    await saveNotesOrder(reordered);
-  },
-  [notes, saveNotesOrder]
-);
+      if (!hasGenerale) {
+        const { data: created, error: createError } = await supabase
+          .from('editor_note_groups')
+          .insert({
+            user_id: uid,
+            name: 'Generale',
+            sort_order: loadedGroups.length,
+          })
+          .select('id, name, sort_order')
+          .single();
+
+        if (!createError && created) {
+          loadedGroups.push({
+            id: created.id,
+            name: created.name,
+            sort_order: created.sort_order ?? loadedGroups.length,
+          });
+        }
+      }
+
+      loadedGroups.sort((a, b) => a.sort_order - b.sort_order);
+      setNoteGroups(loadedGroups);
+    } catch (err) {
+      console.error('Errore loadGroups:', err);
+      setNoteGroups([]);
+    }
+  }, []);
+
+  const createNote = useCallback(
+    async (
+      uid: string,
+      fileName?: string,
+      type: NoteType = 'text',
+      groupName: string = 'Generale'
+    ): Promise<EditorNote | null> => {
+      const rawName =
+        fileName?.trim() ||
+        `${type === 'todo' ? 'todo' : type === 'taskmanager' ? 'taskmanager' : 'note'}-${Date.now()}`;
+
+      const finalName = rawName.trim() || 'untitled';
+
+      try {
+        setSaveStatus('saving');
+
+        const { data, error } = await supabase
+          .from('editor_notes')
+          .insert({
+            user_id: uid,
+            file_name: finalName,
+            content: '',
+            note_type: type,
+            todo_items: [],
+            updated_at: new Date().toISOString(),
+            share_mode: 'private',
+            shared_by_user_id: null,
+            shared_at: null,
+            is_pinned: false,
+            sort_order: Date.now(),
+            group_name: groupName,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Errore creazione nota:', error);
+          setSaveStatus('error');
+          return null;
+        }
+
+        setSaveStatus('saved');
+        return normalizeNote(data);
+      } catch (err) {
+        console.error('Errore createNote:', err);
+        setSaveStatus('error');
+        return null;
+      }
+    },
+    []
+  );
+
+  const loadNotes = useCallback(
+    async (uid: string) => {
+      try {
+        const { data, error } = await supabase
+          .from('editor_notes')
+          .select('*')
+          .in('share_mode', ['private', 'shared_view', 'shared_edit']);
+
+        if (error) {
+          console.error('Errore caricamento note:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+          });
+          setNotes([]);
+          return;
+        }
+
+        const visibleNotes = sortTabs(
+          (data || []).filter(
+            (note) =>
+              note.user_id === uid ||
+              note.share_mode === 'shared_view' ||
+              note.share_mode === 'shared_edit'
+          )
+        );
+
+        const loadedNotes = visibleNotes.map(normalizeNote);
+        setNotes(loadedNotes);
+
+        if (loadedNotes.length > 0) {
+          setActiveNoteId(loadedNotes[0].id);
+        } else {
+          const created = await createNote(uid, 'untitled.txt', 'text', 'Generale');
+          if (created) {
+            setNotes([created]);
+            setActiveNoteId(created.id);
+          }
+        }
+      } catch (err) {
+        console.error('Errore loadNotes:', err);
+        setNotes([]);
+      }
+    },
+    [createNote]
+  );
+
   const fetchTickets = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -426,221 +636,118 @@ const handleDragEnd = useCallback(
     }
   }, []);
 
-  const normalizeNote = (note: any): EditorNote => ({
-    id: note.id,
-    user_id: note.user_id,
-    file_name: note.file_name,
-    content: note.content || '',
-    updated_at: note.updated_at,
-    note_type:
-      note.note_type === 'todo'
-        ? 'todo'
-        : note.note_type === 'taskmanager'
-        ? 'taskmanager'
-        : 'text',
-    todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
-    share_mode:
-      note.share_mode === 'shared_view' || note.share_mode === 'shared_edit'
-        ? note.share_mode
-        : note.is_shared
-        ? 'shared_view'
-        : 'private',
-    shared_by_user_id: note.shared_by_user_id ?? null,
-    shared_at: note.shared_at ?? null,
-    is_pinned: Boolean(note.is_pinned),
-    sort_order: typeof note.sort_order === 'number' ? note.sort_order : null,
-  });
-
-  const createNote = useCallback(
-    async (uid: string, fileName?: string, type: NoteType = 'text'): Promise<EditorNote | null> => {
-      const rawName =
-        fileName?.trim() ||
-        `${
-          type === 'todo'
-            ? 'todo'
-            : type === 'taskmanager'
-            ? 'taskmanager'
-            : 'note'
-        }-${Date.now()}`;
-
-      const finalName = rawName.trim() || 'untitled';
-
+  const persistNote = useCallback(
+    async (noteId: string, patch: Partial<EditorNote>) => {
       try {
         setSaveStatus('saving');
 
+        const now = new Date().toISOString();
+        const payload: any = { updated_at: now };
+
+        if (patch.content !== undefined) payload.content = patch.content;
+        if (patch.file_name !== undefined) payload.file_name = patch.file_name;
+        if (patch.note_type !== undefined) payload.note_type = patch.note_type;
+        if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
+        if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
+        if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
+        if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
+        if ((patch as any).is_pinned !== undefined) payload.is_pinned = (patch as any).is_pinned;
+        if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
+        if ((patch as any).group_name !== undefined) payload.group_name = (patch as any).group_name;
+
+        const noteToUpdate = notes.find((n) => n.id === noteId);
+
+        if (!noteToUpdate) {
+          setSaveStatus('error');
+          return false;
+        }
+
+        const isOwner = noteToUpdate.user_id === userId;
+        const isSharedEdit = noteToUpdate.share_mode === 'shared_edit';
+
+        if (!isOwner) {
+          if (!isSharedEdit) {
+            setSaveStatus('error');
+            return false;
+          }
+
+          const allowedNonOwnerKeys = ['content', 'todo_items', 'updated_at'];
+          const invalidKey = Object.keys(payload).find((key) => !allowedNonOwnerKeys.includes(key));
+
+          if (invalidKey) {
+            setSaveStatus('error');
+            return false;
+          }
+        }
+
         const { data, error } = await supabase
           .from('editor_notes')
-          .insert({
-            user_id: uid,
-            file_name: finalName,
-            content: '',
-            note_type: type,
-            todo_items: [],
-            updated_at: new Date().toISOString(),
-            share_mode: 'private',
-            shared_by_user_id: null,
-            shared_at: null,
-            is_pinned: false,
-            sort_order: Date.now(),
-          })
+          .update(payload)
+          .eq('id', noteId)
           .select()
           .single();
 
         if (error) {
-          console.error('Errore creazione nota:', error);
+          console.error('Errore salvataggio nota:', error);
           setSaveStatus('error');
-          return null;
+          return false;
         }
+
+        const updatedNote = data ? normalizeNote(data) : null;
+
+        setNotes((prev) =>
+          sortTabs(
+            prev.map((note) =>
+              note.id === noteId
+                ? {
+                    ...note,
+                    ...(updatedNote || patch),
+                    updated_at: now,
+                  }
+                : note
+            )
+          )
+        );
 
         setSaveStatus('saved');
-        return normalizeNote(data);
+        return true;
       } catch (err) {
-        console.error('Errore createNote:', err);
+        console.error('Errore persistNote:', err);
         setSaveStatus('error');
-        return null;
+        return false;
       }
     },
-    []
+    [userId, notes]
   );
-  function sortTabs(items: EditorNote[]) {
-    return [...items].sort((a, b) => {
-      const pinnedA = a.is_pinned ? 1 : 0;
-      const pinnedB = b.is_pinned ? 1 : 0;
 
-      if (pinnedA !== pinnedB) return pinnedB - pinnedA;
-
-      const orderA = a.sort_order ?? 0;
-      const orderB = b.sort_order ?? 0;
-
-      if (orderA !== orderB) return orderA - orderB;
-
-      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-    });
-  }
-  const canManageNote = useCallback((note: EditorNote) => note.user_id === userId, [userId]);
-  function getNextShareMode(current?: ShareMode): ShareMode {
-    if (!current || current === 'private') return 'shared_view';
-    if (current === 'shared_view') return 'shared_edit';
-    return 'private';
-  }
   const toggleShareNote = useCallback(
-  async (note: EditorNote) => {
-    if (!canManageNote(note)) return;
+    async (note: EditorNote) => {
+      if (!canManageNote(note)) return;
 
-    try {
-      setShareLoadingId(note.id);
+      try {
+        setShareLoadingId(note.id);
 
-      const nextShareMode = getNextShareMode(note.share_mode);
+        const nextShareMode = getNextShareMode(note.share_mode);
 
-      const payload = {
-        share_mode: nextShareMode,
-        shared_by_user_id: nextShareMode !== 'private' ? userId : null,
-        shared_at: nextShareMode !== 'private' ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      };
+        const payload = {
+          share_mode: nextShareMode,
+          shared_by_user_id: nextShareMode !== 'private' ? userId : null,
+          shared_at: nextShareMode !== 'private' ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        };
 
-      const { error } = await supabase
-        .from('editor_notes')
-        .update(payload)
-        .eq('id', note.id)
-        .eq('user_id', userId);
+        const { error } = await supabase
+          .from('editor_notes')
+          .update(payload)
+          .eq('id', note.id)
+          .eq('user_id', userId);
 
-      if (error) {
-        console.error('Errore toggle share note:', error);
-        return;
-      }
-
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === note.id
-            ? {
-                ...n,
-                ...payload,
-              }
-            : n
-        )
-      );
-    } catch (err) {
-      console.error('Errore toggleShareNote:', err);
-    } finally {
-      setShareLoadingId(null);
-    }
-  },
-  [canManageNote, userId]
-);
-
-  const loadNotes = useCallback(
-  async (uid: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('editor_notes')
-        .select('*')
-        .in('share_mode', ['private', 'shared_view', 'shared_edit']);
-
-      if (error) {
-        console.error('Errore caricamento note:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        setNotes([]);
-        return;
-      }
-
-      const visibleNotes = sortTabs(
-        (data || []).filter(
-          (note) =>
-            note.user_id === uid ||
-            note.share_mode === 'shared_view' ||
-            note.share_mode === 'shared_edit'
-        )
-      );
-
-      const loadedNotes = visibleNotes.map(normalizeNote);
-      setNotes(loadedNotes);
-
-      if (loadedNotes.length > 0) {
-        setActiveNoteId(loadedNotes[0].id);
-      } else {
-        const created = await createNote(uid, 'untitled.txt', 'text');
-        if (created) {
-          setNotes([created]);
-          setActiveNoteId(created.id);
+        if (error) {
+          console.error('Errore toggle share note:', error);
+          return;
         }
-      }
-    } catch (err) {
-      console.error('Errore loadNotes:', err);
-      setNotes([]);
-    }
-  },
-  [createNote]
-);
-const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
-const togglePinNote = useCallback(
-  async (note: EditorNote) => {
-    if (!canManageNote(note)) return;
 
-    try {
-      const nextPinned = !note.is_pinned;
-      const payload = {
-        is_pinned: nextPinned,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from('editor_notes')
-        .update(payload)
-        .eq('id', note.id)
-        .eq('user_id', userId);
-
-      if (error) {
-        console.error('Errore toggle pin note:', error);
-        return;
-      }
-
-      setNotes((prev) =>
-        sortTabs(
+        setNotes((prev) =>
           prev.map((n) =>
             n.id === note.id
               ? {
@@ -649,101 +756,57 @@ const togglePinNote = useCallback(
                 }
               : n
           )
-        )
-      );
-    } catch (err) {
-      console.error('Errore togglePinNote:', err);
-    }
-  },
-  [canManageNote, userId]
-);
-  const persistNote = useCallback(
-      async (noteId: string, patch: Partial<EditorNote>) => {
-        try {
-          setSaveStatus('saving');
+        );
+      } catch (err) {
+        console.error('Errore toggleShareNote:', err);
+      } finally {
+        setShareLoadingId(null);
+      }
+    },
+    [canManageNote, userId]
+  );
 
-          const now = new Date().toISOString();
-          const payload: any = { updated_at: now };
+  const togglePinNote = useCallback(
+    async (note: EditorNote) => {
+      if (!canManageNote(note)) return;
 
-          if (patch.content !== undefined) payload.content = patch.content;
-          if (patch.file_name !== undefined) payload.file_name = patch.file_name;
-          if (patch.note_type !== undefined) payload.note_type = patch.note_type;
-          if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
-          if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
-          if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
-          if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
-          if ((patch as any).is_pinned !== undefined) payload.is_pinned = (patch as any).is_pinned;
-          if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
+      try {
+        const nextPinned = !note.is_pinned;
+        const payload = {
+          is_pinned: nextPinned,
+          updated_at: new Date().toISOString(),
+        };
 
-          const noteToUpdate = notes.find((n) => n.id === noteId);
+        const { error } = await supabase
+          .from('editor_notes')
+          .update(payload)
+          .eq('id', note.id)
+          .eq('user_id', userId);
 
-          if (!noteToUpdate) {
-            setSaveStatus('error');
-            return false;
-          }
-
-          const isOwner = noteToUpdate.user_id === userId;
-          const isSharedEdit = noteToUpdate.share_mode === 'shared_edit';
-
-          // owner: può aggiornare tutto
-          // shared_edit non-owner: può aggiornare solo contenuto/todo_items
-          if (!isOwner) {
-            if (!isSharedEdit) {
-              setSaveStatus('error');
-              return false;
-            }
-
-            const allowedNonOwnerKeys = ['content', 'todo_items', 'updated_at'];
-            const invalidKey = Object.keys(payload).find(
-              (key) => !allowedNonOwnerKeys.includes(key)
-            );
-
-            if (invalidKey) {
-              setSaveStatus('error');
-              return false;
-            }
-          }
-
-          const { data, error } = await supabase
-            .from('editor_notes')
-            .update(payload)
-            .eq('id', noteId)
-            .select()
-            .single();
-
-          if (error) {
-            console.error('Errore salvataggio nota:', error);
-            setSaveStatus('error');
-            return false;
-          }
-
-          const updatedNote = data ? normalizeNote(data) : null;
-
-          setNotes((prev) =>
-            sortTabs(
-              prev.map((note) =>
-                note.id === noteId
-                  ? {
-                      ...note,
-                      ...(updatedNote || patch),
-                      updated_at: now,
-                    }
-                  : note
-              )
-            )
-          );
-
-          setSaveStatus('saved');
-          return true;
-        } catch (err) {
-          console.error('Errore persistNote:', err);
-          setSaveStatus('error');
-          return false;
+        if (error) {
+          console.error('Errore toggle pin note:', error);
+          return;
         }
-      },
-      [userId, notes]
-    );
-    
+
+        setNotes((prev) =>
+          sortTabs(
+            prev.map((n) =>
+              n.id === note.id
+                ? {
+                    ...n,
+                    ...payload,
+                  }
+                : n
+            )
+          )
+        );
+      } catch (err) {
+        console.error('Errore togglePinNote:', err);
+      }
+    },
+    [canManageNote, userId]
+  );
+
   const deleteNote = useCallback(
     async (noteId: string) => {
       try {
@@ -764,7 +827,7 @@ const togglePinNote = useCallback(
         const remaining = notes.filter((n) => n.id !== noteId);
 
         if (remaining.length === 0) {
-          const created = await createNote(userId, 'untitled', 'text');
+          const created = await createNote(userId, 'untitled', 'text', 'Generale');
           if (created) {
             setNotes([created]);
             setActiveNoteId(created.id);
@@ -787,6 +850,177 @@ const togglePinNote = useCallback(
     },
     [activeNoteId, createNote, notes, userId]
   );
+
+  const handleCreateGroup = useCallback(async () => {
+    const finalName = newGroupName.trim();
+    if (!finalName || !userId) return;
+
+    const alreadyExists = noteGroups.some(
+      (group) => group.name.trim().toLowerCase() === finalName.toLowerCase()
+    );
+
+    if (alreadyExists) {
+      setNewGroupName('');
+      return;
+    }
+
+    try {
+      const newGroupPayload = {
+        user_id: userId,
+        name: finalName,
+        sort_order: noteGroups.length,
+      };
+
+      const { data, error } = await supabase
+        .from('editor_note_groups')
+        .insert(newGroupPayload)
+        .select('id, name, sort_order')
+        .single();
+
+      if (error) {
+        console.error('Errore creazione gruppo:', error);
+        return;
+      }
+
+      const createdGroup: NoteGroup = {
+        id: data.id,
+        name: String(data.name || '').trim(),
+        sort_order: typeof data.sort_order === 'number' ? data.sort_order : noteGroups.length,
+      };
+
+      setNoteGroups((prev) =>
+        [...prev, createdGroup].sort((a, b) => a.sort_order - b.sort_order)
+      );
+      setCollapsedGroups((prev) => ({
+        ...prev,
+        [createdGroup.name]: false,
+      }));
+      setNewGroupName('');
+    } catch (err) {
+      console.error('Errore handleCreateGroup:', err);
+    }
+  }, [newGroupName, userId, noteGroups]);
+
+  const toggleGroupCollapse = useCallback((groupName: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupName]: !prev[groupName],
+    }));
+  }, []);
+
+  const moveNoteToGroup = useCallback(
+    async (noteId: string, targetGroup: string) => {
+      if (!noteId || !targetGroup) return;
+
+      setNotes((prev) =>
+        prev.map((note) =>
+          note.id === noteId
+            ? {
+                ...note,
+                group_name: targetGroup,
+                updated_at: new Date().toISOString(),
+              }
+            : note
+        )
+      );
+
+      await persistNote(noteId, { group_name: targetGroup });
+    },
+    [persistNote]
+  );
+
+  const handleCreateTicketFromMatch = useCallback(
+    (match: TaskManagerMatch) => {
+      if (!activeNote || !isOwnerOfActiveNote) return;
+      if (match.matchedTicket) return;
+
+      const params = new URLSearchParams();
+
+      if (match.clientName?.trim()) params.set('cliente', match.clientName.trim());
+      if (match.title?.trim()) params.set('titolo', match.title.trim());
+      if (match.tag?.trim()) params.set('n_tag', match.tag.trim());
+      if (match.stato?.trim()) {
+        params.set('stato', normalizeStato(match.stato) || match.stato.trim());
+      }
+      if (match.percentuale_avanzamento !== undefined && match.percentuale_avanzamento !== null) {
+        params.set('percentuale_avanzamento', String(match.percentuale_avanzamento));
+      }
+      if (match.rilascio_in_collaudo) {
+        params.set('rilascio_in_collaudo', match.rilascio_in_collaudo);
+      }
+      if (match.rilascio_in_produzione) {
+        params.set('rilascio_in_produzione', match.rilascio_in_produzione);
+      }
+      if (match.note?.trim()) params.set('note', match.note.trim());
+      if (userId) params.set('assignee', userId);
+
+      window.open(`/new_ticket?${params.toString()}`, '_blank', 'noopener,noreferrer');
+    },
+    [activeNote, isOwnerOfActiveNote, userId]
+  );
+
+  const handleDragEnd = useCallback(
+  async (event: any) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) return;
+
+    const activeNote = notes.find((n) => n.id === active.id);
+    if (!activeNote) return;
+
+    const overId = String(over.id);
+
+    // caso 1: drop su un gruppo
+    if (overId.startsWith('group:')) {
+      const targetGroup = overId.replace('group:', '').trim();
+
+      if (!targetGroup) return;
+      if ((activeNote.group_name || 'Generale').trim() === targetGroup) return;
+
+      setNotes((prev) =>
+        sortTabs(
+          prev.map((note) =>
+            note.id === active.id
+              ? {
+                  ...note,
+                  group_name: targetGroup,
+                  updated_at: new Date().toISOString(),
+                }
+              : note
+          )
+        )
+      );
+
+      await persistNote(String(active.id), { group_name: targetGroup });
+      return;
+    }
+
+    // caso 2: riordino dentro lo stesso gruppo
+    const oldIndex = notes.findIndex((n) => n.id === active.id);
+    const newIndex = notes.findIndex((n) => n.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const overNote = notes[newIndex];
+    if (!overNote) return;
+
+    if (
+      (activeNote.group_name || 'Generale').trim() !==
+      (overNote.group_name || 'Generale').trim()
+    ) {
+      return;
+    }
+
+    const reordered = arrayMove(notes, oldIndex, newIndex).map((note, index) => ({
+      ...note,
+      sort_order: index,
+    }));
+
+    setNotes(sortTabs(reordered));
+    await saveNotesOrder(reordered);
+  },
+  [notes, persistNote, saveNotesOrder]
+);
 
   const isValidDate = (dateStr: string) => {
     const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
@@ -832,23 +1066,28 @@ const togglePinNote = useCallback(
 
       const multiLineNote: string[] = [];
 
-      const firstLineClean = firstLine
-        .replace(/^\s*-\s+/, '')
-        .replace(/@"([^"]+)"/g, '')
-        .replace(/@([^\s]+)/g, '')
-        .replace(/#([\w\d-]+)/g, '')
-        .replace(/"(.*?)"/g, '')
-        .replace(/\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|ATTENZIONE BUSINESS)\)/gi, '')
-        .replace(/\(coll:.*?\)/gi, '')
-        .replace(/\(prod:.*?\)/gi, '')
-        .replace(/\[perc:.*?\]/gi, '')
-        .trim();
+      const firstLineClean = stripIgnoredSegments(
+        firstLine
+          .replace(/^\s*-\s+/, '')
+          .replace(/@"([^"]+)"/g, '')
+          .replace(/@([^\s]+)/g, '')
+          .replace(/#([\w\d-]+)/g, '')
+          .replace(/"(.*?)"/g, '')
+          .replace(
+            /\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|IN LAVORAZIONE OGGI|ATTENZIONE BUSINESS)\)/gi,
+            ''
+          )
+          .replace(/\(coll:.*?\)/gi, '')
+          .replace(/\(prod:.*?\)/gi, '')
+          .replace(/\[perc:.*?\]/gi, '')
+          .trim()
+      );
 
       if (firstLineClean) multiLineNote.push(firstLineClean);
 
       for (let i = startIndex + 1; i < allLines.length; i++) {
         if (isTicketStartLine(allLines[i])) break;
-        const content = allLines[i].trim();
+        const content = stripIgnoredSegments(allLines[i].trim());
         if (content) multiLineNote.push(content);
       }
 
@@ -889,32 +1128,27 @@ const togglePinNote = useCallback(
       try {
         let matchedTicket: TicketRecord | null = null;
 
-        // 1) match prioritario: cliente + tag
-          if (tag) {
-            matchedTicket =
-              allTickets.find(
-                (t) =>
-                  normalizeString(t.cliente) === normalizeString(clientName) &&
-                  normalizeString(t.n_tag) === normalizeString(tag)
-              ) || null;
-          }
+        if (tag) {
+          matchedTicket =
+            allTickets.find(
+              (t) =>
+                normalizeString(t.cliente) === normalizeString(clientName) &&
+                normalizeString(t.n_tag) === normalizeString(tag)
+            ) || null;
+        }
 
-          // 2) fallback: cliente + titolo, solo se tag assente
-          if (!matchedTicket && !tag && title) {
-            matchedTicket =
-              allTickets.find(
-                (t) =>
-                  normalizeString(t.cliente) === normalizeString(clientName) &&
-                  normalizeString(t.titolo) === normalizeString(title)
-              ) || null;
-          }
+        if (!matchedTicket && !tag && title) {
+          matchedTicket =
+            allTickets.find(
+              (t) =>
+                normalizeString(t.cliente) === normalizeString(clientName) &&
+                normalizeString(t.titolo) === normalizeString(title)
+            ) || null;
+        }
 
-          if (!matchedTicket) return;
+        if (!matchedTicket) return;
 
-        const { error } = await supabase
-          .from('ticket')
-          .update(updates)
-          .eq('id', matchedTicket.id);
+        const { error } = await supabase.from('ticket').update(updates).eq('id', matchedTicket.id);
 
         if (error) {
           console.error('Errore sync ticket:', error);
@@ -922,7 +1156,7 @@ const togglePinNote = useCallback(
         }
 
         setAllTickets((prev) =>
-          prev.map((t) => (t.id === matchedTicket.id ? { ...t, ...updates } : t))
+          prev.map((t) => (t.id === matchedTicket!.id ? { ...t, ...updates } : t))
         );
       } catch (err) {
         console.error('Errore sync ticket:', err);
@@ -964,17 +1198,22 @@ const togglePinNote = useCallback(
 
         const noteLines: string[] = [];
 
-        const firstLineClean = firstLine
-          .replace(/^\s*-\s+/, '')
-          .replace(/@"([^"]+)"/g, '')
-          .replace(/@([^\s]+)/g, '')
-          .replace(/#([\w\d-]+)/g, '')
-          .replace(/"(.*?)"/g, '')
-          .replace(/\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|ATTENZIONE BUSINESS)\)/gi, '')
-          .replace(/\(coll:.*?\)/gi, '')
-          .replace(/\(prod:.*?\)/gi, '')
-          .replace(/\[perc:.*?\]/gi, '')
-          .trim();
+        const firstLineClean = stripIgnoredSegments(
+          firstLine
+            .replace(/^\s*-\s+/, '')
+            .replace(/@"([^"]+)"/g, '')
+            .replace(/@([^\s]+)/g, '')
+            .replace(/#([\w\d-]+)/g, '')
+            .replace(/"(.*?)"/g, '')
+            .replace(
+              /\((NON INIZIATO|COMPLETATO|IN STAND-BY|IN LAVORAZIONE|IN LAVORAZIONE OGGI|ATTENZIONE BUSINESS)\)/gi,
+              ''
+            )
+            .replace(/\(coll:.*?\)/gi, '')
+            .replace(/\(prod:.*?\)/gi, '')
+            .replace(/\[perc:.*?\]/gi, '')
+            .trim()
+        );
 
         if (firstLineClean) {
           noteLines.push(firstLineClean);
@@ -982,7 +1221,7 @@ const togglePinNote = useCallback(
 
         for (let i = startIndex + 1; i < lines.length; i++) {
           if (isTicketStartLine(lines[i])) break;
-          const contentLine = lines[i].trim();
+          const contentLine = stripIgnoredSegments(lines[i].trim());
           if (contentLine) noteLines.push(contentLine);
         }
 
@@ -1011,81 +1250,80 @@ const togglePinNote = useCallback(
           prodMatch && isValidDate(prodMatch[1]) ? parseDateToISO(prodMatch[1]) : undefined;
 
         let queryField: 'n_tag' | 'title' | null = null;
-let queryValue: string | null = null;
-let matchedTicket: TicketRecord | null = null;
-let tagOnlyTicket: TicketRecord | null = null;
-let clienteMismatch = false;
-let valid = true;
-let reason = '';
+        let queryValue: string | null = null;
+        let matchedTicket: TicketRecord | null = null;
+        let tagOnlyTicket: TicketRecord | null = null;
+        let clienteMismatch = false;
+        let valid = true;
+        let reason = '';
 
-if (!clientName) {
-  valid = false;
-  reason = 'Cliente mancante';
-} else if (tag) {
-  queryField = 'n_tag';
-  queryValue = tag;
+        if (!clientName) {
+          valid = false;
+          reason = 'Cliente mancante';
+        } else if (tag) {
+          queryField = 'n_tag';
+          queryValue = tag;
 
-  matchedTicket =
-    allTickets.find(
-      (t) =>
-        normalizeString(t.cliente) === normalizeString(clientName) &&
-        normalizeString(t.n_tag) === normalizeString(tag)
-    ) || null;
+          matchedTicket =
+            allTickets.find(
+              (t) =>
+                normalizeString(t.cliente) === normalizeString(clientName) &&
+                normalizeString(t.n_tag) === normalizeString(tag)
+            ) || null;
 
-  if (!matchedTicket) {
-    tagOnlyTicket =
-      allTickets.find(
-        (t) => normalizeString(t.n_tag) === normalizeString(tag)
-      ) || null;
+          if (!matchedTicket) {
+            tagOnlyTicket =
+              allTickets.find((t) => normalizeString(t.n_tag) === normalizeString(tag)) || null;
 
-    if (tagOnlyTicket) {
-      matchedTicket = tagOnlyTicket;
-      clienteMismatch = true;
-      valid = false;
-      reason = 'Cliente diverso rispetto al ticket con questo TAG';
-    } else {
-      valid = false;
-      reason = 'Nessun ticket trovato per cliente + TAG';
-    }
-  }
-} else if (title) {
-  queryField = 'title';
-  queryValue = title;
+            if (tagOnlyTicket) {
+              matchedTicket = tagOnlyTicket;
+              clienteMismatch = true;
+              valid = false;
+              reason = 'Cliente diverso rispetto al ticket con questo TAG';
+            } else {
+              valid = false;
+              reason = 'Nessun ticket trovato per cliente + TAG';
+            }
+          }
+        } else if (title) {
+          queryField = 'title';
+          queryValue = title;
 
-  matchedTicket =
-    allTickets.find(
-      (t) =>
-        normalizeString(t.cliente) === normalizeString(clientName) &&
-        normalizeString(t.titolo) === normalizeString(title)
-    ) || null;
+          matchedTicket =
+            allTickets.find(
+              (t) =>
+                normalizeString(t.cliente) === normalizeString(clientName) &&
+                normalizeString(t.titolo) === normalizeString(title)
+            ) || null;
 
-  if (!matchedTicket) {
-    valid = false;
-    reason = 'Nessun ticket trovato per cliente + titolo';
-  }
-} else {
-  valid = false;
-  reason = 'TAG e titolo mancanti';
-}
+          if (!matchedTicket) {
+            valid = false;
+            reason = 'Nessun ticket trovato per cliente + titolo';
+          }
+        } else {
+          valid = false;
+          reason = 'TAG e titolo mancanti';
+        }
+
         results.push({
-  lineIndex: startIndex,
-  rawLine: firstLine,
-  clientName,
-  tag,
-  title,
-  note,
-  stato,
-  percentuale_avanzamento,
-  rilascio_in_collaudo,
-  rilascio_in_produzione,
-  matchedTicket,
-  queryField,
-  queryValue,
-  valid,
-  reason: valid ? undefined : reason,
-  tagOnlyTicket,
-  clienteMismatch,
-});
+          lineIndex: startIndex,
+          rawLine: firstLine,
+          clientName,
+          tag,
+          title,
+          note,
+          stato,
+          percentuale_avanzamento,
+          rilascio_in_collaudo,
+          rilascio_in_produzione,
+          matchedTicket,
+          queryField,
+          queryValue,
+          valid,
+          reason: valid ? undefined : reason,
+          tagOnlyTicket,
+          clienteMismatch,
+        });
       }
 
       return results;
@@ -1112,6 +1350,7 @@ if (!clientName) {
     if (!activeNote || activeNote.note_type !== 'taskmanager') return;
     if (!taskMatches.length) return;
     if (!isOwnerOfActiveNote) return;
+
     try {
       setUpdateStatus('updating');
 
@@ -1162,7 +1401,7 @@ if (!clientName) {
       console.error('Errore update matched tickets:', err);
       setUpdateStatus('error');
     }
-  }, [activeNote, taskMatches]);
+  }, [activeNote, taskMatches, isOwnerOfActiveNote]);
 
   const handleEditorChange = useCallback(
     (value: string) => {
@@ -1217,16 +1456,18 @@ if (!clientName) {
     async (type: NoteType) => {
       if (!userId) return;
 
+      const targetGroup =
+        newGroupName.trim() && noteGroups.some((g) => g.name === newGroupName.trim())
+          ? newGroupName.trim()
+          : 'Generale';
+
       const created = await createNote(
         userId,
-        `${
-          type === 'todo'
-            ? 'todo'
-            : type === 'taskmanager'
-            ? 'taskmanager'
-            : 'note'
-        }-${notes.length + 1}`,
-        type
+        `${type === 'todo' ? 'todo' : type === 'taskmanager' ? 'taskmanager' : 'note'}-${
+          notes.length + 1
+        }`,
+        type,
+        targetGroup
       );
 
       if (!created) return;
@@ -1236,13 +1477,13 @@ if (!clientName) {
       setTaskMatches([]);
       setShowPreview(false);
     },
-    [createNote, notes.length, userId]
+    [createNote, notes.length, userId, newGroupName, noteGroups]
   );
 
   const handleDeleteNote = useCallback(async () => {
     if (!activeNote || !isOwnerOfActiveNote) return;
     await deleteNote(activeNote.id);
-  }, [activeNote, deleteNote]);
+  }, [activeNote, deleteNote, isOwnerOfActiveNote]);
 
   const handleManualSave = useCallback(async () => {
     if (!activeNote || !canEditActiveNote) return;
@@ -1251,8 +1492,9 @@ if (!clientName) {
       note_type: activeNote.note_type,
       todo_items: activeNote.todo_items,
       file_name: activeNote.file_name,
+      group_name: activeNote.group_name,
     });
-  }, [activeNote, persistNote,canEditActiveNote]);
+  }, [activeNote, persistNote, canEditActiveNote]);
 
   const updateActiveTodoItems = useCallback(
     async (updater: (items: TodoItem[]) => TodoItem[]) => {
@@ -1297,9 +1539,7 @@ if (!clientName) {
   const toggleTodoItem = useCallback(
     (itemId: string) => {
       updateActiveTodoItems((items) =>
-        items.map((item) =>
-          item.id === itemId ? { ...item, done: !item.done } : item
-        )
+        items.map((item) => (item.id === itemId ? { ...item, done: !item.done } : item))
       );
     },
     [updateActiveTodoItems]
@@ -1351,6 +1591,59 @@ if (!clientName) {
     [activeNote, persistNote, isOwnerOfActiveNote]
   );
 
+  const isClienteMismatch = useCallback((match: TaskManagerMatch) => {
+    return Boolean(match.clienteMismatch && match.matchedTicket);
+  }, []);
+
+  const handleFixCliente = useCallback(
+    async (match: TaskManagerMatch) => {
+      if (!activeNote || activeNote.note_type !== 'taskmanager') return;
+      if (!isOwnerOfActiveNote) return;
+      if (!match.matchedTicket?.cliente) return;
+
+      const key = `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`;
+
+      try {
+        setFixingClienteKey(key);
+
+        const correctClient = match.matchedTicket.cliente.trim();
+        const lines = (activeNote.content || '').split('\n');
+
+        if (match.lineIndex < 0 || match.lineIndex >= lines.length) return;
+
+        const originalLine = lines[match.lineIndex];
+
+        const clientToken = correctClient.includes(' ') ? `@"${correctClient}"` : `@${correctClient}`;
+
+        const updatedLine = originalLine.replace(/@"([^"]+)"|@([^\s]+)/, clientToken);
+
+        lines[match.lineIndex] = updatedLine;
+
+        const updatedContent = lines.join('\n');
+
+        setNotes((prev) =>
+          prev.map((note) =>
+            note.id === activeNote.id
+              ? {
+                  ...note,
+                  content: updatedContent,
+                  updated_at: new Date().toISOString(),
+                }
+              : note
+          )
+        );
+
+        await persistNote(activeNote.id, { content: updatedContent });
+
+        const rescanned = extractTaskManagerEntries(updatedContent);
+        setTaskMatches(rescanned);
+      } finally {
+        setFixingClienteKey(null);
+      }
+    },
+    [activeNote, persistNote, extractTaskManagerEntries, isOwnerOfActiveNote]
+  );
+
   useEffect(() => {
     let mounted = true;
 
@@ -1399,6 +1692,7 @@ if (!clientName) {
       } else {
         setUserId('');
         setNotes([]);
+        setNoteGroups([]);
         setActiveNoteId('');
         setAuthError('Utente non autenticato');
         setAuthReady(true);
@@ -1410,6 +1704,7 @@ if (!clientName) {
       subscription.unsubscribe();
     };
   }, []);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1417,6 +1712,7 @@ if (!clientName) {
       },
     })
   );
+
   useEffect(() => {
     const initData = async () => {
       if (!authReady) return;
@@ -1428,7 +1724,7 @@ if (!clientName) {
 
       try {
         setLoading(true);
-        await Promise.all([fetchTickets(), fetchClienti(), loadNotes(userId)]);
+        await Promise.all([fetchTickets(), fetchClienti(), loadNotes(userId), loadGroups(userId)]);
       } catch (err) {
         console.error('Errore initData:', err);
       } finally {
@@ -1437,62 +1733,7 @@ if (!clientName) {
     };
 
     initData();
-  }, [authReady, userId, fetchTickets, fetchClienti, loadNotes]);
-
- const isClienteMismatch = useCallback((match: TaskManagerMatch) => {
-  return Boolean(match.clienteMismatch && match.matchedTicket);
-}, []);
-
-  const handleFixCliente = useCallback(
-    async (match: TaskManagerMatch) => {
-      if (!activeNote || activeNote.note_type !== 'taskmanager') return;
-      if (!isOwnerOfActiveNote) return;
-      if (!match.matchedTicket?.cliente) return;
-
-      const key = `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`;
-
-      try {
-        setFixingClienteKey(key);
-
-        const correctClient = match.matchedTicket.cliente.trim();
-        const lines = (activeNote.content || '').split('\n');
-
-        if (match.lineIndex < 0 || match.lineIndex >= lines.length) return;
-
-        const originalLine = lines[match.lineIndex];
-
-        const clientToken = correctClient.includes(' ')
-          ? `@"${correctClient}"`
-          : `@${correctClient}`;
-
-        const updatedLine = originalLine.replace(/@"([^"]+)"|@([^\s]+)/, clientToken);
-
-        lines[match.lineIndex] = updatedLine;
-
-        const updatedContent = lines.join('\n');
-
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === activeNote.id
-              ? {
-                  ...note,
-                  content: updatedContent,
-                  updated_at: new Date().toISOString(),
-                }
-              : note
-          )
-        );
-
-        await persistNote(activeNote.id, { content: updatedContent });
-
-        const rescanned = extractTaskManagerEntries(updatedContent);
-        setTaskMatches(rescanned);
-      } finally {
-        setFixingClienteKey(null);
-      }
-    },
-    [activeNote, persistNote, extractTaskManagerEntries, isOwnerOfActiveNote]
-  );
+  }, [authReady, userId, fetchTickets, fetchClienti, loadNotes, loadGroups]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1529,10 +1770,10 @@ if (!clientName) {
       </div>
     );
   }
-  
+
   return (
     <div className="h-screen w-full bg-[#1e1e1e] text-[#d4d4d4] font-mono flex overflow-hidden">
-      <aside className="w-[290px] bg-[#252526] border-r border-white/10 flex flex-col shrink-0">
+      <aside className="w-[320px] bg-[#252526] border-r border-white/10 flex flex-col shrink-0">
         <div className="h-12 px-3 border-b border-white/10 flex items-center gap-2 text-sm font-bold tracking-wide text-white">
           <FileText size={16} />
           NOTES
@@ -1544,10 +1785,28 @@ if (!clientName) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cerca note..."
+              placeholder="Cerca note o gruppi..."
               className="bg-transparent outline-none w-full text-sm text-white placeholder:text-white/40"
             />
           </div>
+        </div>
+
+        <div className="p-2 border-b border-white/10 space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-white/40">
+            Nuovo gruppo
+          </div>
+          <input
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCreateGroup();
+              }
+            }}
+            placeholder="Scrivi nome gruppo e premi Invio"
+            className="w-full h-9 rounded bg-[#1e1e1e] border border-white/10 px-2 text-sm text-white outline-none placeholder:text-white/30"
+          />
         </div>
 
         <div className="p-2 flex gap-2 border-b border-white/10">
@@ -1590,127 +1849,151 @@ if (!clientName) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext
               items={filteredNotes.map((note) => note.id)}
               strategy={verticalListSortingStrategy}
             >
-              {filteredNotes.map((note) => {
-            const isActive = note.id === activeNoteId;
+              {groupedNotes.map(([groupName, groupItems]) => {
+                const isCollapsed = Boolean(collapsedGroups[groupName]);
 
-            return (
-              <SortableTabItem key={note.id} note={note} isActive={isActive}>
-              <div
-                 
-                  onMouseEnter={() => setHoveredNoteId(note.id)}
-                  onMouseLeave={() => setHoveredNoteId((prev) => (prev === note.id ? null : prev))}
-                  className={`w-full px-3 py-2 border-l-2 transition  ${
-                  isActive
-                    ? 'bg-[#1e1e1e] border-l-[#ffd700] text-white'
-                    : 'bg-transparent border-l-transparent text-[#cccccc] hover:bg-white/5'
-                  }`}
-                >
-                <div className="flex items-start justify-between gap-2">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setActiveNoteId(note.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setActiveNoteId(note.id);
-                      }
-                    }}
-                    className="flex-1 min-w-0 text-left cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      {hoveredNoteId === note.id && canManageNote(note) ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            togglePinNote(note);
-                          }}
-                          className={`shrink-0 rounded p-0.5 transition ${
-                            note.is_pinned
-                              ? 'text-yellow-300 hover:text-yellow-200'
-                              : 'text-white/50 hover:text-yellow-300'
-                          }`}
-                          title={note.is_pinned ? 'Rimuovi pin' : 'Metti in alto'}
-                        >
-                          <Pin size={13} />
-                        </button>
-                      ) : note.note_type === 'todo' ? (
-                        <CheckSquare size={13} className="text-violet-300 shrink-0" />
-                      ) : note.note_type === 'taskmanager' ? (
-                        <FileText size={13} className="text-amber-300 shrink-0" />
-                      ) : (
-                        <FileText size={13} className="text-sky-300 shrink-0" />
-                      )}
+                return (
+                  <DroppableGroup key={groupName} id={`group:${groupName}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroupCollapse(groupName)}
+                      className="w-full px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] text-left text-[11px] uppercase tracking-wider text-white/60 flex items-center justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <FolderOpen size={12} />
+                        {groupName}
+                      </span>
+                      <span>{isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span>
+                    </button>
 
-                      <div className="text-sm truncate">{note.file_name}</div>
-                      {note.is_pinned && <Pin size={11} className="text-yellow-300 shrink-0" />}
+                    {!isCollapsed &&
+                      groupItems.map((note) => {
+                        const isActive = note.id === activeNoteId;
 
-                      {note.share_mode === 'shared_view' && (
-                        <span className="shrink-0 rounded bg-yellow-500/20 px-1.5 py-0.5 text-[9px] text-yellow-300">
-                          shared-view
-                        </span>
-                      )}
+                        return (
+                          <SortableTabItem key={note.id} note={note} isActive={isActive}>
+                            <div
 
-                      {note.share_mode === 'shared_edit' && (
-                        <span className="shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] text-green-300">
-                          shared-edit
-                        </span>
-                      )}
-                    </div>
+                              onMouseEnter={() => setHoveredNoteId(note.id)}
+                              onMouseLeave={() =>
+                                setHoveredNoteId((prev) => (prev === note.id ? null : prev))
+                              }
+                              className={`w-full px-3 py-2 border-l-2 transition ${
+                                isActive
+                                  ? 'bg-[#1e1e1e] border-l-[#ffd700] text-white'
+                                  : 'bg-transparent border-l-transparent text-[#cccccc] hover:bg-white/5'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setActiveNoteId(note.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      setActiveNoteId(note.id);
+                                    }
+                                  }}
+                                  className="flex-1 min-w-0 text-left cursor-pointer"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {hoveredNoteId === note.id && canManageNote(note) ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          togglePinNote(note);
+                                        }}
+                                        className={`shrink-0 rounded p-0.5 transition ${
+                                          note.is_pinned
+                                            ? 'text-yellow-300 hover:text-yellow-200'
+                                            : 'text-white/50 hover:text-yellow-300'
+                                        }`}
+                                        title={note.is_pinned ? 'Rimuovi pin' : 'Metti in alto'}
+                                      >
+                                        <Pin size={13} />
+                                      </button>
+                                    ) : note.note_type === 'todo' ? (
+                                      <CheckSquare size={13} className="text-violet-300 shrink-0" />
+                                    ) : note.note_type === 'taskmanager' ? (
+                                      <FileText size={13} className="text-amber-300 shrink-0" />
+                                    ) : (
+                                      <FileText size={13} className="text-sky-300 shrink-0" />
+                                    )}
 
-                    <div className="mt-1 text-[10px] text-white/45 truncate">
-                      {new Date(note.updated_at).toLocaleString()}
-                    </div>
-                  </div>
+                                    <div className="text-sm truncate">{note.file_name}</div>
+                                    {note.is_pinned && (
+                                      <Pin size={11} className="text-yellow-300 shrink-0" />
+                                    )}
 
-                  {canManageNote(note) && (
-                  <button
-                    type="button"
-                    title={
-                      note.share_mode === 'private'
-                        ? 'Condividi in sola lettura'
-                        : note.share_mode === 'shared_view'
-                        ? 'Condividi in modifica'
-                        : 'Rimuovi condivisione'
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleShareNote(note);
-                    }}
-                    disabled={shareLoadingId === note.id}
-                    className={`mt-0.5 h-8 w-8 shrink-0 rounded flex items-center justify-center transition ${
-                      note.share_mode === 'shared_view'
-                        ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
-                        : note.share_mode === 'shared_edit'
-                        ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
-                        : 'bg-white/10 text-white/60 hover:bg-white/20'
-                    } disabled:opacity-50`}
-                  >
-                    <Users size={14} />
-                  </button>
-                )}
-                 
-                </div>
-              </div></SortableTabItem>
-            );
-          })}
+                                    {note.share_mode === 'shared_view' && (
+                                      <span className="shrink-0 rounded bg-yellow-500/20 px-1.5 py-0.5 text-[9px] text-yellow-300">
+                                        shared-view
+                                      </span>
+                                    )}
 
-          {filteredNotes.length === 0 && (
-            <div className="px-3 py-4 text-xs text-white/40">Nessuna nota trovata</div>
-          )}
-                
-    </SortableContext>
-  </DndContext>
+                                    {note.share_mode === 'shared_edit' && (
+                                      <span className="shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[9px] text-green-300">
+                                        shared-edit
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="mt-1 text-[10px] text-white/45 truncate">
+                                    {new Date(note.updated_at).toLocaleString()}
+                                  </div>
+                                </div>
+
+                                {canManageNote(note) && (
+                                  <button
+                                    type="button"
+                                    title={
+                                      note.share_mode === 'private'
+                                        ? 'Condividi in sola lettura'
+                                        : note.share_mode === 'shared_view'
+                                        ? 'Condividi in modifica'
+                                        : 'Rimuovi condivisione'
+                                    }
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleShareNote(note);
+                                    }}
+                                    disabled={shareLoadingId === note.id}
+                                    className={`mt-0.5 h-8 w-8 shrink-0 rounded flex items-center justify-center transition ${
+                                      note.share_mode === 'shared_view'
+                                        ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+                                        : note.share_mode === 'shared_edit'
+                                        ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
+                                        : 'bg-white/10 text-white/60 hover:bg-white/20'
+                                    } disabled:opacity-50`}
+                                  >
+                                    <Users size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </SortableTabItem>
+                        );
+                      })}
+
+                    {!isCollapsed && groupItems.length === 0 && (
+                      <div className="px-3 py-3 text-xs text-white/35">Gruppo vuoto</div>
+                    )}
+                  </DroppableGroup>
+                );
+              })}
+
+              {groupedNotes.length === 0 && (
+                <div className="px-3 py-4 text-xs text-white/40">Nessun gruppo trovato</div>
+              )}
+            </SortableContext>
+          </DndContext>
         </div>
       </aside>
 
@@ -1742,6 +2025,10 @@ if (!clientName) {
               }`}
             />
 
+            <span className="text-xs text-white/40 truncate">
+              Gruppo: {activeNote?.group_name || 'Generale'}
+            </span>
+
             <select
               value={activeNote?.note_type || 'text'}
               onChange={(e) => changeNoteType(e.target.value as NoteType)}
@@ -1758,23 +2045,24 @@ if (!clientName) {
                 ? `Ultima modifica: ${new Date(activeNote.updated_at).toLocaleString()}`
                 : ''}
             </span>
+
             {activeNote && (
-            <span
-              className={`text-[10px] px-2 py-1 rounded ${
-                activeNote.share_mode === 'shared_view'
-                  ? 'bg-yellow-500/20 text-yellow-300'
+              <span
+                className={`text-[10px] px-2 py-1 rounded ${
+                  activeNote.share_mode === 'shared_view'
+                    ? 'bg-yellow-500/20 text-yellow-300'
+                    : activeNote.share_mode === 'shared_edit'
+                    ? 'bg-green-500/20 text-green-300'
+                    : 'bg-white/10 text-white/50'
+                }`}
+              >
+                {activeNote.share_mode === 'shared_view'
+                  ? 'shared-view'
                   : activeNote.share_mode === 'shared_edit'
-                  ? 'bg-green-500/20 text-green-300'
-                  : 'bg-white/10 text-white/50'
-              }`}
-            >
-              {activeNote.share_mode === 'shared_view'
-                ? 'shared-view'
-                : activeNote.share_mode === 'shared_edit'
-                ? 'shared-edit'
-                : 'private'}
-            </span>
-          )}
+                  ? 'shared-edit'
+                  : 'private'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -1789,27 +2077,27 @@ if (!clientName) {
                 </button>
 
                 <button
-                type="button"
-                onClick={handleUpdateMatchedTickets}
-                disabled={!taskMatches.length || !isOwnerOfActiveNote || updateStatus === 'updating'}
-                className={`h-9 px-3 rounded text-white text-sm transition ${
-                  updateStatus === 'done'
-                    ? 'bg-green-600'
+                  type="button"
+                  onClick={handleUpdateMatchedTickets}
+                  disabled={!taskMatches.length || !isOwnerOfActiveNote || updateStatus === 'updating'}
+                  className={`h-9 px-3 rounded text-white text-sm transition ${
+                    updateStatus === 'done'
+                      ? 'bg-green-600'
+                      : updateStatus === 'error'
+                      ? 'bg-red-600'
+                      : updateStatus === 'updating'
+                      ? 'bg-yellow-600'
+                      : 'bg-[#0e639c] hover:bg-[#1177bb]'
+                  } disabled:opacity-50`}
+                >
+                  {updateStatus === 'updating'
+                    ? 'Aggiornamento...'
+                    : updateStatus === 'done'
+                    ? '✔ Aggiornato'
                     : updateStatus === 'error'
-                    ? 'bg-red-600'
-                    : updateStatus === 'updating'
-                    ? 'bg-yellow-600'
-                    : 'bg-[#0e639c] hover:bg-[#1177bb]'
-                } disabled:opacity-50`}
-              >
-                {updateStatus === 'updating'
-                  ? 'Aggiornamento...'
-                  : updateStatus === 'done'
-                  ? '✔ Aggiornato'
-                  : updateStatus === 'error'
-                  ? 'Errore'
-                  : 'Aggiorna ticket'}
-              </button>
+                    ? 'Errore'
+                    : 'Aggiorna ticket'}
+                </button>
               </>
             )}
           </div>
@@ -1886,192 +2174,184 @@ if (!clientName) {
               </div>
 
               <div className="flex-1 min-w-0 relative">
-  <div className="h-full pr-0">
-    <textarea
-      ref={editorRef}
-      value={activeNote?.content || ''}
-      onChange={(e) => handleEditorChange(e.target.value)}
-      onClick={updateCursorPosition}
-      onKeyUp={updateCursorPosition}
-      onSelect={updateCursorPosition}
-      spellCheck={false}
-      readOnly={!canEditActiveNote}
-      className={`w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white ${
-        !canEditActiveNote ? 'opacity-80 cursor-not-allowed' : ''
-      }`}
-      placeholder={`Esempio:
+                <div className="h-full pr-0">
+                  <textarea
+                    ref={editorRef}
+                    value={activeNote?.content || ''}
+                    onChange={(e) => handleEditorChange(e.target.value)}
+                    onClick={updateCursorPosition}
+                    onKeyUp={updateCursorPosition}
+                    onSelect={updateCursorPosition}
+                    spellCheck={false}
+                    readOnly={!canEditActiveNote}
+                    className={`w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white ${
+                      !canEditActiveNote ? 'opacity-80 cursor-not-allowed' : ''
+                    }`}
+                    placeholder={`Esempio:
 - @Esselunga #TAG123 (IN LAVORAZIONE) "Errore login checkout" [perc: 50] (coll: 12/08/2025) (prod: 20/08/2025)
 Analisi iniziale completata
-In attesa test utente
+Questa parte viene ignorata // nota interna da ignorare //
 
 - @Sika #TAG456 (IN STAND-BY) "Dashboard KPI Vendite" [perc: 80]
 Altra nota`}
-      style={{ tabSize: 2 }}
-    />
-  </div>
+                    style={{ tabSize: 2 }}
+                  />
+                </div>
 
-  <div
-    className={`absolute top-0 right-0 h-full transition-all duration-300 ease-in-out ${
-      showScanPanel ? 'w-[420px]' : 'w-0'
-    }`}
-  >
-    <div
-      className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full`}
-    >
-      <button
-        type="button"
-        onClick={() => setShowScanPanel((prev) => !prev)}
-        className="h-28 w-8 rounded-l-md border border-r-0 border-white/10 bg-[#2a2a2a] hover:bg-[#333] text-white/70 hover:text-white text-[10px] tracking-wide uppercase flex items-center justify-center"
-        title={showScanPanel ? 'Nascondi risultato scansione' : 'Mostra risultato scansione'}
-      >
-        <span
-          className="[writing-mode:vertical-rl] rotate-180 select-none"
-        >
-          Scan
-        </span>
-      </button>
-    </div>
-
-    <div
-      className={`h-full border-l border-white/10 bg-[#202020] overflow-hidden ${
-        showScanPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      } transition-opacity duration-200`}
-    >
-      <div className="h-full overflow-auto p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-bold uppercase tracking-wider text-white/50">
-            Risultato scansione
-          </div>
-          <div className="text-[10px] uppercase text-white/40">
-            {scanStatus === 'scanning'
-              ? 'Scansione...'
-              : scanStatus === 'done'
-              ? 'Scansione completata'
-              : scanStatus === 'error'
-              ? 'Errore scansione'
-              : 'In attesa'}
-          </div>
-        </div>
-
-        {taskMatches.length === 0 ? (
-          <div className="text-sm text-white/40">Nessuna scansione eseguita</div>
-        ) : (
-          taskMatches.map((match, idx) => (
-            <div
-              key={`${match.lineIndex}-${idx}`}
-              className={`rounded border p-3 ${
-                isClienteMismatch(match)
-                  ? 'border-yellow-500/30 bg-yellow-500/10'
-                  : match.valid
-                  ? 'border-green-500/30 bg-green-500/10'
-                  : 'border-red-500/30 bg-red-500/10'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="text-xs text-white/50">Riga {match.lineIndex + 1}</div>
-
-                <div className="flex items-start gap-3">
-  {match.reason && (
-    <div
-      className={`mt-2 text-xs ${
-        isClienteMismatch(match) ? 'text-yellow-300' : 'text-red-300'
-      }`}
-    >
-      {isClienteMismatch(match) ? '⚠️' : '❌'} {match.reason}
-    </div>
-  )}
-
-  {isClienteMismatch(match) && isOwnerOfActiveNote ? (
-    <button
-      type="button"
-      onClick={() => handleFixCliente(match)}
-      disabled={
-        fixingClienteKey ===
-        `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
-      }
-      className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
-    >
-      {fixingClienteKey ===
-      `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
-        ? 'Fix in corso...'
-        : 'Fix Cliente'}
-    </button>
-  ) : !match.matchedTicket && isOwnerOfActiveNote ? (
-    <button
-      type="button"
-      title={getCreateTicketTooltip(match)}
-      onClick={() => handleCreateTicketFromMatch(match)}
-      disabled={!canCreateTicketFromMatch(match)}
-      className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
-        canCreateTicketFromMatch(match)
-          ? 'bg-green-600 hover:bg-green-500 text-white'
-          : 'bg-white/10 text-white/40 cursor-not-allowed'
-      }`}
-    >
-      +
-    </button>
-  ) : null}
-</div>
-              </div>
-
-              {match.matchedTicket && (
-                  <div
-                    className={`mt-2 mb-3 text-xs ${
-                      isClienteMismatch(match) ? 'text-yellow-300' : 'text-green-300'
-                    }`}
-                  >
-                    {isClienteMismatch(match) ? '' : '✅ Ticket Trovato'}
-                    
+                <div
+                  className={`absolute top-0 right-0 h-full transition-all duration-300 ease-in-out ${
+                    showScanPanel ? 'w-[420px]' : 'w-0'
+                  }`}
+                >
+                  <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full`}>
+                    <button
+                      type="button"
+                      onClick={() => setShowScanPanel((prev) => !prev)}
+                      className="h-28 w-8 rounded-l-md border border-r-0 border-white/10 bg-[#2a2a2a] hover:bg-[#333] text-white/70 hover:text-white text-[10px] tracking-wide uppercase flex items-center justify-center"
+                      title={showScanPanel ? 'Nascondi risultato scansione' : 'Mostra risultato scansione'}
+                    >
+                      <span className="[writing-mode:vertical-rl] rotate-180 select-none">Scan</span>
+                    </button>
                   </div>
-)}
 
-              <div className="space-y-1 text-sm text-white">
-                <div>
-                  <strong>Cliente:</strong> {match.clientName || '-'}
-                </div>
-                <div>
-                  <strong>Titolo:</strong> {match.title?.trim() || match.matchedTicket?.titolo?.trim() || '-'}
-                </div>
-                <div>
-                  <strong>Tag:</strong> {match.tag || '-'}
-                </div>
-                <div>
-                  <strong>Stato:</strong> {match.stato || '-'}
-                </div>
-                <div>
-                  <strong>Match su:</strong> {match.queryField || '-'}
-                </div>
-                <div>
-                  <strong>Valore:</strong> {match.queryValue || '-'}
+                  <div
+                    className={`h-full border-l border-white/10 bg-[#202020] overflow-hidden ${
+                      showScanPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    } transition-opacity duration-200`}
+                  >
+                    <div className="h-full overflow-auto p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-bold uppercase tracking-wider text-white/50">
+                          Risultato scansione
+                        </div>
+                        <div className="text-[10px] uppercase text-white/40">
+                          {scanStatus === 'scanning'
+                            ? 'Scansione...'
+                            : scanStatus === 'done'
+                            ? 'Scansione completata'
+                            : scanStatus === 'error'
+                            ? 'Errore scansione'
+                            : 'In attesa'}
+                        </div>
+                      </div>
+
+                      {taskMatches.length === 0 ? (
+                        <div className="text-sm text-white/40">Nessuna scansione eseguita</div>
+                      ) : (
+                        taskMatches.map((match, idx) => (
+                          <div
+                            key={`${match.lineIndex}-${idx}`}
+                            className={`rounded border p-3 ${
+                              isClienteMismatch(match)
+                                ? 'border-yellow-500/30 bg-yellow-500/10'
+                                : match.valid
+                                ? 'border-green-500/30 bg-green-500/10'
+                                : 'border-red-500/30 bg-red-500/10'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3 mb-2">
+                              <div className="text-xs text-white/50">Riga {match.lineIndex + 1}</div>
+
+                              <div className="flex items-start gap-3">
+                                {match.reason && (
+                                  <div
+                                    className={`mt-2 text-xs ${
+                                      isClienteMismatch(match) ? 'text-yellow-300' : 'text-red-300'
+                                    }`}
+                                  >
+                                    {isClienteMismatch(match) ? '⚠️' : '❌'} {match.reason}
+                                  </div>
+                                )}
+
+                                {isClienteMismatch(match) && isOwnerOfActiveNote ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleFixCliente(match)}
+                                    disabled={
+                                      fixingClienteKey ===
+                                      `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+                                    }
+                                    className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
+                                  >
+                                    {fixingClienteKey ===
+                                    `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
+                                      ? 'Fix in corso...'
+                                      : 'Fix Cliente'}
+                                  </button>
+                                ) : !match.matchedTicket && isOwnerOfActiveNote ? (
+                                  <button
+                                    type="button"
+                                    title={getCreateTicketTooltip(match)}
+                                    onClick={() => handleCreateTicketFromMatch(match)}
+                                    disabled={!canCreateTicketFromMatch(match)}
+                                    className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
+                                      canCreateTicketFromMatch(match)
+                                        ? 'bg-green-600 hover:bg-green-500 text-white'
+                                        : 'bg-white/10 text-white/40 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    +
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {match.matchedTicket && (
+                              <div
+                                className={`mt-2 mb-3 text-xs ${
+                                  isClienteMismatch(match) ? 'text-yellow-300' : 'text-green-300'
+                                }`}
+                              >
+                                {isClienteMismatch(match) ? '' : '✅ Ticket Trovato'}
+                              </div>
+                            )}
+
+                            <div className="space-y-1 text-sm text-white">
+                              <div>
+                                <strong>Cliente:</strong> {match.clientName || '-'}
+                              </div>
+                              <div>
+                                <strong>Titolo:</strong>{' '}
+                                {match.title?.trim() || match.matchedTicket?.titolo?.trim() || '-'}
+                              </div>
+                              <div>
+                                <strong>Tag:</strong> {match.tag || '-'}
+                              </div>
+                              <div>
+                                <strong>Stato:</strong> {match.stato || '-'}
+                              </div>
+                              <div>
+                                <strong>Match su:</strong> {match.queryField || '-'}
+                              </div>
+                              <div>
+                                <strong>Valore:</strong> {match.queryValue || '-'}
+                              </div>
+                            </div>
+
+                            <div className="mt-3 text-xs text-white/80 space-y-1">
+                              <div>
+                                <strong>Percentuale:</strong> {match.percentuale_avanzamento ?? '-'}
+                              </div>
+                              <div>
+                                <strong>Collaudo:</strong> {match.rilascio_in_collaudo || '-'}
+                              </div>
+                              <div>
+                                <strong>Produzione:</strong> {match.rilascio_in_produzione || '-'}
+                              </div>
+                            </div>
+
+                            {match.note && (
+                              <div className="mt-2 text-xs text-white/70 whitespace-pre-wrap">
+                                <strong>Note:</strong> {match.note}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <div className="mt-3 text-xs text-white/80 space-y-1">
-                <div>
-                  <strong>Percentuale:</strong> {match.percentuale_avanzamento ?? '-'}
-                </div>
-                <div>
-                  <strong>Collaudo:</strong> {match.rilascio_in_collaudo || '-'}
-                </div>
-                <div>
-                  <strong>Produzione:</strong> {match.rilascio_in_produzione || '-'}
-                </div>
-              </div>
-
-              {match.note && (
-                <div className="mt-2 text-xs text-white/70 whitespace-pre-wrap">
-                  <strong>Note:</strong> {match.note}
-                </div>
-              )}
-
-              
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  </div>
-</div>
             </>
           ) : !showPreview ? (
             <>
@@ -2095,7 +2375,7 @@ Altra nota`}
                   readOnly={!canEditActiveNote}
                   className={`w-full h-full resize-none bg-[#1e1e1e] text-[#f8f8f2] outline-none border-none p-4 leading-7 text-sm caret-white ${
                     !canEditActiveNote ? 'opacity-80 cursor-not-allowed' : ''
-                  }`}   
+                  }`}
                   placeholder="Scrivi qui le tue note..."
                   style={{ tabSize: 2 }}
                 />
@@ -2155,17 +2435,18 @@ Altra nota`}
             ) : (
               <span>{activeNote?.todo_items?.length || 0} attività</span>
             )}
+
             {activeNote?.note_type === 'taskmanager' ? (
               <div className="flex items-center gap-3 text-[11px]">
-               <span className="text-green-400" title="Ticket trovati e validi">
-                ✅ {matchStats.matched}
-              </span>
-              <span className="text-yellow-300" title="Ticket con problemi">
-                ⚠️ {matchStats.issues}
-              </span>
-              <span className="text-red-400" title="Nessun ticket trovato">
-                ❌ {matchStats.noMatch}
-              </span>
+                <span className="text-green-400" title="Ticket trovati e validi">
+                  ✅ {matchStats.matched}
+                </span>
+                <span className="text-yellow-300" title="Ticket con problemi">
+                  ⚠️ {matchStats.issues}
+                </span>
+                <span className="text-red-400" title="Nessun ticket trovato">
+                  ❌ {matchStats.noMatch}
+                </span>
               </div>
             ) : (
               <span>{allTickets.length} ticket caricati</span>
