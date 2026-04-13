@@ -23,6 +23,9 @@ export type Ticket = {
   stato: string;
   n_tag?: string | null;
   numero_priorita?: number | null;
+  percentuale_avanzamento?: number | null;
+  applicativo?: string[] | string | null;
+  note_importanti?: string | null;
   in_lavorazione_ora?: boolean;
   ultimo_ping?: string | null;
   sprint?: string | null;
@@ -35,6 +38,7 @@ export type Ticket = {
     id: string;
     nome?: string | null;
     nome_completo?: string | null;
+    avatar_url?: string | null;
   } | null;
   columnId: string;
 };
