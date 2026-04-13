@@ -30,6 +30,7 @@ export type Ticket = {
   ultimo_ping?: string | null;
   sprint?: string | null;
   assignee?: string | null;
+  storia_ticket?: string[] | null;
   clienti?: {
     id: string;
     nome: string;
