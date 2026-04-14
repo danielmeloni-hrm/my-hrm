@@ -63,15 +63,13 @@ const STEP_STATUSES_RILASCI = [
   'Completato',
   'Sostituito',
 ] as const;
+
 const STEP_STATUSES_REPORT = [
   'Da Fare',
   'In Lavorazione',
   'Da Completare',
   'Completato',
 ] as const;
-
-
-
 
 const STEP_STATUSES_DEFAULT = [
   'Da Fare',
@@ -90,7 +88,7 @@ type AnyStepStatus = DocStepStatus | GtmGaStepStatus | DefaultStepStatus;
 
 const STATUS_STYLES: Record<string, string> = {
   'Da Fare': 'bg-gray-100 text-gray-600 border border-gray-200',
-  'In attesa':'bg-gray-100 text-gray-600 border border-gray-200',
+  'In attesa': 'bg-gray-100 text-gray-600 border border-gray-200',
   Draft: 'bg-amber-100 text-amber-700 border border-amber-200',
   'In Sviluppo': 'bg-amber-100 text-amber-700 border border-amber-200',
   'In Lavorazione': 'bg-orange-100 text-orange-700 border border-orange-200',
@@ -198,6 +196,17 @@ type ModalMode = 'create' | 'edit' | null;
 type StepFieldValue = string | string[];
 type StepFields = Record<StepColumnKey, StepFieldValue>;
 type StepNoteFields = Record<StepNoteKey, string>;
+
+type SortKey =
+  | 'cliente_nome'
+  | 'applicativo'
+  | 'versione'
+  | 'nome_evolutiva'
+  | 'numero_change'
+  | 'completion'
+  | 'updated_at';
+
+type SortDirection = 'asc' | 'desc';
 
 interface ClienteRecord {
   id: string;
@@ -425,6 +434,50 @@ function StepSelectMulti({
         </div>
       )}
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  currentSortKey,
+  currentSortDirection,
+  onSort,
+  align = 'left',
+}: {
+  label: string;
+  sortKey: SortKey;
+  currentSortKey: SortKey;
+  currentSortDirection: SortDirection;
+  onSort: (key: SortKey) => void;
+  align?: 'left' | 'center' | 'right';
+}) {
+  const active = currentSortKey === sortKey;
+  const justifyClass =
+    align === 'center'
+      ? 'justify-center'
+      : align === 'right'
+      ? 'justify-end'
+      : 'justify-start';
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={`w-full flex items-center gap-1 ${justifyClass} hover:opacity-80 transition`}
+      title={`Ordina per ${label}`}
+    >
+      <span>{label}</span>
+      {active ? (
+        currentSortDirection === 'asc' ? (
+          <ChevronUp size={12} />
+        ) : (
+          <ChevronDown size={12} />
+        )
+      ) : (
+        <ChevronDown size={12} className="opacity-30" />
+      )}
+    </button>
   );
 }
 
@@ -669,6 +722,11 @@ export default function OperationalProjectsPage() {
   const [createForm, setCreateForm] = useState<FormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
 
+  const [filterClienteId, setFilterClienteId] = useState('');
+  const [filterApplicativo, setFilterApplicativo] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('updated_at');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
   const selectedCreateCliente = useMemo(
     () => clienti.find((c) => c.id === createForm.cliente_id) || null,
     [clienti, createForm.cliente_id]
@@ -679,47 +737,14 @@ export default function OperationalProjectsPage() {
     [clienti, editForm.cliente_id]
   );
 
+  const selectedFilterCliente = useMemo(
+    () => clienti.find((c) => c.id === filterClienteId) || null,
+    [clienti, filterClienteId]
+  );
+
   const isEsselungaCreate = selectedCreateCliente?.nome === 'Esselunga';
   const isEsselungaEdit = selectedEditCliente?.nome === 'Esselunga';
-
-  const filteredRecords = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return records;
-
-    return records.filter((row) =>
-      [
-        row.cliente_nome,
-        row.applicativo || '',
-        row.versione || '',
-        row.nome_evolutiva,
-        row.numero_change || '',
-        row.document_link,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [records, search]);
-
-  const latestDocuments = useMemo(() => {
-    const grouped = filteredRecords.reduce<Record<string, OperationalProjectRecord>>((acc, r) => {
-      const key = `${r.cliente_nome}__${r.applicativo || 'NA'}`;
-      const currentVersion = parseVersion(r.versione);
-      const existingVersion = parseVersion(acc[key]?.versione);
-
-      if (!acc[key] || currentVersion > existingVersion) {
-        acc[key] = r;
-      }
-
-      return acc;
-    }, {});
-
-    return Object.values(grouped).sort((a, b) => {
-      const byClient = a.cliente_nome.localeCompare(b.cliente_nome);
-      if (byClient !== 0) return byClient;
-      return (a.applicativo || '').localeCompare(b.applicativo || '');
-    });
-  }, [filteredRecords]);
+  const isEsselungaFilter = selectedFilterCliente?.nome === 'Esselunga';
 
   const normalizeRecord = useCallback((item: any): OperationalProjectRecord => {
     const stepValues = STEP_COLUMNS.reduce((acc, col) => {
@@ -827,6 +852,103 @@ export default function OperationalProjectsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!isEsselungaFilter) {
+      setFilterApplicativo('');
+    }
+  }, [isEsselungaFilter]);
+
+  const filteredRecords = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    return records.filter((row) => {
+      const matchesSearch =
+        !q ||
+        [
+          row.cliente_nome,
+          row.applicativo || '',
+          row.versione || '',
+          row.nome_evolutiva,
+          row.numero_change || '',
+          row.document_link,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(q);
+
+      const matchesCliente = !filterClienteId || row.cliente_id === filterClienteId;
+
+      const matchesApplicativo =
+        !filterApplicativo || (row.applicativo || '').toLowerCase() === filterApplicativo.toLowerCase();
+
+      return matchesSearch && matchesCliente && matchesApplicativo;
+    });
+  }, [records, search, filterClienteId, filterApplicativo]);
+
+  const sortedRecords = useMemo(() => {
+    const arr = [...filteredRecords];
+
+    arr.sort((a, b) => {
+      let compare = 0;
+
+      switch (sortKey) {
+        case 'cliente_nome':
+          compare = a.cliente_nome.localeCompare(b.cliente_nome, 'it', { sensitivity: 'base' });
+          break;
+        case 'applicativo':
+          compare = (a.applicativo || '').localeCompare(b.applicativo || '', 'it', {
+            sensitivity: 'base',
+          });
+          break;
+        case 'versione':
+          compare = parseVersion(a.versione) - parseVersion(b.versione);
+          break;
+        case 'nome_evolutiva':
+          compare = a.nome_evolutiva.localeCompare(b.nome_evolutiva, 'it', {
+            sensitivity: 'base',
+          });
+          break;
+        case 'numero_change':
+          compare = (a.numero_change || '').localeCompare(b.numero_change || '', 'it', {
+            sensitivity: 'base',
+          });
+          break;
+        case 'completion':
+          compare = calculateCompletionPercentage(a) - calculateCompletionPercentage(b);
+          break;
+        case 'updated_at':
+          compare = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+          break;
+        default:
+          compare = 0;
+      }
+
+      return sortDirection === 'asc' ? compare : -compare;
+    });
+
+    return arr;
+  }, [filteredRecords, sortKey, sortDirection]);
+
+  const latestDocuments = useMemo(() => {
+    const grouped = sortedRecords.reduce<Record<string, OperationalProjectRecord>>((acc, r) => {
+      const key = `${r.cliente_nome}__${r.applicativo || 'NA'}`;
+      const currentVersion = parseVersion(r.versione);
+      const existingVersion = parseVersion(acc[key]?.versione);
+
+      if (!acc[key] || currentVersion > existingVersion) {
+        acc[key] = r;
+      }
+
+      return acc;
+    }, {});
+
+    return Object.values(grouped).sort((a, b) => {
+      const byClient = a.cliente_nome.localeCompare(b.cliente_nome);
+      if (byClient !== 0) return byClient;
+      return (a.applicativo || '').localeCompare(b.applicativo || '');
+    });
+  }, [sortedRecords]);
 
   const openCreateModal = useCallback(() => {
     setCreateForm(EMPTY_FORM);
@@ -1086,6 +1208,18 @@ export default function OperationalProjectsPage() {
     }
   }, []);
 
+  const handleSort = useCallback((key: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey === key) {
+        setSortDirection((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
+        return prevKey;
+      }
+
+      setSortDirection('asc');
+      return key;
+    });
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
@@ -1099,7 +1233,7 @@ export default function OperationalProjectsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
+    <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-5">
       <div className="max-w-[2200px] mx-auto">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
           <div>
@@ -1113,11 +1247,52 @@ export default function OperationalProjectsPage() {
               className="text-[10px] font-bold uppercase tracking-[0.3em]"
               style={{ color: BRAND_SOFT_TEXT }}
             >
-              Archivio documenti, evolutive, change e avanzamento step
+              Archivio documenti e evolutive. N Doc:{sortedRecords.length}
             </p>
           </div>
+            <div>
+              
+              <select
+                value={filterClienteId}
+                onChange={(e) => setFilterClienteId(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">Tutti i clienti</option>
+                {clienti.map((cliente) => (
+                  <option key={cliente.id} value={cliente.id}>
+                    {cliente.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+              <div>
+            
+              {isEsselungaFilter ? (
+                <select
+                  value={filterApplicativo}
+                  onChange={(e) => setFilterApplicativo(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">Tutti gli applicativi</option>
+                  {ESSELUNGA_APPS.map((app) => (
+                    <option key={app} value={app}>
+                      {app}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-slate-50 px-3 py-3 text-xs font-bold text-slate-400">
+                  Disponibile solo selezionando Esselunga
+                </div>
+              )}
+            </div>    
+
+
+
 
           <div className="flex gap-2 flex-wrap w-full lg:w-auto">
+
+            
             <div className="flex items-center gap-2 px-4 py-2 rounded-[10px] bg-white border border-gray-100 text-[12px] font-bold outline-none w-full lg:w-80 shadow-sm">
               <Search size={15} className="text-slate-400" />
               <input
@@ -1145,6 +1320,8 @@ export default function OperationalProjectsPage() {
             {errorMessage}
           </div>
         )}
+
+        
 
         <div className="mb-6 bg-white border border-gray-200 rounded-[10px] shadow-sm">
           <button
@@ -1200,34 +1377,77 @@ export default function OperationalProjectsPage() {
               <thead style={{ background: BRAND_BG, color: BRAND }}>
                 <tr>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Cliente
+                    <SortHeader
+                      label="Cliente"
+                      sortKey="cliente_nome"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Applicativo
+                    <SortHeader
+                      label="Applicativo"
+                      sortKey="applicativo"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Versione
+                    <SortHeader
+                      label="Versione"
+                      sortKey="versione"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Nome evolutiva
+                    <SortHeader
+                      label="Nome evolutiva"
+                      sortKey="nome_evolutiva"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Numero change
+                    <SortHeader
+                      label="Numero change"
+                      sortKey="numero_change"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-center text-[10px] font-black uppercase tracking-widest">
                     Documento
                   </th>
                   <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    % completamento
+                    <SortHeader
+                      label="% completamento"
+                      sortKey="completion"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
                   </th>
                   <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest">
-                    Azioni
+                    <SortHeader
+                      label="Azioni"
+                      sortKey="updated_at"
+                      currentSortKey={sortKey}
+                      currentSortDirection={sortDirection}
+                      onSort={handleSort}
+                      align="right"
+                    />
                   </th>
                 </tr>
               </thead>
 
               <tbody>
-                {filteredRecords.map((record) => {
+                {sortedRecords.map((record) => {
                   const completion = calculateCompletionPercentage(record);
 
                   return (
@@ -1303,7 +1523,7 @@ export default function OperationalProjectsPage() {
                   );
                 })}
 
-                {filteredRecords.length === 0 && (
+                {sortedRecords.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-10 text-center text-slate-400 font-bold">
                       Nessun progetto salvato.

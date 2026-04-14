@@ -2,11 +2,28 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import { Check, Loader2, Save, User, Lock, LayoutGrid } from 'lucide-react'
+import {
+  Check,
+  Loader2,
+  Save,
+  User,
+  Lock,
+  LayoutGrid,
+  PanelLeft,
+  PanelRight,
+  PanelBottom,
+} from 'lucide-react'
 
 type MenuItem = {
   name: string
   path: string
+}
+
+type SidebarPosition = 'left' | 'right' | 'bottom'
+
+type SidebarSettingsResponse = {
+  sidebar_visible_paths?: string[]
+  sidebar_position?: SidebarPosition
 }
 
 export default function SettingsPage() {
@@ -20,14 +37,13 @@ export default function SettingsPage() {
       { name: 'Sprint Board', path: '/dashboard' },
       { name: 'Opex Board', path: '/dashboard_opex' },
       { name: 'Tutte Attività', path: '/tutti-i-ticket' },
-      { name: 'Tutte Attività', path: '/tutti-i-ticket' },
       { name: 'Tutti Incident', path: '/tutti-gli-incident' },
       { name: 'Tutte le Change', path: '/changes' },
       { name: 'Documenti & Progetti', path: '/progetti' },
       { name: 'Calendario Rilasci', path: '/calendario' },
       { name: 'Calendario Rilasci CHG', path: '/calendario_chg' },
       { name: 'Report', path: '/report_progetti' },
-      { name: 'Password',  path: '/password' },
+      { name: 'Password', path: '/password' },
     ],
     []
   )
@@ -39,6 +55,8 @@ export default function SettingsPage() {
   const [userId, setUserId] = useState<string>('')
 
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>('left')
+
   const [saveMsg, setSaveMsg] = useState<string>('')
 
   const [newPassword, setNewPassword] = useState('')
@@ -59,14 +77,31 @@ export default function SettingsPage() {
       setUserEmail(u.user?.email ?? '')
       setUserId(u.user?.id ?? '')
 
-      const res = await fetch('/api/settings/sidebar', { method: 'GET' })
-      const json = await res.json().catch(() => null)
+      try {
+        const res = await fetch('/api/settings/sidebar', { method: 'GET' })
+        const json: SidebarSettingsResponse | null = await res.json().catch(() => null)
 
-      const stored = json?.sidebar_visible_paths
-      if (Array.isArray(stored) && stored.length > 0) {
-        setSelectedPaths(stored)
-      } else {
+        const storedPaths = json?.sidebar_visible_paths
+        const storedPosition = json?.sidebar_position
+
+        if (Array.isArray(storedPaths) && storedPaths.length > 0) {
+          setSelectedPaths(storedPaths)
+        } else {
+          setSelectedPaths(allMenuItems.map((m) => m.path))
+        }
+
+        if (
+          storedPosition === 'left' ||
+          storedPosition === 'right' ||
+          storedPosition === 'bottom'
+        ) {
+          setSidebarPosition(storedPosition)
+        } else {
+          setSidebarPosition('left')
+        }
+      } catch {
         setSelectedPaths(allMenuItems.map((m) => m.path))
+        setSidebarPosition('left')
       }
 
       setLoading(false)
@@ -93,7 +128,10 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings/sidebar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sidebar_visible_paths: selectedPaths }),
+        body: JSON.stringify({
+          sidebar_visible_paths: selectedPaths,
+          sidebar_position: sidebarPosition,
+        }),
       })
 
       if (!res.ok) {
@@ -103,7 +141,7 @@ export default function SettingsPage() {
       }
 
       window.dispatchEvent(new Event('sidebar-updated'))
-      setSaveMsg('Sidebar aggiornata con successo.')
+      setSaveMsg('Impostazioni sidebar aggiornate con successo.')
     } catch {
       setSaveMsg('Errore durante il salvataggio della sidebar.')
     } finally {
@@ -146,7 +184,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-8 max-w-5xl">
       <h1 className="text-2xl font-black tracking-tight text-gray-900 mb-6">Impostazioni</h1>
 
       <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
@@ -181,7 +219,9 @@ export default function SettingsPage() {
             </div>
             <div>
               <h2 className="font-black text-gray-900">Sidebar</h2>
-              <p className="text-xs text-gray-500">Scegli quali pagine mostrare nel menu.</p>
+              <p className="text-xs text-gray-500">
+                Scegli quali pagine mostrare nel menu e dove posizionare la sidebar.
+              </p>
             </div>
           </div>
 
@@ -197,35 +237,141 @@ export default function SettingsPage() {
 
         {saveMsg && <div className="mb-4 text-sm font-bold text-gray-700">{saveMsg}</div>}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {allMenuItems.map((item) => {
-            const checked = selectedPaths.includes(item.path)
+        <div className="mb-6">
+          <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">
+            Posizione sidebar
+          </div>
 
-            return (
-              <button
-                key={item.path}
-                onClick={() => togglePath(item.path)}
-                className={`flex items-center justify-between p-4 rounded-2xl border transition ${
-                  checked
-                    ? 'border-blue-200 bg-blue-50/30'
-                    : 'border-gray-100 hover:bg-gray-50'
-                }`}
-              >
-                <div className="text-left min-w-0">
-                  <div className="font-bold text-gray-900 text-sm">{item.name}</div>
-                  
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarPosition('left')
+                setSaveMsg('')
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                sidebarPosition === 'left'
+                  ? 'border-blue-200 bg-blue-50/40'
+                  : 'border-gray-100 hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-white border border-gray-100">
+                  <PanelLeft className="text-gray-700" size={18} />
                 </div>
-
                 <div
-                  className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
-                    checked ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center ${
+                    sidebarPosition === 'left'
+                      ? 'bg-[#0150a0] text-white'
+                      : 'bg-gray-100 text-gray-400'
                   }`}
                 >
                   <Check size={16} />
                 </div>
-              </button>
-            )
-          })}
+              </div>
+              <div className="font-black text-sm text-gray-900">Sinistra</div>
+              <div className="text-xs text-gray-500 mt-1">Sidebar fissa a sinistra.</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarPosition('right')
+                setSaveMsg('')
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                sidebarPosition === 'right'
+                  ? 'border-blue-200 bg-blue-50/40'
+                  : 'border-gray-100 hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-white border border-gray-100">
+                  <PanelRight className="text-gray-700" size={18} />
+                </div>
+                <div
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center ${
+                    sidebarPosition === 'right'
+                      ? 'bg-[#0150a0] text-white'
+                      : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
+                  <Check size={16} />
+                </div>
+              </div>
+              <div className="font-black text-sm text-gray-900">Destra</div>
+              <div className="text-xs text-gray-500 mt-1">Sidebar fissa a destra.</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarPosition('bottom')
+                setSaveMsg('')
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                sidebarPosition === 'bottom'
+                  ? 'border-blue-200 bg-blue-50/40'
+                  : 'border-gray-100 hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-white border border-gray-100">
+                  <PanelBottom className="text-gray-700" size={18} />
+                </div>
+                <div
+                  className={`w-7 h-7 rounded-xl flex items-center justify-center ${
+                    sidebarPosition === 'bottom'
+                      ? 'bg-[#0150a0] text-white'
+                      : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
+                  <Check size={16} />
+                </div>
+              </div>
+              <div className="font-black text-sm text-gray-900">Sotto</div>
+              <div className="text-xs text-gray-500 mt-1">
+                In sovrapposizione, solo icone visibili, nome pagina su hover.
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">
+            Pagine visibili
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {allMenuItems.map((item) => {
+              const checked = selectedPaths.includes(item.path)
+
+              return (
+                <button
+                  key={`${item.path}-${item.name}`}
+                  onClick={() => togglePath(item.path)}
+                  className={`flex items-center justify-between p-4 rounded-2xl border transition ${
+                    checked
+                      ? 'border-blue-200 bg-blue-50/30'
+                      : 'border-gray-100 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-left min-w-0">
+                    <div className="font-bold text-gray-900 text-sm">{item.name}</div>
+                    <div className="text-xs text-gray-400 truncate">{item.path}</div>
+                  </div>
+
+                  <div
+                    className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
+                      checked ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
+                    }`}
+                  >
+                    <Check size={16} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </section>
 
