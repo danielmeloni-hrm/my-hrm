@@ -49,7 +49,7 @@ export async function GET() {
     supabase
       .from('profili')
       .select('sidebar_position')
-      .eq('id', userId),
+      .eq('id', userId)
       .maybeSingle(),
   ])
 
