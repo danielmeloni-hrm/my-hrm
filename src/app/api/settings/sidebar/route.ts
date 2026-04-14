@@ -50,8 +50,6 @@ export async function GET() {
       .from('profili')
       .select('sidebar_position')
       .eq('id', userId),
-      // se nella tua tabella profili usi user_id invece di id, cambia in:
-      // .eq('user_id', userId)
       .maybeSingle(),
   ])
 
