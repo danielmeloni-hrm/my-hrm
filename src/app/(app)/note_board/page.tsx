@@ -94,6 +94,11 @@ interface EditorNote {
   group_name?: string | null;
 }
 
+interface NotePinRecord {
+  note_id: string;
+  user_id: string;
+}
+
 interface TaskManagerMatch {
   lineIndex: number;
   rawLine: string;
@@ -222,6 +227,7 @@ function SortableTabItem({
     </div>
   );
 }
+
 function DroppableGroup({
   id,
   children,
@@ -244,6 +250,7 @@ function DroppableGroup({
     </div>
   );
 }
+
 export default function SublimeLikeEditorPage() {
   const [userId, setUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -259,6 +266,8 @@ export default function SublimeLikeEditorPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [cursorInfo, setCursorInfo] = useState({ line: 1, col: 1 });
   const [showPreview, setShowPreview] = useState(false);
+  const [editorValue, setEditorValue] = useState('');
+  const [pinnedNoteIds, setPinnedNoteIds] = useState<string[]>([]);
 
   const [taskMatches, setTaskMatches] = useState<TaskManagerMatch[]>([]);
   const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle');
@@ -272,10 +281,17 @@ export default function SublimeLikeEditorPage() {
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const syncTimeoutRef = useRef<Record<number, NodeJS.Timeout>>({});
   const [shareLoadingId, setShareLoadingId] = useState<string | null>(null);
   const [showScanPanel, setShowScanPanel] = useState(false);
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
+
+  const notesWithUserPins = useMemo(() => {
+    const pinnedSet = new Set(pinnedNoteIds);
+    return notes.map((note) => ({
+      ...note,
+      is_pinned: pinnedSet.has(note.id),
+    }));
+  }, [notes, pinnedNoteIds]);
 
   const matchStats = useMemo(() => {
     let matched = 0;
@@ -296,9 +312,17 @@ export default function SublimeLikeEditorPage() {
   }, [taskMatches]);
 
   const activeNote = useMemo(
-    () => notes.find((n) => n.id === activeNoteId) || null,
-    [notes, activeNoteId]
+    () => notesWithUserPins.find((n) => n.id === activeNoteId) || null,
+    [notesWithUserPins, activeNoteId]
   );
+
+  const currentEditorContent = useMemo(() => {
+    if (!activeNote) return '';
+    if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
+      return editorValue;
+    }
+    return activeNote.content || '';
+  }, [activeNote, editorValue]);
 
   const isOwnerOfActiveNote = useMemo(() => {
     return Boolean(activeNote && activeNote.user_id === userId);
@@ -318,13 +342,13 @@ export default function SublimeLikeEditorPage() {
 
   const filteredNotes = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return notes;
-    return notes.filter(
+    if (!q) return notesWithUserPins;
+    return notesWithUserPins.filter(
       (note) =>
         note.file_name.toLowerCase().includes(q) ||
         (note.group_name || 'Generale').toLowerCase().includes(q)
     );
-  }, [notes, search]);
+  }, [notesWithUserPins, search]);
 
   const groupedNotes = useMemo(() => {
     return noteGroups.map((group) => {
@@ -342,9 +366,9 @@ export default function SublimeLikeEditorPage() {
     if (!activeNote || (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager')) {
       return [1];
     }
-    const totalLines = activeNote.content.split('\n').length || 1;
+    const totalLines = currentEditorContent.split('\n').length || 1;
     return Array.from({ length: totalLines }, (_, i) => i + 1);
-  }, [activeNote]);
+  }, [activeNote, currentEditorContent]);
 
   const normalizeNote = (note: any): EditorNote => ({
     id: note.id,
@@ -367,7 +391,7 @@ export default function SublimeLikeEditorPage() {
         : 'private',
     shared_by_user_id: note.shared_by_user_id ?? null,
     shared_at: note.shared_at ?? null,
-    is_pinned: Boolean(note.is_pinned),
+    is_pinned: false,
     sort_order: typeof note.sort_order === 'number' ? note.sort_order : null,
     group_name: note.group_name ?? 'Generale',
   });
@@ -387,6 +411,26 @@ export default function SublimeLikeEditorPage() {
 
   const canCreateTicketFromMatch = useCallback((match: TaskManagerMatch) => {
     return !match.matchedTicket;
+  }, []);
+
+  const loadPinnedNotes = useCallback(async (uid: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('editor_note_pins')
+        .select('note_id, user_id')
+        .eq('user_id', uid);
+
+      if (error) {
+        console.error('Errore caricamento pin:', error);
+        setPinnedNoteIds([]);
+        return;
+      }
+
+      setPinnedNoteIds((data || []).map((row: NotePinRecord) => row.note_id));
+    } catch (err) {
+      console.error('Errore loadPinnedNotes:', err);
+      setPinnedNoteIds([]);
+    }
   }, []);
 
   const saveNotesOrder = useCallback(async (orderedNotes: EditorNote[]) => {
@@ -491,7 +535,6 @@ export default function SublimeLikeEditorPage() {
             share_mode: 'private',
             shared_by_user_id: null,
             shared_at: null,
-            is_pinned: false,
             sort_order: Date.now(),
             group_name: groupName,
           })
@@ -651,7 +694,6 @@ export default function SublimeLikeEditorPage() {
         if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
         if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
         if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
-        if ((patch as any).is_pinned !== undefined) payload.is_pinned = (patch as any).is_pinned;
         if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
         if ((patch as any).group_name !== undefined) payload.group_name = (patch as any).group_name;
 
@@ -696,16 +738,14 @@ export default function SublimeLikeEditorPage() {
         const updatedNote = data ? normalizeNote(data) : null;
 
         setNotes((prev) =>
-          sortTabs(
-            prev.map((note) =>
-              note.id === noteId
-                ? {
-                    ...note,
-                    ...(updatedNote || patch),
-                    updated_at: now,
-                  }
-                : note
-            )
+          prev.map((note) =>
+            note.id === noteId
+              ? {
+                  ...note,
+                  ...(updatedNote || patch),
+                  updated_at: now,
+                }
+              : note
           )
         );
 
@@ -768,43 +808,42 @@ export default function SublimeLikeEditorPage() {
 
   const togglePinNote = useCallback(
     async (note: EditorNote) => {
-      if (!canManageNote(note)) return;
+      if (!userId) return;
+
+      const alreadyPinned = pinnedNoteIds.includes(note.id);
 
       try {
-        const nextPinned = !note.is_pinned;
-        const payload = {
-          is_pinned: nextPinned,
-          updated_at: new Date().toISOString(),
-        };
+        if (alreadyPinned) {
+          const { error } = await supabase
+            .from('editor_note_pins')
+            .delete()
+            .eq('user_id', userId)
+            .eq('note_id', note.id);
 
-        const { error } = await supabase
-          .from('editor_notes')
-          .update(payload)
-          .eq('id', note.id)
-          .eq('user_id', userId);
+          if (error) {
+            console.error('Errore rimozione pin:', error);
+            return;
+          }
 
-        if (error) {
-          console.error('Errore toggle pin note:', error);
-          return;
+          setPinnedNoteIds((prev) => prev.filter((id) => id !== note.id));
+        } else {
+          const { error } = await supabase.from('editor_note_pins').insert({
+            user_id: userId,
+            note_id: note.id,
+          });
+
+          if (error) {
+            console.error('Errore aggiunta pin:', error);
+            return;
+          }
+
+          setPinnedNoteIds((prev) => [...prev, note.id]);
         }
-
-        setNotes((prev) =>
-          sortTabs(
-            prev.map((n) =>
-              n.id === note.id
-                ? {
-                    ...n,
-                    ...payload,
-                  }
-                : n
-            )
-          )
-        );
       } catch (err) {
         console.error('Errore togglePinNote:', err);
       }
     },
-    [canManageNote, userId]
+    [userId, pinnedNoteIds]
   );
 
   const deleteNote = useCallback(
@@ -823,6 +862,8 @@ export default function SublimeLikeEditorPage() {
           setSaveStatus('error');
           return;
         }
+
+        setPinnedNoteIds((prev) => prev.filter((id) => id !== noteId));
 
         const remaining = notes.filter((n) => n.id !== noteId);
 
@@ -908,27 +949,6 @@ export default function SublimeLikeEditorPage() {
     }));
   }, []);
 
-  const moveNoteToGroup = useCallback(
-    async (noteId: string, targetGroup: string) => {
-      if (!noteId || !targetGroup) return;
-
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === noteId
-            ? {
-                ...note,
-                group_name: targetGroup,
-                updated_at: new Date().toISOString(),
-              }
-            : note
-        )
-      );
-
-      await persistNote(noteId, { group_name: targetGroup });
-    },
-    [persistNote]
-  );
-
   const handleCreateTicketFromMatch = useCallback(
     (match: TaskManagerMatch) => {
       if (!activeNote || !isOwnerOfActiveNote) return;
@@ -960,25 +980,23 @@ export default function SublimeLikeEditorPage() {
   );
 
   const handleDragEnd = useCallback(
-  async (event: any) => {
-    const { active, over } = event;
+    async (event: any) => {
+      const { active, over } = event;
 
-    if (!over || active.id === over.id) return;
+      if (!over || active.id === over.id) return;
 
-    const activeNote = notes.find((n) => n.id === active.id);
-    if (!activeNote) return;
+      const activeDraggedNote = notesWithUserPins.find((n) => n.id === active.id);
+      if (!activeDraggedNote) return;
 
-    const overId = String(over.id);
+      const overId = String(over.id);
 
-    // caso 1: drop su un gruppo
-    if (overId.startsWith('group:')) {
-      const targetGroup = overId.replace('group:', '').trim();
+      if (overId.startsWith('group:')) {
+        const targetGroup = overId.replace('group:', '').trim();
 
-      if (!targetGroup) return;
-      if ((activeNote.group_name || 'Generale').trim() === targetGroup) return;
+        if (!targetGroup) return;
+        if ((activeDraggedNote.group_name || 'Generale').trim() === targetGroup) return;
 
-      setNotes((prev) =>
-        sortTabs(
+        setNotes((prev) =>
           prev.map((note) =>
             note.id === active.id
               ? {
@@ -988,39 +1006,39 @@ export default function SublimeLikeEditorPage() {
                 }
               : note
           )
-        )
-      );
+        );
 
-      await persistNote(String(active.id), { group_name: targetGroup });
-      return;
-    }
+        await persistNote(String(active.id), { group_name: targetGroup });
+        return;
+      }
 
-    // caso 2: riordino dentro lo stesso gruppo
-    const oldIndex = notes.findIndex((n) => n.id === active.id);
-    const newIndex = notes.findIndex((n) => n.id === over.id);
+      const oldIndex = notesWithUserPins.findIndex((n) => n.id === active.id);
+      const newIndex = notesWithUserPins.findIndex((n) => n.id === over.id);
 
-    if (oldIndex === -1 || newIndex === -1) return;
+      if (oldIndex === -1 || newIndex === -1) return;
 
-    const overNote = notes[newIndex];
-    if (!overNote) return;
+      const overNote = notesWithUserPins[newIndex];
+      if (!overNote) return;
 
-    if (
-      (activeNote.group_name || 'Generale').trim() !==
-      (overNote.group_name || 'Generale').trim()
-    ) {
-      return;
-    }
+      if (
+        (activeDraggedNote.group_name || 'Generale').trim() !==
+        (overNote.group_name || 'Generale').trim()
+      ) {
+        return;
+      }
 
-    const reordered = arrayMove(notes, oldIndex, newIndex).map((note, index) => ({
-      ...note,
-      sort_order: index,
-    }));
+      const reorderedWithPins = arrayMove(notesWithUserPins, oldIndex, newIndex).map((note, index) => ({
+        ...note,
+        sort_order: index,
+      }));
 
-    setNotes(sortTabs(reordered));
-    await saveNotesOrder(reordered);
-  },
-  [notes, persistNote, saveNotesOrder]
-);
+      const reorderedRawNotes = reorderedWithPins.map(({ is_pinned, ...note }) => note);
+
+      setNotes(reorderedRawNotes);
+      await saveNotesOrder(reorderedWithPins);
+    },
+    [notesWithUserPins, persistNote, saveNotesOrder]
+  );
 
   const isValidDate = (dateStr: string) => {
     const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
@@ -1050,7 +1068,6 @@ export default function SublimeLikeEditorPage() {
   const syncTicketData = useCallback(
     async (allLines: string[], startIndex: number) => {
       const firstLine = allLines[startIndex];
-
       if (!isTicketStartLine(firstLine)) return;
 
       const clientName = extractClientName(firstLine);
@@ -1163,6 +1180,19 @@ export default function SublimeLikeEditorPage() {
       }
     },
     [allTickets]
+  );
+
+  const syncAllTextTickets = useCallback(
+    async (content: string) => {
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        if (isTicketStartLine(lines[i])) {
+          await syncTicketData(lines, i);
+        }
+      }
+    },
+    [syncTicketData]
   );
 
   const updateCursorPosition = useCallback(() => {
@@ -1336,7 +1366,7 @@ export default function SublimeLikeEditorPage() {
 
     try {
       setScanStatus('scanning');
-      const matches = extractTaskManagerEntries(activeNote.content || '');
+      const matches = extractTaskManagerEntries(editorValue || '');
       setTaskMatches(matches);
       setShowScanPanel(true);
       setScanStatus('done');
@@ -1344,7 +1374,7 @@ export default function SublimeLikeEditorPage() {
       console.error('Errore scansione taskmanager:', err);
       setScanStatus('error');
     }
-  }, [activeNote, extractTaskManagerEntries]);
+  }, [activeNote, extractTaskManagerEntries, editorValue]);
 
   const handleUpdateMatchedTickets = useCallback(async () => {
     if (!activeNote || activeNote.note_type !== 'taskmanager') return;
@@ -1413,17 +1443,7 @@ export default function SublimeLikeEditorPage() {
         return;
       }
 
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === activeNote.id
-            ? {
-                ...note,
-                content: value,
-                updated_at: new Date().toISOString(),
-              }
-            : note
-        )
-      );
+      setEditorValue(value);
 
       if (autosaveTimeoutRef.current) {
         clearTimeout(autosaveTimeoutRef.current);
@@ -1432,24 +1452,64 @@ export default function SublimeLikeEditorPage() {
       autosaveTimeoutRef.current = setTimeout(() => {
         persistNote(activeNote.id, { content: value });
       }, 700);
-
-      if (activeNote.note_type === 'text') {
-        const lines = value.split('\n');
-
-        lines.forEach((line, idx) => {
-          if (isTicketStartLine(line)) {
-            if (syncTimeoutRef.current[idx]) {
-              clearTimeout(syncTimeoutRef.current[idx]);
-            }
-
-            syncTimeoutRef.current[idx] = setTimeout(() => {
-              syncTicketData(lines, idx);
-            }, 600);
-          }
-        });
-      }
     },
-    [activeNote, persistNote, syncTicketData, canEditActiveNote]
+    [activeNote, persistNote, canEditActiveNote]
+  );
+
+  const handleEditorBlur = useCallback(async () => {
+    if (
+      !activeNote ||
+      (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager') ||
+      !canEditActiveNote
+    ) {
+      return;
+    }
+
+    if (autosaveTimeoutRef.current) {
+      clearTimeout(autosaveTimeoutRef.current);
+    }
+
+    await persistNote(activeNote.id, { content: editorValue });
+
+    if (activeNote.note_type === 'text') {
+      await syncAllTextTickets(editorValue);
+    }
+  }, [activeNote, canEditActiveNote, editorValue, persistNote, syncAllTextTickets]);
+
+  const handleEditorKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key !== 'Tab') return;
+
+      e.preventDefault();
+
+      const textarea = e.currentTarget;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+      const tab = '\t';
+
+      const nextValue = value.slice(0, start) + tab + value.slice(end);
+
+      setEditorValue(nextValue);
+
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+
+      if (activeNote && canEditActiveNote) {
+        autosaveTimeoutRef.current = setTimeout(() => {
+          persistNote(activeNote.id, { content: nextValue });
+        }, 700);
+      }
+
+      requestAnimationFrame(() => {
+        if (!editorRef.current) return;
+        editorRef.current.selectionStart = start + tab.length;
+        editorRef.current.selectionEnd = start + tab.length;
+        updateCursorPosition();
+      });
+    },
+    [activeNote, canEditActiveNote, persistNote, updateCursorPosition]
   );
 
   const handleCreateNote = useCallback(
@@ -1476,6 +1536,7 @@ export default function SublimeLikeEditorPage() {
       setActiveNoteId(created.id);
       setTaskMatches([]);
       setShowPreview(false);
+      setEditorValue('');
     },
     [createNote, notes.length, userId, newGroupName, noteGroups]
   );
@@ -1487,6 +1548,22 @@ export default function SublimeLikeEditorPage() {
 
   const handleManualSave = useCallback(async () => {
     if (!activeNote || !canEditActiveNote) return;
+
+    if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
+      await persistNote(activeNote.id, {
+        content: editorValue,
+        note_type: activeNote.note_type,
+        file_name: activeNote.file_name,
+        group_name: activeNote.group_name,
+      });
+
+      if (activeNote.note_type === 'text') {
+        await syncAllTextTickets(editorValue);
+      }
+
+      return;
+    }
+
     await persistNote(activeNote.id, {
       content: activeNote.content,
       note_type: activeNote.note_type,
@@ -1494,7 +1571,7 @@ export default function SublimeLikeEditorPage() {
       file_name: activeNote.file_name,
       group_name: activeNote.group_name,
     });
-  }, [activeNote, persistNote, canEditActiveNote]);
+  }, [activeNote, persistNote, canEditActiveNote, editorValue, syncAllTextTickets]);
 
   const updateActiveTodoItems = useCallback(
     async (updater: (items: TodoItem[]) => TodoItem[]) => {
@@ -1607,32 +1684,19 @@ export default function SublimeLikeEditorPage() {
         setFixingClienteKey(key);
 
         const correctClient = match.matchedTicket.cliente.trim();
-        const lines = (activeNote.content || '').split('\n');
+        const lines = (editorValue || '').split('\n');
 
         if (match.lineIndex < 0 || match.lineIndex >= lines.length) return;
 
         const originalLine = lines[match.lineIndex];
-
         const clientToken = correctClient.includes(' ') ? `@"${correctClient}"` : `@${correctClient}`;
-
         const updatedLine = originalLine.replace(/@"([^"]+)"|@([^\s]+)/, clientToken);
 
         lines[match.lineIndex] = updatedLine;
 
         const updatedContent = lines.join('\n');
 
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === activeNote.id
-              ? {
-                  ...note,
-                  content: updatedContent,
-                  updated_at: new Date().toISOString(),
-                }
-              : note
-          )
-        );
-
+        setEditorValue(updatedContent);
         await persistNote(activeNote.id, { content: updatedContent });
 
         const rescanned = extractTaskManagerEntries(updatedContent);
@@ -1641,7 +1705,7 @@ export default function SublimeLikeEditorPage() {
         setFixingClienteKey(null);
       }
     },
-    [activeNote, persistNote, extractTaskManagerEntries, isOwnerOfActiveNote]
+    [activeNote, persistNote, extractTaskManagerEntries, isOwnerOfActiveNote, editorValue]
   );
 
   useEffect(() => {
@@ -1692,6 +1756,7 @@ export default function SublimeLikeEditorPage() {
       } else {
         setUserId('');
         setNotes([]);
+        setPinnedNoteIds([]);
         setNoteGroups([]);
         setActiveNoteId('');
         setAuthError('Utente non autenticato');
@@ -1724,7 +1789,13 @@ export default function SublimeLikeEditorPage() {
 
       try {
         setLoading(true);
-        await Promise.all([fetchTickets(), fetchClienti(), loadNotes(userId), loadGroups(userId)]);
+        await Promise.all([
+          fetchTickets(),
+          fetchClienti(),
+          loadNotes(userId),
+          loadGroups(userId),
+          loadPinnedNotes(userId),
+        ]);
       } catch (err) {
         console.error('Errore initData:', err);
       } finally {
@@ -1733,7 +1804,18 @@ export default function SublimeLikeEditorPage() {
     };
 
     initData();
-  }, [authReady, userId, fetchTickets, fetchClienti, loadNotes, loadGroups]);
+  }, [authReady, userId, fetchTickets, fetchClienti, loadNotes, loadGroups, loadPinnedNotes]);
+
+  useEffect(() => {
+    if (
+      activeNote &&
+      (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager')
+    ) {
+      setEditorValue(activeNote.content || '');
+    } else {
+      setEditorValue('');
+    }
+  }, [activeNoteId, activeNote?.content, activeNote?.note_type]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1878,7 +1960,6 @@ export default function SublimeLikeEditorPage() {
                         return (
                           <SortableTabItem key={note.id} note={note} isActive={isActive}>
                             <div
-
                               onMouseEnter={() => setHoveredNoteId(note.id)}
                               onMouseLeave={() =>
                                 setHoveredNoteId((prev) => (prev === note.id ? null : prev))
@@ -1903,7 +1984,7 @@ export default function SublimeLikeEditorPage() {
                                   className="flex-1 min-w-0 text-left cursor-pointer"
                                 >
                                   <div className="flex items-center gap-2">
-                                    {hoveredNoteId === note.id && canManageNote(note) ? (
+                                    {hoveredNoteId === note.id ? (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -1915,7 +1996,7 @@ export default function SublimeLikeEditorPage() {
                                             ? 'text-yellow-300 hover:text-yellow-200'
                                             : 'text-white/50 hover:text-yellow-300'
                                         }`}
-                                        title={note.is_pinned ? 'Rimuovi pin' : 'Metti in alto'}
+                                        title={note.is_pinned ? 'Rimuovi pin personale' : 'Metti in alto per me'}
                                       >
                                         <Pin size={13} />
                                       </button>
@@ -1928,6 +2009,7 @@ export default function SublimeLikeEditorPage() {
                                     )}
 
                                     <div className="text-sm truncate">{note.file_name}</div>
+
                                     {note.is_pinned && (
                                       <Pin size={11} className="text-yellow-300 shrink-0" />
                                     )}
@@ -2177,8 +2259,10 @@ export default function SublimeLikeEditorPage() {
                 <div className="h-full pr-0">
                   <textarea
                     ref={editorRef}
-                    value={activeNote?.content || ''}
+                    value={editorValue}
                     onChange={(e) => handleEditorChange(e.target.value)}
+                    onKeyDown={handleEditorKeyDown}
+                    onBlur={handleEditorBlur}
                     onClick={updateCursorPosition}
                     onKeyUp={updateCursorPosition}
                     onSelect={updateCursorPosition}
@@ -2366,8 +2450,10 @@ Altra nota`}
               <div className="flex-1 min-w-0 relative">
                 <textarea
                   ref={editorRef}
-                  value={activeNote?.content || ''}
+                  value={editorValue}
                   onChange={(e) => handleEditorChange(e.target.value)}
+                  onKeyDown={handleEditorKeyDown}
+                  onBlur={handleEditorBlur}
                   onClick={updateCursorPosition}
                   onKeyUp={updateCursorPosition}
                   onSelect={updateCursorPosition}
@@ -2383,7 +2469,7 @@ Altra nota`}
             </>
           ) : (
             <div className="flex-1 overflow-auto p-6 whitespace-pre-wrap text-sm leading-7 text-[#f8f8f2]">
-              {activeNote?.content || 'Nessun contenuto'}
+              {currentEditorContent || 'Nessun contenuto'}
             </div>
           )}
         </div>
