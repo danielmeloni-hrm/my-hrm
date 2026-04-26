@@ -22,7 +22,18 @@ import {
   ChevronUp,
   CalendarRange,
   Pin,
+  CheckSquare,
+  Plus,Phone, FileText,
 } from 'lucide-react'
+import {
+  APPLICATIVI_LIST,
+  TOOL_LIST,
+  ATTIVITA_LIST,
+  SPRINT_LIST,
+  STATO_TICKET_LIST,
+  TIPOLOGIA_TICKET,
+  PRIORITA_LIST,
+} from "@/components/parametri_ticket/attivita";
 
 const STATO_OPTIONS = [
   'Non Iniziato',
@@ -37,7 +48,7 @@ const STATO_OPTIONS = [
   'Completato',
 ]
 
-const TOOL_OPTIONS = ['GA4', 'GTM', 'BigQuery', 'Databricks']
+
 const SPRINT_OPTIONS = ['Sprint', 'Opex', 'Backlog', 'Progetto Separato']
 
 const TIPO_ATTIVITA_OPTIONS = [
@@ -98,8 +109,22 @@ type FileLink = {
   link: string
 }
 
+type TicketSubTask = {
+  id: string
+  titolo: string
+  completato: boolean
+}
+
+type TicketTask = {
+  id: string
+  titolo: string
+  completato: boolean
+  sottoTask: TicketSubTask[]
+}
+
 const defaultSections = {
   storiaAttivita: true,
+  task: true,
   noteTecniche: true,
   noteImportanti: true,
   projectMetrics: true,
@@ -133,7 +158,7 @@ export default function TicketDettaglioPage() {
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
-  
+
   useEffect(() => {
     const fetchTagHours = async () => {
       const voceCalendario = ticketData?.voce_calendario?.trim()
@@ -209,44 +234,48 @@ export default function TicketDettaglioPage() {
     setTempTicketCollegato(ticketData.ticket_collegato || '')
     setTempTicketCollegatoLink(ticketData.ticket_collegato_link || '')
   }, [ticketData])
-
-  useEffect(() => {
-  const loadProfileSettings = async () => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) return
-
-      const { data, error } = await supabase
-        .from('profili')
-        .select('ore_ticket')
-        .eq('id', user.id)
-        .single()
-
-      if (error) {
-        console.error('Errore caricamento profilo:', error.message)
-        return
-      }
-
-      setCanShowTicketHours(data?.ore_ticket === true)
-    } catch (error) {
-      console.error('Errore imprevisto caricamento profilo:', error)
-    }
-  }
-
-  loadProfileSettings()
-}, [supabase])
-
-  
-
-  const toggleSection = (section: keyof typeof openSections) => {
-  setOpenSections((prev) => ({
+const [openTaskIds, setOpenTaskIds] = useState<Record<string, boolean>>({})
+const toggleTaskAccordion = (taskId: string) => {
+  setOpenTaskIds((prev) => ({
     ...prev,
-    [section]: !prev[section],
+    [taskId]: !prev[taskId],
   }))
 }
+  useEffect(() => {
+    const loadProfileSettings = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) return
+
+        const { data, error } = await supabase
+          .from('profili')
+          .select('ore_ticket')
+          .eq('id', user.id)
+          .single()
+
+        if (error) {
+          console.error('Errore caricamento profilo:', error.message)
+          return
+        }
+
+        setCanShowTicketHours(data?.ore_ticket === true)
+      } catch (error) {
+        console.error('Errore imprevisto caricamento profilo:', error)
+      }
+    }
+
+    loadProfileSettings()
+  }, [supabase])
+
+  const toggleSection = (section: keyof typeof openSections) => {
+    setOpenSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }))
+  }
 
   const addFileRow = () => {
     setNewFiles((prev) => [...prev, { nome_file: '', link: '' }])
@@ -320,6 +349,8 @@ export default function TicketDettaglioPage() {
     },
   ]
 
+const [isCall, setIsCall] = useState(false)
+const [isVrbl, setIsVrbl] = useState(false)
   const toggleApplicativo = (app: string) => {
     const current = Array.isArray(ticketData?.applicativo) ? ticketData.applicativo : []
     const updated = current.includes(app)
@@ -332,7 +363,14 @@ export default function TicketDettaglioPage() {
   const addLogNote = async () => {
     if (!ticketData || !newLogNote.trim()) return
 
-    const newEntry = `[${logDate}] ${newLogNote.trim()}`
+    const flags = [
+      isCall ? 'CALL' : null,
+      isVrbl ? 'VRBL' : null,
+    ]
+      .filter(Boolean)
+      .join('|')
+
+const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
 
     const updatedLog = Array.isArray(ticketData.storia_ticket)
       ? [...ticketData.storia_ticket, newEntry]
@@ -346,7 +384,10 @@ export default function TicketDettaglioPage() {
 
     await handleUpdate('storia_ticket', updatedLog)
     setNewLogNote('')
+    setIsCall(false)
+    setIsVrbl(false)
   }
+  
 
   const removeLogNote = async (noteToRemove: string) => {
     if (!ticketData) return
@@ -356,6 +397,100 @@ export default function TicketDettaglioPage() {
       : []
 
     await handleUpdate('storia_ticket', updatedLog)
+  }
+
+  const getTasks = (): TicketTask[] => {
+    return Array.isArray(ticketData?.task) ? (ticketData.task as TicketTask[]) : []
+  }
+
+  const saveTasks = async (tasks: TicketTask[]) => {
+    await handleUpdate('task', tasks)
+  }
+
+  const addTask = async () => {
+    const newTask: TicketTask = {
+      id: crypto.randomUUID(),
+      titolo: '',
+      completato: false,
+      sottoTask: [],
+    }
+
+    await saveTasks([...getTasks(), newTask])
+  }
+
+  const updateTask = async (
+    taskId: string,
+    updates: Partial<Omit<TicketTask, 'id' | 'sottoTask'>>
+  ) => {
+    const updated = getTasks().map((task) =>
+      task.id === taskId ? { ...task, ...updates } : task
+    )
+
+    await saveTasks(updated)
+  }
+
+  const removeTask = async (taskId: string) => {
+    await saveTasks(getTasks().filter((task) => task.id !== taskId))
+  }
+
+  const addSubTask = async (taskId: string) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      if (currentSubTasks.length >= 6) return task
+
+      return {
+        ...task,
+        sottoTask: [
+          ...currentSubTasks,
+          {
+            id: crypto.randomUUID(),
+            titolo: '',
+            completato: false,
+          },
+        ],
+      }
+    })
+
+    await saveTasks(updated)
+  }
+
+  const updateSubTask = async (
+    taskId: string,
+    subTaskId: string,
+    updates: Partial<Omit<TicketSubTask, 'id'>>
+  ) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      return {
+        ...task,
+        sottoTask: currentSubTasks.map((subTask) =>
+          subTask.id === subTaskId ? { ...subTask, ...updates } : subTask
+        ),
+      }
+    })
+
+    await saveTasks(updated)
+  }
+
+  const removeSubTask = async (taskId: string, subTaskId: string) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      return {
+        ...task,
+        sottoTask: currentSubTasks.filter((subTask) => subTask.id !== subTaskId),
+      }
+    })
+
+    await saveTasks(updated)
   }
 
   const handleDelete = async () => {
@@ -463,6 +598,7 @@ export default function TicketDettaglioPage() {
                   <div className="space-y-2">
                     {[
                       ['storiaAttivita', 'Storia attività'],
+                      ['task', 'Task'],
                       ['noteTecniche', 'Note tecniche'],
                       ['noteImportanti', 'Note importanti'],
                       ['projectMetrics', 'Dettagli Ticket SN'],
@@ -614,7 +750,7 @@ export default function TicketDettaglioPage() {
                 className={ui.select}
               >
                 <option value="">Seleziona tool</option>
-                {TOOL_OPTIONS.map((tool) => (
+                {TOOL_LIST.map((tool) => (
                   <option key={tool} value={tool}>
                     {tool}
                   </option>
@@ -718,6 +854,12 @@ export default function TicketDettaglioPage() {
 
                             <ul className="space-y-2">
                               {grouped[key].map((note, i) => {
+                                const flagMatch = note.match(/\[(CALL|VRBL)(\|CALL|\|VRBL)?\]/)
+                                const hasCall = flagMatch?.[0]?.includes('CALL')
+                                const hasVrbl = flagMatch?.[0]?.includes('VRBL')
+                                const cleanNote = note.replace(/\[(CALL|VRBL)(\|CALL|\|VRBL)?\]/, '').trim()
+                                const dateText = cleanNote.split(' ')[0]
+                                const bodyText = cleanNote.replace(dateText, '').trim()
                                 const rawLog = ((ticketData.storia_ticket || []) as string[]).find(
                                   (entry: string) => {
                                     const match = entry.match(/^\[(\d{4})-(\d{2})-(\d{2})\]/)
@@ -732,11 +874,23 @@ export default function TicketDettaglioPage() {
                                 )
 
                                 return (
-                                  <li
-                                    key={`${key}-${i}`}
-                                    className="flex items-start justify-between gap-4 rounded-lg px-4 py-3"
-                                  >
-                                    <span className="text-sm text-gray-700">{note}</span>
+                                 <li key={`${key}-${i}`} className="flex items-start gap-4 rounded-lg px-4 py-3">
+                                    {/* COLONNA DATA */}
+                                    <div className="w-[70px] shrink-0">
+                                      <div className="text-sm text-gray-400 font-semibold">
+                                        {dateText}
+                                      </div>
+
+                                      <div className="flex gap-1 mt-1 text-[#0150a0]">
+                                        {hasCall && <Phone size={14} />}
+                                        {hasVrbl && <FileText size={14} className="text-red-500" />}
+                                      </div>
+                                    </div>
+
+                                    {/* TESTO */}
+                                    <div className="flex-1 text-sm text-gray-700 whitespace-pre-wrap">
+                                      {bodyText}
+                                    </div>
 
                                     <button
                                       type="button"
@@ -755,35 +909,238 @@ export default function TicketDettaglioPage() {
                     })()}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-center">
-                    <input
-                      type="date"
-                      value={logDate}
-                      onChange={(e) => setLogDate(e.target.value)}
-                      className={`${ui.field} py-2 text-xs`}
-                    />
-
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-start">
+  
+                    {/* TEXTAREA */}
                     <textarea
                       value={newLogNote}
                       onChange={(e) => setNewLogNote(e.target.value)}
                       placeholder="Aggiungi nota..."
                       className={`${ui.textarea} py-2 text-sm`}
-                      rows={1}
+                      rows={4}
                     />
 
-                    <button
-                      onClick={addLogNote}
-                      className="px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
-                    >
-                      Aggiungi
-                    </button>
+                    {/* COLONNA DESTRA */}
+                    <div className="flex flex-col gap-3">
+
+  {/* DATA */}
+  <input
+    type="date"
+    value={logDate}
+    onChange={(e) => setLogDate(e.target.value)}
+    className={`${ui.field} py-2 text-xs`}
+  />
+
+  {/* CHIP */}
+  <div className="flex gap-2">
+
+    <button
+      type="button"
+      onClick={() => setIsCall(!isCall)}
+      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isCall
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      CALL
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setIsVrbl(!isVrbl)}
+      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isVrbl
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      VRBL
+    </button>
+
+  </div>
+
+
+
+  {/* BUTTON */}
+  <button
+    onClick={addLogNote}
+    className="w-full px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
+  >
+    Aggiungi
+  </button>
+
+</div>
                   </div>
                 </div>
               </div>
             )}
 
+
+<div className="mb-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+  <button
+    type="button"
+    onClick={() => toggleSection('task')}
+    className="w-full flex items-center justify-between px-6 py-5 bg-[#f8fbff] hover:bg-[#eef6ff] "
+  >
+    <div>
+      <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+        Task
+      </h3>
+      <p className="text-xs text-gray-400">
+        {getTasks().length} task
+      </p>
+    </div>
+
+    {openSections.task ? <ChevronUp /> : <ChevronDown />}
+  </button>
+
+  {openSections.task && (
+    <div className="p-3 space-y-2">
+    <div className="p-3 space-y-2">
+
+      
+
+      {getTasks().map((task) => {
+        const isOpen = openTaskIds[task.id] ?? false
+        const subTasks = task.sottoTask || []
+        const completed = subTasks.filter(s => s.completato).length
+        const progress = subTasks.length ? (completed / subTasks.length) * 100 : 0
+
+        return (
+          <div
+  key={task.id}
+  className="relative rounded-2xl border border-gray-300 bg-white overflow-hidden shadow-sm hover:border-gray-400 transition-all"
+>
+  <div
+    className={`absolute bottom-0 left-0 h-[4px] rounded-r-full transition-all duration-500 ${
+      progress === 100
+        ? 'bg-emerald-500'
+        : progress >= 50
+          ? 'bg-yellow-500'
+          : progress > 0
+            ? 'bg-red-500'
+            : 'bg-gray-200'
+    }`}
+    style={{ width: `${progress}%` }}
+  />
+  {/* TASK HEADER */}
+  <div className="flex items-center gap-3 p-4 bg-gray-50">
+    <button
+      type="button"
+      onClick={() =>
+        setOpenTaskIds((prev) => ({
+          ...prev,
+          [task.id]: !prev[task.id],
+        }))
+      }
+      className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-[#0150a0] hover:border-[#0150a0]/40 transition-all"
+    >
+      {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+    </button>
+
+    <input
+      type="checkbox"
+      checked={task.completato}
+      onChange={(e) => updateTask(task.id, { completato: e.target.checked })}
+      className="h-4 w-4 accent-[#0150a0]"
+    />
+
+    <input
+      value={task.titolo}
+      onChange={(e) => updateTask(task.id, { titolo: e.target.value })}
+      className={`flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+        task.completato ? 'line-through text-gray-400' : 'text-gray-800'
+      }`}
+      placeholder="Titolo task"
+    />
+
+    <div className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
+      {completed}/{subTasks.length}
+    </div>
+
+    <button
+      type="button"
+      onClick={() => removeTask(task.id)}
+      className="flex h-9 w-9 items-center justify-center rounded-xl text-red-400 hover:bg-red-50 hover:text-red-600 transition-all"
+    >
+      <Trash2 size={15} />
+    </button>
+  </div>
+
+  
+
+  {/* SUBTASK */}
+  {isOpen && (
+    <div className="border-t border-gray-200 bg-white p-4 space-y-3">
+      {subTasks.map((sub) => (
+        <div
+          key={sub.id}
+          className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2"
+        >
+          <input
+            type="checkbox"
+            checked={sub.completato}
+            onChange={(e) =>
+              updateSubTask(task.id, sub.id, {
+                completato: e.target.checked,
+              })
+            }
+            className="h-3.5 w-3.5 accent-[#0150a0]"
+          />
+
+          <input
+            value={sub.titolo}
+            onChange={(e) =>
+              updateSubTask(task.id, sub.id, {
+                titolo: e.target.value,
+              })
+            }
+            className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+              sub.completato ? 'line-through text-gray-400' : 'text-gray-700'
+            }`}
+            placeholder="Sotto-task"
+          />
+
+          <button
+            type="button"
+            onClick={() => removeSubTask(task.id, sub.id)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+
+      {subTasks.length < 6 && (
+        <button
+          type="button"
+          onClick={() => addSubTask(task.id)}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#d9e7f7] bg-[#f8fbff] px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[#0150a0] hover:bg-[#eef6ff] transition-all"
+        >
+          <Plus size={12} />
+          Sotto-task
+        </button>
+      )}
+    </div>
+  )}
+</div>
+        )
+      })}
+      <div className="flex justify-end">
+        <button
+          onClick={addTask}
+          className="bg-[#0150a0] text-white px-4 py-2 rounded-xl text-xs font-bold"
+        >
+          + Task
+        </button>
+      </div>
+    </div>
+  </div>
+)}</div>
+
             {openSections.noteTecniche && (
-              <div className={`${ui.card} overflow-hidden flex flex-col h-[200px]`}>
+              <div className={`${ui.card} overflow-hidden flex flex-col h-[400px]`}>
                 <textarea
                   value={ticketData.note || ''}
                   onChange={(e) => handleUpdate('note', e.target.value)}

@@ -168,7 +168,7 @@ export default function CreateAttivitaOrChangePage() {
     ricorsivo: false,
     progetto_separato: false,
     link_tag: "",
-    stato: "Aperto" as StatoTicket,
+    stato: "Non Iniziato" as StatoTicket,
     priorita: PRIORITA_LIST[0] as PrioritaTicket,
   });
 
