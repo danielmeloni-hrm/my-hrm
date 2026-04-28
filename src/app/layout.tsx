@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
+import DynamicFavicon from "@/components/DynamicFavicon"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,10 @@ export default function RootLayout({
   return (
     <html lang="it">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        
+        {/* 🔥 favicon dinamico per pagina */}
+        <DynamicFavicon />
+
         {children}
       </body>
     </html>

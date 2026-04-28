@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
+import type { LucideIcon } from 'lucide-react'
 import {
   LayoutGrid,
   Ticket,
@@ -18,15 +19,39 @@ import {
   CalendarDays,
   KeyRound,
   BookMarked,
+  Home,
+  FileText,
+  Database,
+  FolderKanban,
+  ClipboardList,
 } from 'lucide-react'
+
+type IconType = 'lucide' | 'emoji'
 
 type MenuItem = {
   name: string
   path: string
-  icon: React.ReactNode
+  defaultIcon: string
+  defaultEmoji: string
+  defaultColor: string
 }
 
 type SidebarPosition = 'left' | 'right' | 'bottom'
+
+type SidebarItemConfig = {
+  iconType: IconType
+  icon: string
+  emoji: string
+  color: string
+}
+
+type SidebarItemsConfig = Record<string, SidebarItemConfig>
+
+type SidebarSettingsResponse = {
+  sidebar_visible_paths?: string[]
+  sidebar_position?: SidebarPosition
+  sidebar_items_config?: Partial<Record<string, Partial<SidebarItemConfig>>>
+}
 
 function ServiceTag() {
   return (
@@ -58,34 +83,191 @@ export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [visiblePaths, setVisiblePaths] = useState<string[] | null>(null)
   const [position, setPosition] = useState<SidebarPosition>('left')
+  const [itemsConfig, setItemsConfig] = useState<SidebarItemsConfig>({})
 
   const pathname = usePathname()
   const router = useRouter()
 
+  const iconMap: Record<string, LucideIcon> = useMemo(
+    () => ({
+      PlusCircle,
+      LayoutGrid,
+      StickyNote,
+      Ticket,
+      Kanban,
+      CalendarDays,
+      BarChart3,
+      KeyRound,
+      BookMarked,
+      Home,
+      FileText,
+      Database,
+      FolderKanban,
+      ClipboardList,
+    }),
+    []
+  )
+
   const menuItems: MenuItem[] = useMemo(
     () => [
-      { name: 'Nuova Attività', icon: <PlusCircle size={20} />, path: '/new_ticket' },
-      { name: 'Attività in Lavorazione', icon: <LayoutGrid size={20} />, path: '/dashboard_in_lavorazione' },
-      { name: 'Note Board', icon: <StickyNote size={20} />, path: '/note_board' },
-      { name: 'Sprint Board', icon: <Kanban size={20} />, path: '/dashboard' },
-      { name: 'Opex Board', icon: <Kanban size={20} />, path: '/dashboard_opex' },
-      { name: 'Tutte Attività', icon: <Ticket size={20} />, path: '/tutti-i-ticket' },
-      { name: 'Tutti Incident', icon: <Ticket size={20} />, path: '/tutti-gli-incident' },
-      { name: 'Tutte le Change', icon: <Ticket size={20} />, path: '/changes' },
-      { name: 'Documenti & Progetti', icon: <BookMarked size={20} />, path: '/progetti' },
-      { name: 'Calendario Rilasci', icon: <CalendarDays size={20} />, path: '/calendario' },
-      { name: 'Calendario Rilasci CHG', icon: <CalendarDays size={20} />, path: '/calendario_chg' },
-      { name: 'Report', icon: <BarChart3 size={20} />, path: '/report_progetti' },
-      { name: 'Password', icon: <KeyRound size={20} />, path: '/password' },
+      {
+        name: 'Nuova Attività',
+        path: '/new_ticket',
+        defaultIcon: 'PlusCircle',
+        defaultEmoji: '➕',
+        defaultColor: '#0150a0',
+      },
+      {
+        name: 'Attività in Lavorazione',
+        path: '/dashboard_in_lavorazione',
+        defaultIcon: 'LayoutGrid',
+        defaultEmoji: '📊',
+        defaultColor: '#2563eb',
+      },
+      {
+        name: 'Note Board',
+        path: '/note_board',
+        defaultIcon: 'StickyNote',
+        defaultEmoji: '📝',
+        defaultColor: '#9333ea',
+      },
+      {
+        name: 'Sprint Board',
+        path: '/dashboard',
+        defaultIcon: 'Kanban',
+        defaultEmoji: '🚀',
+        defaultColor: '#16a34a',
+      },
+      {
+        name: 'Opex Board',
+        path: '/dashboard_opex',
+        defaultIcon: 'Kanban',
+        defaultEmoji: '🛠️',
+        defaultColor: '#ea580c',
+      },
+      {
+        name: 'Tutte Attività',
+        path: '/tutti-i-ticket',
+        defaultIcon: 'Ticket',
+        defaultEmoji: '🎫',
+        defaultColor: '#0150a0',
+      },
+      {
+        name: 'Tutti Incident',
+        path: '/tutti-gli-incident',
+        defaultIcon: 'Ticket',
+        defaultEmoji: '🚨',
+        defaultColor: '#dc2626',
+      },
+      {
+        name: 'Tutte le Change',
+        path: '/changes',
+        defaultIcon: 'Ticket',
+        defaultEmoji: '🔄',
+        defaultColor: '#0891b2',
+      },
+      {
+        name: 'Documenti & Progetti',
+        path: '/progetti',
+        defaultIcon: 'BookMarked',
+        defaultEmoji: '📁',
+        defaultColor: '#4b5563',
+      },
+      {
+        name: 'Calendario Rilasci',
+        path: '/calendario',
+        defaultIcon: 'CalendarDays',
+        defaultEmoji: '📅',
+        defaultColor: '#16a34a',
+      },
+      {
+        name: 'Calendario Rilasci CHG',
+        path: '/calendario_chg',
+        defaultIcon: 'CalendarDays',
+        defaultEmoji: '🗓️',
+        defaultColor: '#0891b2',
+      },
+      {
+        name: 'Report',
+        path: '/report_progetti',
+        defaultIcon: 'BarChart3',
+        defaultEmoji: '📈',
+        defaultColor: '#9333ea',
+      },
+      {
+        name: 'Password',
+        path: '/password',
+        defaultIcon: 'KeyRound',
+        defaultEmoji: '🔐',
+        defaultColor: '#111827',
+      },
     ],
     []
   )
 
+  const buildDefaultItemsConfig = (): SidebarItemsConfig => {
+    return menuItems.reduce<SidebarItemsConfig>((acc, item) => {
+      acc[item.path] = {
+        iconType: 'lucide',
+        icon: item.defaultIcon,
+        emoji: item.defaultEmoji,
+        color: item.defaultColor,
+      }
+
+      return acc
+    }, {})
+  }
+
+  const normalizeItemsConfig = (
+    storedConfig: SidebarSettingsResponse['sidebar_items_config'],
+    defaultConfig: SidebarItemsConfig
+  ): SidebarItemsConfig => {
+    const merged: SidebarItemsConfig = { ...defaultConfig }
+
+    Object.entries(storedConfig ?? {}).forEach(([path, config]) => {
+      const fallback = defaultConfig[path]
+
+      if (!fallback) return
+
+      merged[path] = {
+        iconType:
+          config?.iconType === 'emoji' || config?.iconType === 'lucide'
+            ? config.iconType
+            : fallback.iconType,
+        icon: typeof config?.icon === 'string' ? config.icon : fallback.icon,
+        emoji: typeof config?.emoji === 'string' ? config.emoji : fallback.emoji,
+        color: typeof config?.color === 'string' ? config.color : fallback.color,
+      }
+    })
+
+    return merged
+  }
+
+  const getItemConfig = (item: MenuItem): SidebarItemConfig => {
+    return (
+      itemsConfig[item.path] ?? {
+        iconType: 'lucide',
+        icon: item.defaultIcon,
+        emoji: item.defaultEmoji,
+        color: item.defaultColor,
+      }
+    )
+  }
+
+  const getIconComponent = (iconKey: string): LucideIcon => {
+    return iconMap[iconKey] ?? LayoutGrid
+  }
+
   useEffect(() => {
     const loadSidebar = async () => {
+      const defaultConfig = buildDefaultItemsConfig()
+
       try {
-        const res = await fetch('/api/settings/sidebar')
-        const j = await res.json().catch(() => null)
+        const res = await fetch('/api/settings/sidebar', {
+          cache: 'no-store',
+        })
+
+        const j: SidebarSettingsResponse | null = await res.json().catch(() => null)
 
         if (Array.isArray(j?.sidebar_visible_paths) && j.sidebar_visible_paths.length > 0) {
           setVisiblePaths(j.sidebar_visible_paths)
@@ -102,24 +284,23 @@ export default function Sidebar() {
         } else {
           setPosition('left')
         }
+
+        setItemsConfig(normalizeItemsConfig(j?.sidebar_items_config, defaultConfig))
       } catch {
         setVisiblePaths(null)
         setPosition('left')
+        setItemsConfig(defaultConfig)
       }
     }
 
     loadSidebar()
 
-    const handleUpdate = () => {
-      loadSidebar()
-    }
-
-    window.addEventListener('sidebar-updated', handleUpdate)
+    window.addEventListener('sidebar-updated', loadSidebar)
 
     return () => {
-      window.removeEventListener('sidebar-updated', handleUpdate)
+      window.removeEventListener('sidebar-updated', loadSidebar)
     }
-  }, [])
+  }, [menuItems])
 
   const filteredMenu = useMemo(() => {
     return visiblePaths ? menuItems.filter((m) => visiblePaths.includes(m.path)) : menuItems
@@ -131,6 +312,21 @@ export default function Sidebar() {
     router.refresh()
   }
 
+  const renderMenuIcon = (
+    config: SidebarItemConfig,
+    size: number,
+    strokeWidth = 2.1,
+    emojiClassName = 'text-lg leading-none'
+  ) => {
+    if (config.iconType === 'emoji') {
+      return <span className={emojiClassName}>{config.emoji}</span>
+    }
+
+    const Icon = getIconComponent(config.icon)
+
+    return <Icon size={size} strokeWidth={strokeWidth} />
+  }
+
   if (position === 'bottom') {
     return (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70]">
@@ -139,16 +335,23 @@ export default function Sidebar() {
             {filteredMenu.map((item, index) => {
               const isExternal = item.path.startsWith('http')
               const isActive = !isExternal && pathname === item.path
+              const config = getItemConfig(item)
 
               const commonClass = `group relative h-12 w-12 rounded-2xl flex items-center justify-center transition ${
-                isActive
-                  ? 'bg-blue-50 text-[#0150a0] shadow-sm'
-                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                isActive ? 'bg-blue-50 shadow-sm' : 'hover:bg-gray-100'
               }`
 
               const content = (
                 <>
-                  <div>{item.icon}</div>
+                  <div
+                    className="h-9 w-9 rounded-xl flex items-center justify-center transition"
+                    style={{
+                      color: config.iconType === 'emoji' ? undefined : config.color,
+                    }}
+                  >
+                    {renderMenuIcon(config, 19, 2.1, 'text-xl leading-none')}
+                  </div>
+
                   <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                     {item.name}
                   </div>
@@ -200,7 +403,7 @@ export default function Sidebar() {
               href="/settings"
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
-              <Settings size={20} />
+              <Settings size={20} strokeWidth={2.1} />
               <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Impostazioni
               </div>
@@ -210,7 +413,7 @@ export default function Sidebar() {
               onClick={handleLogout}
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-red-500 hover:bg-red-50"
             >
-              <LogOut size={20} />
+              <LogOut size={20} strokeWidth={2.1} />
               <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Logout
               </div>
@@ -262,20 +465,27 @@ export default function Sidebar() {
         {filteredMenu.map((item, index) => {
           const isExternal = item.path.startsWith('http')
           const isActive = !isExternal && pathname === item.path
+          const config = getItemConfig(item)
 
           const content = (
             <>
               <div
-                className={`shrink-0 transition-colors ${
-                  isActive ? 'text-[#0150a0]' : 'group-hover:text-gray-900'
+                className={`shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
+                  isActive ? 'bg-white' : 'group-hover:bg-white'
                 }`}
+                style={{
+                  color: config.iconType === 'emoji' ? undefined : config.color,
+                }}
               >
-                {item.icon}
+                {renderMenuIcon(config, 18, 2.1, 'text-lg leading-none')}
               </div>
 
               {!isCollapsed && (
                 <div className="flex items-center justify-between w-full min-w-0">
-                  <span className="text-[13px] font-bold tracking-tight whitespace-nowrap">
+                  <span
+                    className="text-[13px] font-bold tracking-tight whitespace-nowrap"
+                    style={{ color: isActive ? config.color : undefined }}
+                  >
                     {item.name}
                   </span>
                 </div>
@@ -283,9 +493,9 @@ export default function Sidebar() {
             </>
           )
 
-          const className = `flex items-center gap-4 p-3 rounded-xl transition-all group ${
+          const className = `flex items-center gap-3 p-2 rounded-xl transition-all group ${
             isActive
-              ? 'bg-blue-50 text-[#0150a0] shadow-sm shadow-blue-100/50'
+              ? 'bg-blue-50 shadow-sm shadow-blue-100/50'
               : 'text-gray-400 hover:bg-gray-50 hover:text-gray-900'
           }`
 
@@ -350,9 +560,12 @@ export default function Sidebar() {
       <div className="p-4 border-t border-gray-50 space-y-2">
         <Link
           href="/settings"
-          className="w-full flex items-center gap-4 p-3 text-gray-400 hover:text-gray-900 transition-all overflow-hidden rounded-xl hover:bg-gray-50"
+          className="w-full flex items-center gap-3 p-2 text-gray-400 hover:text-gray-900 transition-all overflow-hidden rounded-xl hover:bg-gray-50 group"
         >
-          <Settings size={20} className="shrink-0" />
+          <div className="shrink-0 h-8 w-8 rounded-lg flex items-center justify-center group-hover:bg-white">
+            <Settings size={18} strokeWidth={2.1} />
+          </div>
+
           {!isCollapsed && (
             <span className="text-[13px] font-bold whitespace-nowrap">Impostazioni</span>
           )}
@@ -360,9 +573,12 @@ export default function Sidebar() {
 
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-4 p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all overflow-hidden"
+          className="w-full flex items-center gap-3 p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all overflow-hidden group"
         >
-          <LogOut size={20} className="shrink-0" />
+          <div className="shrink-0 h-8 w-8 rounded-lg flex items-center justify-center group-hover:bg-white">
+            <LogOut size={18} strokeWidth={2.1} />
+          </div>
+
           {!isCollapsed && <span className="text-[13px] font-bold whitespace-nowrap">Logout</span>}
         </button>
       </div>
