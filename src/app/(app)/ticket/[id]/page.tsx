@@ -23,7 +23,7 @@ import {
   CalendarRange,
   Pin,
   CheckSquare,
-  Plus,Phone, FileText,
+  Plus,Phone, FileText,Mail,
 } from 'lucide-react'
 import {
   APPLICATIVI_LIST,
@@ -351,6 +351,7 @@ const toggleTaskAccordion = (taskId: string) => {
 
 const [isCall, setIsCall] = useState(false)
 const [isVrbl, setIsVrbl] = useState(false)
+const [isPing, setIsPing] = useState(false)
   const toggleApplicativo = (app: string) => {
     const current = Array.isArray(ticketData?.applicativo) ? ticketData.applicativo : []
     const updated = current.includes(app)
@@ -366,6 +367,7 @@ const [isVrbl, setIsVrbl] = useState(false)
     const flags = [
       isCall ? 'CALL' : null,
       isVrbl ? 'VRBL' : null,
+      isPing ? 'PING' : null,
     ]
       .filter(Boolean)
       .join('|')
@@ -386,6 +388,7 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
     setNewLogNote('')
     setIsCall(false)
     setIsVrbl(false)
+    setIsPing(false)
   }
   
 
@@ -837,8 +840,8 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
                   </span>
                 </div>
 
-                <div className="flex flex-col flex-1 border-b border-gray-100">
-                  <div className="flex-1 overflow-y-auto p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
+                <div className={`${ui.card} overflow-hidden flex flex-col h-[650px] min-h-0`}>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
                     {(() => {
                       const grouped = groupLogsByMonth(ticketData.storia_ticket || [])
                       const sortedKeys = Object.keys(grouped).sort()
@@ -854,10 +857,19 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
 
                             <ul className="space-y-2">
                               {grouped[key].map((note, i) => {
-                                const flagMatch = note.match(/\[(CALL|VRBL)(\|CALL|\|VRBL)?\]/)
-                                const hasCall = flagMatch?.[0]?.includes('CALL')
-                                const hasVrbl = flagMatch?.[0]?.includes('VRBL')
-                                const cleanNote = note.replace(/\[(CALL|VRBL)(\|CALL|\|VRBL)?\]/, '').trim()
+                               const flagsMatch = note.match(/\[(.*?)\]/g)
+
+                                const flagsText = flagsMatch?.find((item) =>
+                                  item.includes('CALL') || item.includes('VRBL') || item.includes('PING')
+                                ) || ''
+
+                                const hasCall = flagsText.includes('CALL')
+                                const hasVrbl = flagsText.includes('VRBL')
+                                const hasPing = flagsText.includes('PING')
+
+                                const cleanNote = note
+                                  .replace(/\[(CALL|VRBL|PING)(\|(CALL|VRBL|PING))*\]/g, '')
+                                  .trim()
                                 const dateText = cleanNote.split(' ')[0]
                                 const bodyText = cleanNote.replace(dateText, '').trim()
                                 const rawLog = ((ticketData.storia_ticket || []) as string[]).find(
@@ -884,6 +896,7 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
                                       <div className="flex gap-1 mt-1 text-[#0150a0]">
                                         {hasCall && <Phone size={14} />}
                                         {hasVrbl && <FileText size={14} className="text-red-500" />}
+                                        {hasPing && <Mail size={14} className="text-emerald-500" />}
                                       </div>
                                     </div>
 
@@ -937,7 +950,7 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
     <button
       type="button"
       onClick={() => setIsCall(!isCall)}
-      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
         isCall
           ? 'bg-[#0150a0] text-white border-[#0150a0]'
           : 'bg-white text-gray-400 border-gray-200'
@@ -949,7 +962,7 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
     <button
       type="button"
       onClick={() => setIsVrbl(!isVrbl)}
-      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
         isVrbl
           ? 'bg-[#0150a0] text-white border-[#0150a0]'
           : 'bg-white text-gray-400 border-gray-200'
@@ -957,7 +970,17 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
     >
       VRBL
     </button>
-
+    <button
+      type="button"
+      onClick={() => setIsPing(!isPing)}
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isPing
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      PING
+    </button>
   </div>
 
 

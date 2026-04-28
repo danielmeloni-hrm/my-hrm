@@ -948,7 +948,86 @@ export default function SublimeLikeEditorPage() {
       [groupName]: !prev[groupName],
     }));
   }, []);
+  const handleCleanSharedTabs = useCallback(async () => {
+  if (!userId) return;
 
+  const sharedGroupName = 'TAB CONDIVISE';
+
+  try {
+    let targetGroup = noteGroups.find(
+      (group) => group.name.trim().toUpperCase() === sharedGroupName
+    );
+
+    if (!targetGroup) {
+      const { data, error } = await supabase
+        .from('editor_note_groups')
+        .insert({
+          user_id: userId,
+          name: sharedGroupName,
+          sort_order: noteGroups.length,
+        })
+        .select('id, name, sort_order')
+        .single();
+
+      if (error) {
+        console.error('Errore creazione gruppo TAB CONDIVISE:', error);
+        return;
+      }
+
+      targetGroup = {
+        id: data.id,
+        name: data.name,
+        sort_order: data.sort_order ?? noteGroups.length,
+      };
+
+      setNoteGroups((prev) =>
+        [...prev, targetGroup!].sort((a, b) => a.sort_order - b.sort_order)
+      );
+    }
+
+    const sharedNotes = notes.filter(
+      (note) =>
+        note.user_id !== userId &&
+      (note.group_name || 'Generale').trim().toLowerCase() === 'generale' &&
+        (note.share_mode === 'shared_view' || note.share_mode === 'shared_edit')
+    );
+
+    if (sharedNotes.length === 0) return;
+
+    setNotes((prev) =>
+      prev.map((note) =>
+        sharedNotes.some((shared) => shared.id === note.id)
+          ? {
+              ...note,
+              group_name: sharedGroupName,
+              updated_at: new Date().toISOString(),
+            }
+          : note
+      )
+    );
+
+    for (const note of sharedNotes) {
+      const { error } = await supabase
+        .from('editor_notes')
+        .update({
+          group_name: sharedGroupName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', note.id);
+
+      if (error) {
+        console.error('Errore spostamento tab condivisa:', error);
+      }
+    }
+
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [sharedGroupName]: false,
+    }));
+  } catch (err) {
+    console.error('Errore handleCleanSharedTabs:', err);
+  }
+}, [userId, noteGroups, notes]);
   const handleCreateTicketFromMatch = useCallback(
     (match: TaskManagerMatch) => {
       if (!activeNote || !isOwnerOfActiveNote) return;
@@ -1856,9 +1935,20 @@ export default function SublimeLikeEditorPage() {
   return (
     <div className="h-screen w-full bg-[#1e1e1e] text-[#d4d4d4] font-mono flex overflow-hidden">
       <aside className="w-[320px] bg-[#252526] border-r border-white/10 flex flex-col shrink-0">
-        <div className="h-12 px-3 border-b border-white/10 flex items-center gap-2 text-sm font-bold tracking-wide text-white">
-          <FileText size={16} />
-          NOTES
+        <div className="h-12 px-3 border-b border-white/10 flex items-center justify-between gap-2 text-sm font-bold tracking-wide text-white">
+          <div className="flex items-center gap-2">
+            <FileText size={16} />
+            NOTES
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCleanSharedTabs}
+            className="h-7 px-2 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] text-[10px] font-bold uppercase tracking-wide text-white/80"
+            title="Sposta tutte le tab condivise nella cartella TAB CONDIVISE"
+          >
+            Pulisci
+          </button>
         </div>
 
         <div className="p-2 border-b border-white/10">
