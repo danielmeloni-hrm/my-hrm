@@ -193,6 +193,12 @@ export default function SettingsPage() {
         defaultIcon: 'Ticket',
         defaultEmoji: '🔄',
         defaultColor: '#0891b2',
+      },      {
+        name: 'Email',
+        path: '/topic_email',
+        defaultIcon: 'Mail',
+        defaultEmoji: '➕',
+        defaultColor: '#0150a0',
       },
       {
         name: 'Documenti & Progetti',

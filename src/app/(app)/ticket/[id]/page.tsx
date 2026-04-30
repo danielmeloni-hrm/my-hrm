@@ -109,10 +109,17 @@ type FileLink = {
   link: string
 }
 
+type TicketSubSubTask = {
+  id: string
+  titolo: string
+  completato: boolean
+}
+
 type TicketSubTask = {
   id: string
   titolo: string
   completato: boolean
+  sottoSottoTask: TicketSubSubTask[]
 }
 
 type TicketTask = {
@@ -452,6 +459,7 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
             id: crypto.randomUUID(),
             titolo: '',
             completato: false,
+            sottoSottoTask: [],
           },
         ],
       }
@@ -495,6 +503,99 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
 
     await saveTasks(updated)
   }
+  const addSubSubTask = async (taskId: string, subTaskId: string) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: [
+            ...currentSubSubTasks,
+            {
+              id: crypto.randomUUID(),
+              titolo: '',
+              completato: false,
+            },
+          ],
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}
+
+const updateSubSubTask = async (
+  taskId: string,
+  subTaskId: string,
+  subSubTaskId: string,
+  updates: Partial<Omit<TicketSubSubTask, 'id'>>
+) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: currentSubSubTasks.map((subSubTask) =>
+            subSubTask.id === subSubTaskId
+              ? { ...subSubTask, ...updates }
+              : subSubTask
+          ),
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}
+
+const removeSubSubTask = async (
+  taskId: string,
+  subTaskId: string,
+  subSubTaskId: string
+) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: currentSubSubTasks.filter(
+            (subSubTask) => subSubTask.id !== subSubTaskId
+          ),
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}  
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
@@ -1096,44 +1197,103 @@ const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
   {/* SUBTASK */}
   {isOpen && (
     <div className="border-t border-gray-200 bg-white p-4 space-y-3">
-      {subTasks.map((sub) => (
-        <div
-          key={sub.id}
-          className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2"
+      {subTasks.map((sub) => {
+  const subSubTasks = Array.isArray(sub.sottoSottoTask)
+    ? sub.sottoSottoTask
+    : []
+
+  return (
+    <div key={sub.id} className="space-y-2">
+      <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2">
+        <input
+          type="checkbox"
+          checked={sub.completato}
+          onChange={(e) =>
+            updateSubTask(task.id, sub.id, {
+              completato: e.target.checked,
+            })
+          }
+          className="h-3.5 w-3.5 accent-[#0150a0]"
+        />
+
+        <input
+          value={sub.titolo}
+          onChange={(e) =>
+            updateSubTask(task.id, sub.id, {
+              titolo: e.target.value,
+            })
+          }
+          className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+            sub.completato ? 'line-through text-gray-400' : 'text-gray-700'
+          }`}
+          placeholder="Sotto-task"
+        />
+
+        <button
+          type="button"
+          onClick={() => addSubSubTask(task.id, sub.id)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#0150a0] hover:bg-blue-50 transition-all"
+          title="Aggiungi sotto-task di 3° livello"
         >
-          <input
-            type="checkbox"
-            checked={sub.completato}
-            onChange={(e) =>
-              updateSubTask(task.id, sub.id, {
-                completato: e.target.checked,
-              })
-            }
-            className="h-3.5 w-3.5 accent-[#0150a0]"
-          />
+          <Plus size={13} />
+        </button>
 
-          <input
-            value={sub.titolo}
-            onChange={(e) =>
-              updateSubTask(task.id, sub.id, {
-                titolo: e.target.value,
-              })
-            }
-            className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
-              sub.completato ? 'line-through text-gray-400' : 'text-gray-700'
-            }`}
-            placeholder="Sotto-task"
-          />
+        <button
+          type="button"
+          onClick={() => removeSubTask(task.id, sub.id)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
 
-          <button
-            type="button"
-            onClick={() => removeSubTask(task.id, sub.id)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
-          >
-            <Trash2 size={13} />
-          </button>
+      {subSubTasks.length > 0 && (
+        <div className="ml-8 space-y-2 border-l border-gray-200 pl-4">
+          {subSubTasks.map((subSub) => (
+            <div
+              key={subSub.id}
+              className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={subSub.completato}
+                onChange={(e) =>
+                  updateSubSubTask(task.id, sub.id, subSub.id, {
+                    completato: e.target.checked,
+                  })
+                }
+                className="h-3.5 w-3.5 accent-[#0150a0]"
+              />
+
+              <input
+                value={subSub.titolo}
+                onChange={(e) =>
+                  updateSubSubTask(task.id, sub.id, subSub.id, {
+                    titolo: e.target.value,
+                  })
+                }
+                className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+                  subSub.completato
+                    ? 'line-through text-gray-400'
+                    : 'text-gray-700'
+                }`}
+                placeholder="Sotto-task livello 3"
+              />
+
+              <button
+                type="button"
+                onClick={() => removeSubSubTask(task.id, sub.id, subSub.id)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+    </div>
+  )
+})}
 
       {subTasks.length < 6 && (
         <button
