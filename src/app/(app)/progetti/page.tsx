@@ -5,15 +5,26 @@ import { createClient } from '@/lib/supabase';
 import {
   ChevronDown,
   ChevronUp,
+  Clock3,
+  CircleDashed,
+  AlertTriangle,
+  CheckCircle2,
   ExternalLink,
   Pencil,
   Plus,
+  BarChart3,
   Save,
   Search,
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  SiGoogletagmanager,
+  SiGoogleanalytics,
+  SiGooglebigquery,
+  SiLooker,
 
+} from '@icons-pack/react-simple-icons';
 const supabase = createClient();
 
 const BRAND = '#0150a0';
@@ -203,7 +214,6 @@ type SortKey =
   | 'versione'
   | 'nome_evolutiva'
   | 'numero_change'
-  | 'completion'
   | 'updated_at';
 
 type SortDirection = 'asc' | 'desc';
@@ -304,6 +314,181 @@ function renderStepSummary(value: StepFieldValue) {
     return value.join(' • ');
   }
   return value || 'Da Fare';
+}
+
+
+function getStepIcon(value: StepFieldValue) {
+  const statuses = Array.isArray(value) ? value : [value];
+
+  const hasValue = statuses.some((status) => status && status.trim() !== '');
+
+  if (!hasValue || statuses.length === 0) {
+    return (
+      <CircleDashed
+        size={16}
+        className="text-gray-400"
+      />
+    );
+  }
+
+  if (
+    statuses.includes('Completato') ||
+    statuses.includes('Non Necessaria') ||
+    statuses.includes('Inviato') ||
+    statuses.includes('GTM OK') ||
+    statuses.includes('GA4 OK')
+  ) {
+    return (
+      <CheckCircle2
+        size={16}
+        className="text-green-500"
+      />
+    );
+  }
+
+  if (
+    statuses.includes('In Lavorazione') ||
+    statuses.includes('In Sviluppo') ||
+    statuses.includes('Draft') ||
+    statuses.includes('GA4 Da Pubblicare') ||
+    statuses.includes('GTM Da Pubblicare') ||
+    statuses.includes('Attenzione di Andrea') ||
+    statuses.includes('Attenzione di Business') ||
+    statuses.includes('Da Completare')
+  ) {
+    return (
+      <Clock3
+        size={16}
+        className="text-yellow-500"
+      />
+    );
+  }
+
+  if (
+    statuses.includes('Da Fare') ||
+    statuses.includes('GA4 Da Configurare') ||
+    statuses.includes('GTM Da Configurare') ||
+    statuses.includes('In attesa')
+  ) {
+    return (
+      <AlertTriangle
+        size={16}
+        className="text-red-500"
+      />
+    );
+  }
+
+  return (
+    <CircleDashed
+      size={16}
+      className="text-gray-400"
+    />
+  );
+}
+
+function getStepBrandIcon(col: StepColumn, value: StepFieldValue) {
+  const colorClass = getStepIconColorClass(value);
+
+  if (col.key === 'step_gtm_ga4_coll' || col.key === 'step_gtm_ga4_prod') {
+    return (
+      <div className={colorClass}>
+        <div className="flex items-center gap-1">
+          <SiGoogletagmanager size={15} />
+          <SiGoogleanalytics size={15} />
+        </div>
+      </div>
+    );
+  }
+
+  if (col.key === 'step_report_manutenzione' || col.key === 'step_report_business') {
+    return (
+      <div className={colorClass}>
+        <SiLooker size={16} />
+      </div>
+    );
+  }
+
+  if (col.key === 'step_modello_dati') {
+    return (
+      <div className={colorClass}>
+        <SiGooglebigquery size={16} />
+      </div>
+    );
+  }
+
+  if (col.key === 'step_powerbi') {
+  return (
+    <div className={colorClass}>
+      <BarChart3 size={16} />
+    </div>
+  );
+}
+
+  return getStepIcon(value);
+}
+
+function getStepIconColorClass(value: StepFieldValue) {
+  const statuses = Array.isArray(value) ? value : [value];
+
+  const hasValue = statuses.some((status) => status && status.trim() !== '');
+
+  if (!hasValue || statuses.length === 0) {
+    return 'text-gray-400';
+  }
+
+  if (
+    statuses.includes('Completato') ||
+    statuses.includes('Non Necessaria') ||
+    statuses.includes('Inviato') ||
+    statuses.includes('GTM OK') ||
+    statuses.includes('GA4 OK')
+  ) {
+    return 'text-green-500';
+  }
+
+  if (
+    statuses.includes('In Lavorazione') ||
+    statuses.includes('In Sviluppo') ||
+    statuses.includes('Draft') ||
+    statuses.includes('GA4 Da Pubblicare') ||
+    statuses.includes('GTM Da Pubblicare') ||
+    statuses.includes('Attenzione di Andrea') ||
+    statuses.includes('Attenzione di Business') ||
+    statuses.includes('Da Completare')
+  ) {
+    return 'text-yellow-500';
+  }
+
+  if (
+    statuses.includes('Da Fare') ||
+    statuses.includes('GA4 Da Configurare') ||
+    statuses.includes('GTM Da Configurare') ||
+    statuses.includes('In attesa')
+  ) {
+    return 'text-red-500';
+  }
+
+  return 'text-gray-400';
+}
+
+function StepIconsSummary({
+  record,
+}: {
+  record: OperationalProjectRecord;
+}) {
+  return (
+    <div className="flex flex-wrap gap-3 min-w-[260px]">
+      {STEP_COLUMNS.map((col) => (
+        <div
+          key={col.key}
+          title={`${col.label}: ${renderStepSummary(record[col.key])}`}
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-50 border border-slate-100"
+        >
+          {getStepBrandIcon(col, record[col.key])}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function StepSelectSingle({
@@ -914,9 +1099,7 @@ export default function OperationalProjectsPage() {
             sensitivity: 'base',
           });
           break;
-        case 'completion':
-          compare = calculateCompletionPercentage(a) - calculateCompletionPercentage(b);
-          break;
+ 
         case 'updated_at':
           compare = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
           break;
@@ -1424,15 +1607,9 @@ export default function OperationalProjectsPage() {
                   <th className="px-4 py-4 text-center text-[10px] font-black uppercase tracking-widest">
                     Documento
                   </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="% completamento"
-                      sortKey="completion"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
+                 <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+  Step Workflow
+</th>
                   <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest">
                     <SortHeader
                       label="Azioni"
@@ -1448,7 +1625,7 @@ export default function OperationalProjectsPage() {
 
               <tbody>
                 {sortedRecords.map((record) => {
-                  const completion = calculateCompletionPercentage(record);
+                  
 
                   return (
                     <tr key={record.id} className="border-t border-gray-100 hover:bg-slate-50 align-top">
@@ -1481,22 +1658,9 @@ export default function OperationalProjectsPage() {
                         </a>
                       </td>
 
-                      <td className="px-4 py-4 min-w-[180px]">
-                        <div className="flex items-center gap-3">
-                          <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${completion}%`,
-                                background: BRAND,
-                              }}
-                            />
-                          </div>
-                          <span className="text-sm font-black text-slate-700 min-w-[42px]">
-                            {completion}%
-                          </span>
-                        </div>
-                      </td>
+                      <td className="px-4 py-4">
+  <StepIconsSummary record={record} />
+</td>
 
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-2">
