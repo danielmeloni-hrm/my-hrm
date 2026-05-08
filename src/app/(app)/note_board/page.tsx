@@ -252,6 +252,7 @@ function DroppableGroup({
 }
 
 export default function SublimeLikeEditorPage() {
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [userId, setUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
@@ -1513,29 +1514,7 @@ export default function SublimeLikeEditorPage() {
   }, [activeNote, taskMatches, isOwnerOfActiveNote]);
 
   const handleEditorChange = useCallback(
-    (value: string) => {
-      if (
-        !activeNote ||
-        (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager') ||
-        !canEditActiveNote
-      ) {
-        return;
-      }
-
-      setEditorValue(value);
-
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
-
-      autosaveTimeoutRef.current = setTimeout(() => {
-        persistNote(activeNote.id, { content: value });
-      }, 700);
-    },
-    [activeNote, persistNote, canEditActiveNote]
-  );
-
-  const handleEditorBlur = useCallback(async () => {
+  (value: string) => {
     if (
       !activeNote ||
       (activeNote.note_type !== 'text' && activeNote.note_type !== 'taskmanager') ||
@@ -1544,16 +1523,16 @@ export default function SublimeLikeEditorPage() {
       return;
     }
 
-    if (autosaveTimeoutRef.current) {
-      clearTimeout(autosaveTimeoutRef.current);
-    }
+    setEditorValue(value);
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
+  },
+  [activeNote, canEditActiveNote]
+);
 
-    await persistNote(activeNote.id, { content: editorValue });
-
-    if (activeNote.note_type === 'text') {
-      await syncAllTextTickets(editorValue);
-    }
-  }, [activeNote, canEditActiveNote, editorValue, persistNote, syncAllTextTickets]);
+  const handleEditorBlur = useCallback(async () => {
+  return;
+}, []);
 
   const handleEditorKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1570,16 +1549,9 @@ export default function SublimeLikeEditorPage() {
       const nextValue = value.slice(0, start) + tab + value.slice(end);
 
       setEditorValue(nextValue);
-
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
-
-      if (activeNote && canEditActiveNote) {
-        autosaveTimeoutRef.current = setTimeout(() => {
-          persistNote(activeNote.id, { content: nextValue });
-        }, 700);
-      }
+      setHasUnsavedChanges(true);
+    setSaveStatus('idle');
+      
 
       requestAnimationFrame(() => {
         if (!editorRef.current) return;
@@ -1626,31 +1598,39 @@ export default function SublimeLikeEditorPage() {
   }, [activeNote, deleteNote, isOwnerOfActiveNote]);
 
   const handleManualSave = useCallback(async () => {
-    if (!activeNote || !canEditActiveNote) return;
+  if (!activeNote || !canEditActiveNote) return;
 
-    if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
-      await persistNote(activeNote.id, {
-        content: editorValue,
-        note_type: activeNote.note_type,
-        file_name: activeNote.file_name,
-        group_name: activeNote.group_name,
-      });
+  if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
+    const saved = await persistNote(activeNote.id, {
+      content: editorValue,
+      note_type: activeNote.note_type,
+      file_name: activeNote.file_name,
+      group_name: activeNote.group_name,
+    });
+
+    if (saved) {
+      setHasUnsavedChanges(false);
 
       if (activeNote.note_type === 'text') {
         await syncAllTextTickets(editorValue);
       }
-
-      return;
     }
 
-    await persistNote(activeNote.id, {
-      content: activeNote.content,
-      note_type: activeNote.note_type,
-      todo_items: activeNote.todo_items,
-      file_name: activeNote.file_name,
-      group_name: activeNote.group_name,
-    });
-  }, [activeNote, persistNote, canEditActiveNote, editorValue, syncAllTextTickets]);
+    return;
+  }
+
+  const saved = await persistNote(activeNote.id, {
+    content: activeNote.content,
+    note_type: activeNote.note_type,
+    todo_items: activeNote.todo_items,
+    file_name: activeNote.file_name,
+    group_name: activeNote.group_name,
+  });
+
+  if (saved) {
+    setHasUnsavedChanges(false);
+  }
+}, [activeNote, persistNote, canEditActiveNote, editorValue, syncAllTextTickets]);
 
   const updateActiveTodoItems = useCallback(
     async (updater: (items: TodoItem[]) => TodoItem[]) => {
@@ -1885,16 +1865,19 @@ export default function SublimeLikeEditorPage() {
     initData();
   }, [authReady, userId, fetchTickets, fetchClienti, loadNotes, loadGroups, loadPinnedNotes]);
 
-  useEffect(() => {
-    if (
-      activeNote &&
-      (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager')
-    ) {
-      setEditorValue(activeNote.content || '');
-    } else {
-      setEditorValue('');
-    }
-  }, [activeNoteId, activeNote?.content, activeNote?.note_type]);
+useEffect(() => {
+  if (
+    activeNote &&
+    (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager')
+  ) {
+    setEditorValue(activeNote.content || '');
+  } else {
+    setEditorValue('');
+  }
+
+  setHasUnsavedChanges(false);
+  setSaveStatus('saved');
+}, [activeNoteId, activeNote?.content, activeNote?.note_type]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2238,6 +2221,22 @@ export default function SublimeLikeEditorPage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleManualSave}
+            disabled={!activeNote || !canEditActiveNote || saveStatus === 'saving'}
+            className={`h-9 px-4 rounded text-white text-sm font-bold transition ${
+              hasUnsavedChanges
+                ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                : 'bg-green-600 hover:bg-green-500'
+            } disabled:opacity-50`}
+          >
+            {saveStatus === 'saving'
+              ? 'Salvataggio...'
+              : hasUnsavedChanges
+              ? 'Salva modifiche'
+              : 'Salvato'}
+          </button>
             {activeNote?.note_type === 'taskmanager' && (
               <>
                 <button

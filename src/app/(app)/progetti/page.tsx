@@ -11,10 +11,10 @@ import {
   CheckCircle2,
   ExternalLink,
   Pencil,
-  Plus,
+  Plus,FileChartColumnIncreasing,ChartArea,
   BarChart3,
-  Save,
-  Search,
+  Save,Bug,BugPlay,ClipboardPlus,
+  Search,FileText,Send,
   Trash2,
   X,
 } from 'lucide-react';
@@ -169,6 +169,13 @@ const STEP_COLUMNS = [
     mode: 'single',
     options: STEP_STATUSES_REPORT,
   },
+    {
+    key: 'step_modello_dati_bq',
+    noteKey: 'note_step_modello_dati_bq',
+    label: 'Modello Dati BigQuery',
+    mode: 'single',
+    options: STEP_STATUSES_REPORT,
+  },
   {
     key: 'step_modello_dati',
     noteKey: 'note_step_modello_dati',
@@ -260,6 +267,8 @@ const EMPTY_FORM: FormState = {
   step_ga4_realtime_rilascio: 'Da Fare',
   step_report_manutenzione: 'Da Fare',
   step_modello_dati: 'Da Fare',
+  step_modello_dati_bq: 'Da Fare',
+  note_step_modello_dati_bq: '',
   step_doc_confronto_applicativi: 'Da Fare',
   step_report_business: 'Da Fare',
   step_powerbi: 'Da Fare',
@@ -385,48 +394,113 @@ function getStepIcon(value: StepFieldValue) {
     />
   );
 }
+function getSingleGtmGaIconColor(status: string | null | undefined) {
+  if (!status) return 'text-red-500';
 
+  if (
+    status === 'GTM OK' ||
+    status === 'GA4 OK' ||
+    status === 'Completato' ||
+    status === 'Non Necessaria'
+  ) {
+    return 'text-green-500';
+  }
+
+  if (
+    status.includes('Da Pubblicare') ||
+    status.includes('In Lavorazione')
+  ) {
+    return 'text-yellow-500';
+  }
+
+  return 'text-red-500';
+}
+
+function getGtmGaStatuses(value: StepFieldValue) {
+  const values = Array.isArray(value) ? value : [value];
+
+  const isCompleted =
+    values.includes('Completato') || values.includes('Non Necessaria');
+
+  if (isCompleted) {
+    return {
+      gtmStatus: values.includes('Non Necessaria') ? 'Non Necessaria' : 'Completato',
+      ga4Status: values.includes('Non Necessaria') ? 'Non Necessaria' : 'Completato',
+    };
+  }
+
+  return {
+    gtmStatus: values.find((v) => v.includes('GTM')) || 'GTM Da Configurare',
+    ga4Status: values.find((v) => v.includes('GA4')) || 'GA4 Da Configurare',
+  };
+}
 function getStepBrandIcon(col: StepColumn, value: StepFieldValue) {
   const colorClass = getStepIconColorClass(value);
 
-  if (col.key === 'step_gtm_ga4_coll' || col.key === 'step_gtm_ga4_prod') {
-    return (
-      <div className={colorClass}>
-        <div className="flex items-center gap-1">
-          <SiGoogletagmanager size={15} />
-          <SiGoogleanalytics size={15} />
-        </div>
-      </div>
-    );
-  }
+  switch (col.key) {
+    case 'step_documento_operativo':
+      return <Send size={16} className={colorClass} />;
 
-  if (col.key === 'step_report_manutenzione' || col.key === 'step_report_business') {
-    return (
-      <div className={colorClass}>
-        <SiLooker size={16} />
-      </div>
-    );
-  }
 
-  if (col.key === 'step_modello_dati') {
-    return (
-      <div className={colorClass}>
-        <SiGooglebigquery size={16} />
-      </div>
-    );
-  }
+    case 'step_gtm_ga4_coll':
+    case 'step_gtm_ga4_prod': {
+  const { gtmStatus, ga4Status } = getGtmGaStatuses(value);
 
-  if (col.key === 'step_powerbi') {
   return (
-    <div className={colorClass}>
-      <BarChart3 size={16} />
+    <div className="flex items-center justify-center gap-1">
+      <div className="group relative">
+        <SiGoogletagmanager
+          size={13}
+          className={getSingleGtmGaIconColor(gtmStatus)}
+        />
+
+        <span className="pointer-events-none absolute -top-8 left-1/2 z-50 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg group-hover:block">
+          GTM: {gtmStatus}
+        </span>
+      </div>
+
+      <div className="group relative">
+        <SiGoogleanalytics
+          size={13}
+          className={getSingleGtmGaIconColor(ga4Status)}
+        />
+
+        <span className="pointer-events-none absolute -top-8 left-1/2 z-50 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg group-hover:block">
+          GA4: {ga4Status}
+        </span>
+      </div>
     </div>
   );
 }
 
-  return getStepIcon(value);
-}
+    case 'step_sviluppo_testing_coll':
+      return <Bug size={16} className={colorClass} />;
+    case 'step_sviluppo_testing_prod':
+      return <BugPlay size={16} className={colorClass} />;
 
+    case 'step_ga4_realtime_rilascio':
+      return <SiGoogleanalytics size={16} className={colorClass} />;
+
+    case 'step_report_manutenzione':
+      return <FileChartColumnIncreasing size={16} className={colorClass} />;
+          case 'step_modello_dati_bq':
+      return <SiGooglebigquery size={16} className={colorClass} />;
+    case 'step_report_business':
+      return <SiLooker size={16} className={colorClass} />;
+
+    case 'step_modello_dati':
+      return <ClipboardPlus size={16} className={colorClass} />;
+
+    case 'step_doc_confronto_applicativi':
+      return <FileText size={16} className={colorClass} />;
+
+    case 'step_powerbi':
+      return <BarChart3 size={16} className={colorClass} />;
+
+    default:
+      return getStepIcon(value);
+  }
+}
 function getStepIconColorClass(value: StepFieldValue) {
   const statuses = Array.isArray(value) ? value : [value];
 
@@ -477,16 +551,47 @@ function StepIconsSummary({
   record: OperationalProjectRecord;
 }) {
   return (
-    <div className="flex flex-wrap gap-3 min-w-[260px]">
-      {STEP_COLUMNS.map((col) => (
-        <div
-          key={col.key}
-          title={`${col.label}: ${renderStepSummary(record[col.key])}`}
-          className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-50 border border-slate-100"
-        >
-          {getStepBrandIcon(col, record[col.key])}
-        </div>
-      ))}
+    <div className="flex flex-wrap gap-2 min-w-[320px]">
+      {STEP_COLUMNS.map((col) => {
+        const value = record[col.key];
+        const colorClass = getStepIconColorClass(value);
+
+        const isDoubleIcon =
+            col.key === 'step_gtm_ga4_coll' ||
+            col.key === 'step_gtm_ga4_prod';
+
+          const boxClass = isDoubleIcon
+            ? 'bg-slate-100 border-slate-300 w-12'
+            : colorClass === 'text-green-500'
+            ? 'bg-green-50 border-green-200'
+            : colorClass === 'text-yellow-500'
+            ? 'bg-yellow-50 border-yellow-200'
+            : colorClass === 'text-red-500'
+            ? 'bg-red-50 border-red-200'
+            : 'bg-slate-50 border-slate-200';
+
+        return (
+          <div
+            key={col.key}
+            aria-label={`${col.label}: ${renderStepSummary(value)}`}
+            className={`
+              flex h-8 w-8 shrink-0 items-center justify-center
+              rounded-lg border ${boxClass}
+              [&>svg]:h-4 [&>svg]:w-4
+              [&_svg]:h-4 [&_svg]:w-4
+            `}
+          >
+            {getStepBrandIcon(col, value)}
+            <span className="
+    pointer-events-none absolute -top-9 left-1/2 z-50 hidden -translate-x-1/2
+    whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px]
+    font-bold text-white shadow-lg group-hover:block
+  ">
+    {col.label}: {renderStepSummary(value)}
+  </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -991,6 +1096,7 @@ export default function OperationalProjectsPage() {
             step_sviluppo_testing_prod,
             step_ga4_realtime_rilascio,
             step_report_manutenzione,
+            step_modello_dati_bq,
             step_modello_dati,
             step_doc_confronto_applicativi,
             step_report_business,
@@ -1002,6 +1108,7 @@ export default function OperationalProjectsPage() {
             note_step_sviluppo_testing_prod,
             note_step_ga4_realtime_rilascio,
             note_step_report_manutenzione,
+            note_step_modello_dati_bq,
             note_step_modello_dati,
             note_step_doc_confronto_applicativi,
             note_step_report_business,
@@ -1165,6 +1272,8 @@ export default function OperationalProjectsPage() {
       step_doc_confronto_applicativi: record.step_doc_confronto_applicativi,
       step_report_business: record.step_report_business,
       step_powerbi: record.step_powerbi,
+      step_modello_dati_bq: record.step_modello_dati_bq,
+      note_step_modello_dati_bq: record.note_step_modello_dati_bq,
       note_step_documento_operativo: record.note_step_documento_operativo,
       note_step_gtm_ga4_coll: record.note_step_gtm_ga4_coll,
       note_step_sviluppo_testing_coll: record.note_step_sviluppo_testing_coll,
