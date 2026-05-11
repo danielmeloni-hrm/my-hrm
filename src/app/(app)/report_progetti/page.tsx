@@ -17,7 +17,7 @@ const UI = {
   bar: "#0150a0",
   barSoft: "#93c5fd"
 };
-type SheetName = "Andrea" | "Daniel" | "Simone" | "Corrado" | "Alessandro";
+type SheetName = "Andrea" | "Daniel" | "Simone" | "Corrado" | "Alessandro"| "Alice";
 
 type RawRow = {
   sheet: SheetName;
