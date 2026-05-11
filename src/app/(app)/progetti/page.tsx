@@ -102,21 +102,21 @@ const STATUS_STYLES: Record<string, string> = {
   'In attesa': 'bg-gray-100 text-gray-600 border border-gray-200',
   Draft: 'bg-amber-100 text-amber-700 border border-amber-200',
   'In Sviluppo': 'bg-amber-100 text-amber-700 border border-amber-200',
-  'In Lavorazione': 'bg-orange-100 text-orange-700 border border-orange-200',
-  'Da Completare': 'bg-pink-200 text-pink-800 border border-pink-300',
-  'Attenzione di Andrea': 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+  'In Lavorazione': 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+  'Da Completare': 'bg-orange-200 text-orange-800 border border-orange-300',
+  'Attenzione di Andrea': 'bg-purple-100 text-purple-700 border border-purple-200',
   'Attenzione di Business': 'bg-purple-200 text-purple-800 border border-purple-300',
-  'Completato - Da Inviare': 'bg-green-100 text-green-700 border border-green-200',
+  'Completato - Da Inviare': 'bg-yellow-100 text-green-700 border border-yellow-200',
   Completato: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   Inviato: 'bg-green-200 text-green-800 border border-green-300',
-  'GA4 Da Configurare': 'bg-amber-100 text-amber-700 border border-amber-200',
-  'GTM Da Configurare': 'bg-orange-100 text-orange-700 border border-orange-200',
+  'GA4 Da Configurare': 'bg-red-100 text-red-700 border border-red-200',
+  'GTM Da Configurare': 'bg-red-100 text-red-700 border border-red-200',
   'GA4 Da Pubblicare': 'bg-yellow-100 text-yellow-700 border border-yellow-200',
   'GTM Da Pubblicare': 'bg-yellow-200 text-yellow-800 border border-yellow-300',
   'GTM OK': 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   'GA4 OK': 'bg-green-200 text-green-800 border border-green-300',
   'Non Necessaria': 'bg-slate-200 text-slate-600 border border-slate-300',
-  Sostituito: 'bg-red-100 text-red-600 border border-red-200',
+  Sostituito: 'bg-blue-100 text-blue-600 border border-blue-200',
 };
 
 const STEP_COLUMNS = [
@@ -361,14 +361,24 @@ function getStepIcon(value: StepFieldValue) {
     statuses.includes('Draft') ||
     statuses.includes('GA4 Da Pubblicare') ||
     statuses.includes('GTM Da Pubblicare') ||
-    statuses.includes('Attenzione di Andrea') ||
-    statuses.includes('Attenzione di Business') ||
     statuses.includes('Da Completare')
   ) {
     return (
       <Clock3
         size={16}
         className="text-yellow-500"
+      />
+    );
+  }
+
+  if (
+    statuses.includes('Attenzione di Andrea') ||
+    statuses.includes('Attenzione di Business') 
+  ) {
+    return (
+      <Clock3
+        size={16}
+        className="text-purple-500"
       />
     );
   }
@@ -395,25 +405,7 @@ function getStepIcon(value: StepFieldValue) {
   );
 }
 function getSingleGtmGaIconColor(status: string | null | undefined) {
-  if (!status) return 'text-red-500';
-
-  if (
-    status === 'GTM OK' ||
-    status === 'GA4 OK' ||
-    status === 'Completato' ||
-    status === 'Non Necessaria'
-  ) {
-    return 'text-green-500';
-  }
-
-  if (
-    status.includes('Da Pubblicare') ||
-    status.includes('In Lavorazione')
-  ) {
-    return 'text-yellow-500';
-  }
-
-  return 'text-red-500';
+  return getStatusColorClass(status);
 }
 
 function getGtmGaStatuses(value: StepFieldValue) {
@@ -447,30 +439,21 @@ function getStepBrandIcon(col: StepColumn, value: StepFieldValue) {
   const { gtmStatus, ga4Status } = getGtmGaStatuses(value);
 
   return (
-    <div className="flex items-center justify-center gap-1">
-      <div className="group relative">
-        <SiGoogletagmanager
-          size={13}
-          className={getSingleGtmGaIconColor(gtmStatus)}
-        />
+  <div
+    className="flex items-center justify-center gap-1"
+    title={`GTM: ${gtmStatus} | GA4: ${ga4Status}`}
+  >
+    <SiGoogletagmanager
+      size={13}
+      className={getSingleGtmGaIconColor(gtmStatus)}
+    />
 
-        <span className="pointer-events-none absolute -top-8 left-1/2 z-50 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg group-hover:block">
-          GTM: {gtmStatus}
-        </span>
-      </div>
-
-      <div className="group relative">
-        <SiGoogleanalytics
-          size={13}
-          className={getSingleGtmGaIconColor(ga4Status)}
-        />
-
-        <span className="pointer-events-none absolute -top-8 left-1/2 z-50 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg group-hover:block">
-          GA4: {ga4Status}
-        </span>
-      </div>
-    </div>
-  );
+    <SiGoogleanalytics
+      size={13}
+      className={getSingleGtmGaIconColor(ga4Status)}
+    />
+  </div>
+);
 }
 
     case 'step_sviluppo_testing_coll':
@@ -501,44 +484,119 @@ function getStepBrandIcon(col: StepColumn, value: StepFieldValue) {
       return getStepIcon(value);
   }
 }
-function getStepIconColorClass(value: StepFieldValue) {
-  const statuses = Array.isArray(value) ? value : [value];
-
-  const hasValue = statuses.some((status) => status && status.trim() !== '');
-
-  if (!hasValue || statuses.length === 0) {
-    return 'text-gray-400';
-  }
+function getStatusColorClass(status: string | null | undefined) {
+  if (!status) return 'text-gray-400';
 
   if (
-    statuses.includes('Completato') ||
-    statuses.includes('Non Necessaria') ||
-    statuses.includes('Inviato') ||
-    statuses.includes('GTM OK') ||
-    statuses.includes('GA4 OK')
+    status === 'Completato' ||
+     status === 'Completato - Da Inviare' ||
+    status === 'Non Necessaria' ||
+    status === 'Inviato' ||
+    status === 'GTM OK' ||
+    status === 'GA4 OK'
   ) {
     return 'text-green-500';
   }
 
   if (
-    statuses.includes('In Lavorazione') ||
-    statuses.includes('In Sviluppo') ||
-    statuses.includes('Draft') ||
-    statuses.includes('GA4 Da Pubblicare') ||
-    statuses.includes('GTM Da Pubblicare') ||
-    statuses.includes('Attenzione di Andrea') ||
-    statuses.includes('Attenzione di Business') ||
-    statuses.includes('Da Completare')
+    status === 'Attenzione di Andrea' ||
+    status === 'Attenzione di Business'
+  ) {
+    return 'text-purple-500';
+  }
+
+  if (
+    status === 'In Lavorazione' ||
+    status === 'In Sviluppo' ||
+    status === 'Draft' ||
+    status === 'GA4 Da Pubblicare' ||
+    status === 'GTM Da Pubblicare' ||
+    status === 'Da Completare'
   ) {
     return 'text-yellow-500';
   }
 
   if (
-    statuses.includes('Da Fare') ||
-    statuses.includes('GA4 Da Configurare') ||
-    statuses.includes('GTM Da Configurare') ||
-    statuses.includes('In attesa')
+    status === 'Da Fare' ||
+    status === 'In attesa' ||
+    status === 'GA4 Da Configurare' ||
+    status === 'GTM Da Configurare'
   ) {
+    return 'text-red-500';
+  }
+
+  return 'text-gray-400';
+}
+
+function getStatusBoxClass(status: string | null | undefined) {
+    if (status === 'Completato - Da Inviare') {
+    return 'bg-yellow-100 border-yellow-200';
+  }
+  const colorClass = getStatusColorClass(status);
+
+  if (colorClass === 'text-green-500') {
+    return 'bg-green-50 border-green-200';
+  }
+  
+
+  if (colorClass === 'text-purple-500') {
+    return 'bg-purple-50 border-purple-200';
+  }
+
+  if (colorClass === 'text-yellow-500') {
+    return 'bg-yellow-50 border-yellow-200';
+  }
+
+  if (colorClass === 'text-red-500') {
+    return 'bg-red-50 border-red-200';
+  }
+
+  return 'bg-slate-50 border-slate-200';
+}
+
+function getStatusBgColor(status: string | null | undefined) {
+  if (status === 'Completato - Da Inviare') return '#fef9c3';
+  const colorClass = getStatusColorClass(status);
+
+  if (colorClass === 'text-green-500') return '#ecfdf5';
+  if (colorClass === 'text-purple-500') return '#faf5ff';
+  if (colorClass === 'text-yellow-500') return '#fefce8';
+  if (colorClass === 'text-red-500') return '#fef2f2';
+ 
+  return '#f8fafc';
+}
+
+function getStatusBorderClass(status: string | null | undefined) {
+  if (status === 'Completato - Da Inviare') return 'border-yellow-200';
+  const colorClass = getStatusColorClass(status);
+  
+  if (colorClass === 'text-green-500') return 'border-green-200';
+  if (colorClass === 'text-purple-500') return 'border-purple-200';
+  if (colorClass === 'text-yellow-500') return 'border-yellow-200';
+  if (colorClass === 'text-red-500') return 'border-red-200';
+
+  return 'border-slate-200';
+}
+function getStepIconColorClass(value: StepFieldValue) {
+  const statuses = Array.isArray(value) ? value : [value];
+
+  if (statuses.length === 0 || statuses.every((status) => !status?.trim())) {
+    return 'text-gray-400';
+  }
+
+  if (statuses.some((status) => getStatusColorClass(status) === 'text-green-500')) {
+    return 'text-green-500';
+  }
+
+  if (statuses.some((status) => getStatusColorClass(status) === 'text-purple-500')) {
+    return 'text-purple-500';
+  }
+
+  if (statuses.some((status) => getStatusColorClass(status) === 'text-yellow-500')) {
+    return 'text-yellow-500';
+  }
+
+  if (statuses.some((status) => getStatusColorClass(status) === 'text-red-500')) {
     return 'text-red-500';
   }
 
@@ -557,24 +615,30 @@ function StepIconsSummary({
         const colorClass = getStepIconColorClass(value);
 
         const isDoubleIcon =
-            col.key === 'step_gtm_ga4_coll' ||
-            col.key === 'step_gtm_ga4_prod';
+          col.key === 'step_gtm_ga4_coll' ||
+          col.key === 'step_gtm_ga4_prod';
 
-          const boxClass = isDoubleIcon
-            ? 'bg-slate-100 border-slate-300 w-12'
-            : colorClass === 'text-green-500'
-            ? 'bg-green-50 border-green-200'
-            : colorClass === 'text-yellow-500'
-            ? 'bg-yellow-50 border-yellow-200'
-            : colorClass === 'text-red-500'
-            ? 'bg-red-50 border-red-200'
-            : 'bg-slate-50 border-slate-200';
+        const { gtmStatus, ga4Status } = isDoubleIcon
+          ? getGtmGaStatuses(value)
+          : { gtmStatus: null, ga4Status: null };
+
+        const boxClass = isDoubleIcon
+          ? `w-12 ${getStatusBorderClass(gtmStatus)}`
+          : getStatusBoxClass(Array.isArray(value) ? value[0] : value);
+
+        const boxStyle = isDoubleIcon
+          ? {
+              background: `linear-gradient(90deg, ${getStatusBgColor(gtmStatus)} 0%, ${getStatusBgColor(gtmStatus)} 50%, ${getStatusBgColor(ga4Status)} 50%, ${getStatusBgColor(ga4Status)} 100%)`,
+            }
+          : undefined;
 
         return (
           <div
             key={col.key}
             aria-label={`${col.label}: ${renderStepSummary(value)}`}
+            style={boxStyle}
             className={`
+              group relative
               flex h-8 w-8 shrink-0 items-center justify-center
               rounded-lg border ${boxClass}
               [&>svg]:h-4 [&>svg]:w-4
@@ -582,13 +646,17 @@ function StepIconsSummary({
             `}
           >
             {getStepBrandIcon(col, value)}
-            <span className="
-    pointer-events-none absolute -top-9 left-1/2 z-50 hidden -translate-x-1/2
-    whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px]
-    font-bold text-white shadow-lg group-hover:block
-  ">
-    {col.label}: {renderStepSummary(value)}
-  </span>
+            {!isDoubleIcon && (
+<span className="
+  pointer-events-none absolute -top-9 left-1/2 z-50 hidden -translate-x-1/2
+  whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px]
+  font-bold text-white shadow-lg group-hover:block
+">
+  {isDoubleIcon
+    ? `GTM: ${gtmStatus} | GA4: ${ga4Status}`
+    : `${col.label}: ${renderStepSummary(value)}`}
+</span>
+)}
           </div>
         );
       })}
@@ -781,6 +849,8 @@ function ProjectModal({
   onClose,
   onSubmit,
   onChange,
+  errorMessage,
+  invalidFields,
 }: {
   isOpen: boolean;
   mode: 'create' | 'edit';
@@ -791,13 +861,15 @@ function ProjectModal({
   onClose: () => void;
   onSubmit: () => void;
   onChange: (patch: Partial<FormState>) => void;
+  errorMessage: string | null;
+invalidFields: string[];
 }) {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-200">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="flex w-full max-w-6xl max-h-[calc(90vh-100px)]  flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-200">
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-xl font-bold text-slate-800">
               {mode === 'create' ? 'Nuovo progetto' : 'Modifica progetto'}
@@ -816,8 +888,12 @@ function ProjectModal({
             <X size={18} />
           </button>
         </div>
-
-        <div className="max-h-[calc(90vh-77px)] overflow-auto p-6 space-y-8">
+{errorMessage && (
+  <div className="shrink-0 mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+    {errorMessage}
+  </div>
+)}
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-8 ">
           <div>
             <label className="block mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
               Nome evolutiva
@@ -826,7 +902,11 @@ function ProjectModal({
               value={form.nome_evolutiva}
               onChange={(e) => onChange({ nome_evolutiva: e.target.value })}
               placeholder="Nome evolutiva..."
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-2xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100"
+              className={`w-full rounded-xl border border-gray-200 px-4 py-3 text-2xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100 ${
+  invalidFields.includes('nome_evolutiva')
+    ? 'border-red-400 bg-red-50 focus:ring-red-100'
+    : 'border-gray-200 focus:ring-blue-100'
+}`}
             />
           </div>
 
@@ -851,7 +931,11 @@ function ProjectModal({
                           : '',
                     })
                   }
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                  className={`w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 ${
+  invalidFields.includes('cliente_id')
+    ? 'border-red-400 bg-red-50 focus:ring-red-100'
+    : 'border-gray-200 focus:ring-blue-100'
+}`}
                 >
                   <option value="">Seleziona cliente</option>
                   {clienti.map((cliente) => (
@@ -870,7 +954,11 @@ function ProjectModal({
                   <select
                     value={form.applicativo}
                     onChange={(e) => onChange({ applicativo: e.target.value })}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                    className={`w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 ${
+  invalidFields.includes('applicativo')
+    ? 'border-red-400 bg-red-50 focus:ring-red-100'
+    : 'border-gray-200 focus:ring-blue-100'
+}`}
                   >
                     <option value="">Seleziona applicativo</option>
                     {ESSELUNGA_APPS.map((app) => (
@@ -918,7 +1006,11 @@ function ProjectModal({
                   value={form.document_link}
                   onChange={(e) => onChange({ document_link: e.target.value })}
                   placeholder="Link documento"
-                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                  className={`w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 ${
+  invalidFields.includes('document_link')
+    ? 'border-red-400 bg-red-50 focus:ring-red-100'
+    : 'border-gray-200 focus:ring-blue-100'
+}`}
                 />
               </div>
             </div>
@@ -1000,6 +1092,8 @@ function ProjectModal({
 }
 
 export default function OperationalProjectsPage() {
+  const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
+  const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1245,11 +1339,15 @@ export default function OperationalProjectsPage() {
     setEditingId(null);
     setErrorMessage(null);
     setModalMode('create');
+    setModalErrorMessage(null);
+    setInvalidFields([]);
   }, []);
 
   const closeModal = useCallback(() => {
     setModalMode(null);
     setEditingId(null);
+    setModalErrorMessage(null);
+setInvalidFields([]);
   }, []);
 
   const startEdit = useCallback((record: OperationalProjectRecord) => {
@@ -1288,17 +1386,39 @@ export default function OperationalProjectsPage() {
     });
     setErrorMessage(null);
     setModalMode('edit');
+    setModalErrorMessage(null);
+    setInvalidFields([]);
   }, []);
 
   const validateForm = useCallback((form: FormState, isEsselunga: boolean) => {
-    if (!form.cliente_id) return 'Seleziona un cliente';
-    if (!form.nome_evolutiva.trim()) return 'Inserisci il nome dell’evolutiva';
-    if (!form.document_link.trim()) return 'Inserisci il link del documento operativo';
-    if (isEsselunga && !form.applicativo.trim()) {
-      return 'Seleziona l’applicativo per Esselunga';
-    }
-    return null;
-  }, []);
+  const errors: string[] = [];
+  const fields: string[] = [];
+
+  if (!form.cliente_id) {
+    errors.push('Seleziona un cliente');
+    fields.push('cliente_id');
+  }
+
+  if (!form.nome_evolutiva.trim()) {
+    errors.push('Inserisci il nome dell’evolutiva');
+    fields.push('nome_evolutiva');
+  }
+
+  if (!form.document_link.trim()) {
+    errors.push('Inserisci il link del documento operativo');
+    fields.push('document_link');
+  }
+
+  if (isEsselunga && !form.applicativo.trim()) {
+    errors.push('Seleziona l’applicativo per Esselunga');
+    fields.push('applicativo');
+  }
+
+  return {
+    message: errors.length > 0 ? errors.join(' • ') : null,
+    fields,
+  };
+}, []);
 
   const getStepPayload = useCallback((form: FormState) => {
     const stepPayload = STEP_COLUMNS.reduce((acc, col) => {
@@ -1318,11 +1438,12 @@ export default function OperationalProjectsPage() {
   }, []);
 
   const handleCreate = useCallback(async () => {
-    const validationError = validateForm(createForm, isEsselungaCreate);
-    if (validationError) {
-      setErrorMessage(validationError);
-      return;
-    }
+    const validation = validateForm(createForm, isEsselungaCreate);
+      if (validation.message) {
+        setModalErrorMessage(validation.message);
+        setInvalidFields(validation.fields);
+        return;
+      }
 
     try {
       setSaving(true);
@@ -1335,6 +1456,7 @@ export default function OperationalProjectsPage() {
         nome_evolutiva: createForm.nome_evolutiva.trim(),
         numero_change: createForm.numero_change.trim() || null,
         document_link: normalizeUrl(createForm.document_link),
+        
         ...getStepPayload(createForm),
       };
 
@@ -1363,6 +1485,8 @@ export default function OperationalProjectsPage() {
             step_doc_confronto_applicativi,
             step_report_business,
             step_powerbi,
+            step_modello_dati_bq,
+            note_step_modello_dati_bq,
             note_step_documento_operativo,
             note_step_gtm_ga4_coll,
             note_step_sviluppo_testing_coll,
@@ -1399,11 +1523,12 @@ export default function OperationalProjectsPage() {
   const handleUpdate = useCallback(async () => {
     if (!editingId) return;
 
-    const validationError = validateForm(editForm, isEsselungaEdit);
-    if (validationError) {
-      setErrorMessage(validationError);
-      return;
-    }
+    const validation = validateForm(editForm, isEsselungaEdit);
+      if (validation.message) {
+        setModalErrorMessage(validation.message);
+        setInvalidFields(validation.fields);
+        return;
+      }
 
     try {
       setSaving(true);
@@ -1818,6 +1943,8 @@ export default function OperationalProjectsPage() {
           onClose={closeModal}
           onSubmit={handleCreate}
           onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+          errorMessage={modalErrorMessage}
+          invalidFields={invalidFields}
         />
 
         <ProjectModal
@@ -1830,6 +1957,8 @@ export default function OperationalProjectsPage() {
           onClose={closeModal}
           onSubmit={handleUpdate}
           onChange={(patch) => setEditForm((prev) => ({ ...prev, ...patch }))}
+          errorMessage={modalErrorMessage}
+          invalidFields={invalidFields}
         />
       </div>
     </div>

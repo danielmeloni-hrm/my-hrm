@@ -319,6 +319,19 @@ export default function Sidebar() {
     router.refresh()
   }
 
+  useEffect(() => {
+  if (position !== 'bottom') {
+    document.body.style.paddingBottom = ''
+    return
+  }
+
+  document.body.style.paddingBottom = '112px'
+
+  return () => {
+    document.body.style.paddingBottom = ''
+  }
+}, [position])
+
   const renderMenuIcon = (
     config: SidebarItemConfig,
     size: number,
@@ -336,6 +349,7 @@ export default function Sidebar() {
 
   if (position === 'bottom') {
     return (
+      <>
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70]">
         <div className="rounded-[28px] border border-gray-200 bg-white/95 backdrop-blur-md shadow-2xl px-3 py-3">
           <div className="flex items-center gap-2">
@@ -427,7 +441,8 @@ export default function Sidebar() {
             </button>
           </div>
         </div>
-      </div>
+      </div> <div aria-hidden="true" className="h-28 shrink-0" />
+    </>
     )
   }
 
@@ -590,5 +605,6 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    
   )
 }
