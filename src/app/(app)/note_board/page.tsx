@@ -252,6 +252,7 @@ function DroppableGroup({
 }
 
 export default function SublimeLikeEditorPage() {
+  const [noteUserSettings, setNoteUserSettings] = useState<   Record<string, { group_name: string; sort_order: number | null }> >({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [userId, setUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -287,13 +288,42 @@ export default function SublimeLikeEditorPage() {
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
 
   const notesWithUserPins = useMemo(() => {
-    const pinnedSet = new Set(pinnedNoteIds);
-    return notes.map((note) => ({
+  const pinnedSet = new Set(pinnedNoteIds);
+
+  return notes.map((note) => {
+    const personal = noteUserSettings[note.id];
+
+    return {
       ...note,
       is_pinned: pinnedSet.has(note.id),
-    }));
-  }, [notes, pinnedNoteIds]);
+      group_name: personal?.group_name || note.group_name || 'Generale',
+      sort_order: personal?.sort_order ?? note.sort_order ?? null,
+    };
+  });
+}, [notes, pinnedNoteIds, noteUserSettings]);
+const loadNoteUserSettings = useCallback(async (uid: string) => {
+  const { data, error } = await supabase
+    .from('editor_note_user_settings')
+    .select('note_id, group_name, sort_order')
+    .eq('user_id', uid);
 
+  if (error) {
+    console.error('Errore caricamento settings note:', error);
+    setNoteUserSettings({});
+    return;
+  }
+
+  const map: Record<string, { group_name: string; sort_order: number | null }> = {};
+
+  (data || []).forEach((row: any) => {
+    map[row.note_id] = {
+      group_name: row.group_name || 'Generale',
+      sort_order: row.sort_order ?? null,
+    };
+  });
+
+  setNoteUserSettings(map);
+}, []);
   const matchStats = useMemo(() => {
     let matched = 0;
     let issues = 0;
@@ -1018,39 +1048,20 @@ const persistNote = useCallback(
       );
     }
 
-    const sharedNotes = notes.filter(
+    const sharedNotes = notesWithUserPins.filter(
       (note) =>
         note.user_id !== userId &&
-      (note.group_name || 'Generale').trim().toLowerCase() === 'generale' &&
+        (note.group_name || 'Generale').trim().toLowerCase() === 'generale' &&
         (note.share_mode === 'shared_view' || note.share_mode === 'shared_edit')
     );
 
     if (sharedNotes.length === 0) return;
 
-    setNotes((prev) =>
-      prev.map((note) =>
-        sharedNotes.some((shared) => shared.id === note.id)
-          ? {
-              ...note,
-              group_name: sharedGroupName,
-              updated_at: new Date().toISOString(),
-            }
-          : note
-      )
-    );
-
     for (const note of sharedNotes) {
-      const { error } = await supabase
-        .from('editor_notes')
-        .update({
-          group_name: sharedGroupName,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', note.id);
-
-      if (error) {
-        console.error('Errore spostamento tab condivisa:', error);
-      }
+      await persistNoteUserSettings(note.id, {
+        group_name: sharedGroupName,
+        sort_order: note.sort_order ?? null,
+      });
     }
 
     setCollapsedGroups((prev) => ({
@@ -1060,7 +1071,8 @@ const persistNote = useCallback(
   } catch (err) {
     console.error('Errore handleCleanSharedTabs:', err);
   }
-}, [userId, noteGroups, notes]);
+}, [userId, noteGroups, notesWithUserPins, persistNoteUserSettings]);
+
   const handleCreateTicketFromMatch = useCallback(
     (match: TaskManagerMatch) => {
       if (!activeNote || !isOwnerOfActiveNote) return;
@@ -1090,67 +1102,130 @@ const persistNote = useCallback(
     },
     [activeNote, isOwnerOfActiveNote, userId]
   );
+const persistNoteUserSettings = useCallback(
+  async (
+    noteId: string,
+    settings: {
+      group_name?: string;
+      sort_order?: number | null;
+    }
+  ) => {
+    if (!userId) return false;
 
+    const payload = {
+      user_id: userId,
+      note_id: noteId,
+      group_name: settings.group_name ?? noteUserSettings[noteId]?.group_name ?? 'Generale',
+      sort_order: settings.sort_order ?? noteUserSettings[noteId]?.sort_order ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('editor_note_user_settings')
+      .upsert(payload, {
+        onConflict: 'user_id,note_id',
+      });
+
+    if (error) {
+      console.error('Errore salvataggio posizione nota:', error);
+      return false;
+    }
+
+    setNoteUserSettings((prev) => ({
+      ...prev,
+      [noteId]: {
+        group_name: payload.group_name,
+        sort_order: payload.sort_order,
+      },
+    }));
+
+    return true;
+  },
+  [userId, noteUserSettings]
+);
   const handleDragEnd = useCallback(
-    async (event: any) => {
-      const { active, over } = event;
+  async (event: any) => {
+    const { active, over } = event;
 
-      if (!over || active.id === over.id) return;
+    if (!over || active.id === over.id) return;
 
-      const activeDraggedNote = notesWithUserPins.find((n) => n.id === active.id);
-      if (!activeDraggedNote) return;
+    const activeDraggedNote = notesWithUserPins.find((n) => n.id === active.id);
+    if (!activeDraggedNote) return;
 
-      const overId = String(over.id);
+    const overId = String(over.id);
 
-      if (overId.startsWith('group:')) {
-        const targetGroup = overId.replace('group:', '').trim();
+    if (overId.startsWith('group:')) {
+      const targetGroup = overId.replace('group:', '').trim();
 
-        if (!targetGroup) return;
-        if ((activeDraggedNote.group_name || 'Generale').trim() === targetGroup) return;
+      if (!targetGroup) return;
+      if ((activeDraggedNote.group_name || 'Generale').trim() === targetGroup) return;
 
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === active.id
-              ? {
-                  ...note,
-                  group_name: targetGroup,
-                  updated_at: new Date().toISOString(),
-                }
-              : note
-          )
-        );
-
-        await persistNote(String(active.id), { group_name: targetGroup });
-        return;
-      }
-
-      const oldIndex = notesWithUserPins.findIndex((n) => n.id === active.id);
-      const newIndex = notesWithUserPins.findIndex((n) => n.id === over.id);
-
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const overNote = notesWithUserPins[newIndex];
-      if (!overNote) return;
-
-      if (
-        (activeDraggedNote.group_name || 'Generale').trim() !==
-        (overNote.group_name || 'Generale').trim()
-      ) {
-        return;
-      }
-
-      const reorderedWithPins = arrayMove(notesWithUserPins, oldIndex, newIndex).map((note, index) => ({
-        ...note,
-        sort_order: index,
+      setNoteUserSettings((prev) => ({
+        ...prev,
+        [String(active.id)]: {
+          group_name: targetGroup,
+          sort_order: prev[String(active.id)]?.sort_order ?? null,
+        },
       }));
 
-      const reorderedRawNotes = reorderedWithPins.map(({ is_pinned, ...note }) => note);
+      await persistNoteUserSettings(String(active.id), {
+        group_name: targetGroup,
+      });
 
-      setNotes(reorderedRawNotes);
-      await saveNotesOrder(reorderedWithPins);
-    },
-    [notesWithUserPins, persistNote, saveNotesOrder]
-  );
+      return;
+    }
+
+    const oldIndex = notesWithUserPins.findIndex((n) => n.id === active.id);
+    const newIndex = notesWithUserPins.findIndex((n) => n.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const overNote = notesWithUserPins[newIndex];
+    if (!overNote) return;
+
+    const activeGroup = (activeDraggedNote.group_name || 'Generale').trim();
+    const overGroup = (overNote.group_name || 'Generale').trim();
+
+    if (activeGroup !== overGroup) return;
+
+    const notesInSameGroup = notesWithUserPins.filter(
+      (note) => (note.group_name || 'Generale').trim() === activeGroup
+    );
+
+    const oldGroupIndex = notesInSameGroup.findIndex((n) => n.id === active.id);
+    const newGroupIndex = notesInSameGroup.findIndex((n) => n.id === over.id);
+
+    if (oldGroupIndex === -1 || newGroupIndex === -1) return;
+
+    const reorderedGroup = arrayMove(notesInSameGroup, oldGroupIndex, newGroupIndex).map(
+      (note, index) => ({
+        ...note,
+        sort_order: index,
+      })
+    );
+
+    setNoteUserSettings((prev) => {
+      const next = { ...prev };
+
+      reorderedGroup.forEach((note) => {
+        next[note.id] = {
+          group_name: activeGroup,
+          sort_order: note.sort_order ?? null,
+        };
+      });
+
+      return next;
+    });
+
+    for (const note of reorderedGroup) {
+      await persistNoteUserSettings(note.id, {
+        group_name: activeGroup,
+        sort_order: note.sort_order ?? null,
+      });
+    }
+  },
+  [notesWithUserPins, persistNoteUserSettings]
+);
 
   const isValidDate = (dateStr: string) => {
     const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
@@ -1886,34 +1961,49 @@ const persistNote = useCallback(
     })
   );
 
-  useEffect(() => {
-    const initData = async () => {
-      if (!authReady) return;
+  
 
-      if (!userId) {
-        setLoading(false);
-        return;
-      }
+const persistNoteUserSettings = useCallback(
+  async (
+    noteId: string,
+    settings: {
+      group_name?: string;
+      sort_order?: number | null;
+    }
+  ) => {
+    if (!userId) return false;
 
-      try {
-        setLoading(true);
-        await Promise.all([
-          fetchTickets(),
-          fetchClienti(),
-          loadNotes(userId),
-          loadGroups(userId),
-          loadPinnedNotes(userId),
-        ]);
-      } catch (err) {
-        console.error('Errore initData:', err);
-      } finally {
-        setLoading(false);
-      }
+    const payload = {
+      user_id: userId,
+      note_id: noteId,
+      group_name: settings.group_name ?? noteUserSettings[noteId]?.group_name ?? 'Generale',
+      sort_order: settings.sort_order ?? noteUserSettings[noteId]?.sort_order ?? null,
+      updated_at: new Date().toISOString(),
     };
 
-    initData();
-  }, [authReady, userId, fetchTickets, fetchClienti, loadNotes, loadGroups, loadPinnedNotes]);
+    const { error } = await supabase
+      .from('editor_note_user_settings')
+      .upsert(payload, {
+        onConflict: 'user_id,note_id',
+      });
 
+    if (error) {
+      console.error('Errore salvataggio posizione nota:', error);
+      return false;
+    }
+
+    setNoteUserSettings((prev) => ({
+      ...prev,
+      [noteId]: {
+        group_name: payload.group_name,
+        sort_order: payload.sort_order,
+      },
+    }));
+
+    return true;
+  },
+  [userId, noteUserSettings]
+);
 useEffect(() => {
   if (
     activeNote &&
