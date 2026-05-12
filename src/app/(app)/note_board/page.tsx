@@ -1601,12 +1601,17 @@ export default function SublimeLikeEditorPage() {
   if (!activeNote || !canEditActiveNote) return;
 
   if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
-    const saved = await persistNote(activeNote.id, {
+    const patch: Partial<EditorNote> = {
       content: editorValue,
       note_type: activeNote.note_type,
-      file_name: activeNote.file_name,
-      group_name: activeNote.group_name,
-    });
+    };
+
+    if (isOwnerOfActiveNote) {
+      patch.file_name = activeNote.file_name;
+      patch.group_name = activeNote.group_name;
+    }
+
+    const saved = await persistNote(activeNote.id, patch);
 
     if (saved) {
       setHasUnsavedChanges(false);
@@ -1619,18 +1624,30 @@ export default function SublimeLikeEditorPage() {
     return;
   }
 
-  const saved = await persistNote(activeNote.id, {
-    content: activeNote.content,
-    note_type: activeNote.note_type,
+  const patch: Partial<EditorNote> = {
     todo_items: activeNote.todo_items,
-    file_name: activeNote.file_name,
-    group_name: activeNote.group_name,
-  });
+  };
+
+  if (isOwnerOfActiveNote) {
+    patch.content = activeNote.content;
+    patch.note_type = activeNote.note_type;
+    patch.file_name = activeNote.file_name;
+    patch.group_name = activeNote.group_name;
+  }
+
+  const saved = await persistNote(activeNote.id, patch);
 
   if (saved) {
     setHasUnsavedChanges(false);
   }
-}, [activeNote, persistNote, canEditActiveNote, editorValue, syncAllTextTickets]);
+}, [
+  activeNote,
+  persistNote,
+  canEditActiveNote,
+  isOwnerOfActiveNote,
+  editorValue,
+  syncAllTextTickets,
+]);
 
   const updateActiveTodoItems = useCallback(
     async (updater: (items: TodoItem[]) => TodoItem[]) => {
