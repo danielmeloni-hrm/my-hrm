@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import {
-  ArrowLeft,
   ChevronRight,
   Search,
   Settings2,
@@ -14,9 +13,6 @@ import {
   AlertTriangle,
   Pin,
   PinOff,
-  CheckCircle2,
-  CircleOff,
-  Repeat,Repeat2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -64,15 +60,14 @@ type TicketRow = Ticket & {
   clienti?: Cliente | null;
   profili?: Profilo | null;
   numero_ore?: number;
-  ricorsivo?:boolean;
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'n_tag', label: 'N° Tag', visible: true, pinned: false },
+  { id: 'n_tag', label: 'N° INC', visible: true, pinned: false },
+  { id: 'numero_ore', label: 'N° Ore', visible: true, pinned: false },
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
-  { id: 'ricorsivo', label: 'Ricorsivo', visible: true, pinned: false },
   { id: 'stato', label: 'Stato', visible: true, pinned: false },
   { id: 'progress', label: 'Avanzamento %', visible: true, pinned: false },
   { id: 'assignee', label: 'Assegnatario', visible: true, pinned: false },
@@ -85,7 +80,6 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'data_apertura_attivita', label: 'Apertura Attività', visible: true, pinned: false },
   { id: 'data_chiusura_attivita', label: 'Chiusura Attività', visible: true, pinned: false },
   { id: 'ultimo_ping', label: 'Ultimo Ping', visible: true, pinned: false },
-  { id: 'numero_ore', label: 'N° Ore', visible: true, pinned: false },
 ];
 
 const getColWidthValue = (id: string) => {
@@ -98,6 +92,8 @@ const getColWidthValue = (id: string) => {
       return 180;
     case 'n_tag':
       return 130;
+    case 'numero_ore':
+      return 110;
     case 'progress':
       return 150;
     case 'cliente':
@@ -106,10 +102,6 @@ const getColWidthValue = (id: string) => {
       return 140;
     case 'ultimo_ping':
       return 120;
-    case 'numero_ore':
-      return 110;
-    case 'ricorsivo':
-  return 120;
     default:
       return 130;
   }
@@ -125,8 +117,8 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[180px]';
     case 'n_tag':
       return 'min-w-[130px]';
-    case 'ricorsivo':
-  return 'min-w-[120px]';
+    case 'numero_ore':
+      return 'min-w-[110px]';
     case 'progress':
       return 'min-w-[150px]';
     case 'cliente':
@@ -135,8 +127,6 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[140px]';
     case 'ultimo_ping':
       return 'min-w-[120px]';
-    case 'numero_ore':
-      return 'min-w-[110px]';
     default:
       return 'min-w-[130px]';
   }
@@ -154,13 +144,20 @@ const mergeColumnConfig = (
 ): ColumnConfig[] => {
   if (!saved?.length) return defaults;
 
-  const savedMap = new Map(saved.map((col) => [col.id, col]));
-  const merged = defaults.map((def) => ({
-    ...def,
-    ...(savedMap.get(def.id) || {}),
-  }));
+  const defaultMap = new Map(defaults.map((col) => [col.id, col]));
 
-  return normalizeColumns(merged);
+  const mergedFromSaved = saved
+    .filter((col) => defaultMap.has(col.id))
+    .map((savedCol) => ({
+      ...defaultMap.get(savedCol.id)!,
+      ...savedCol,
+    }));
+
+  const missingDefaults = defaults.filter(
+    (def) => !saved.some((savedCol) => savedCol.id === def.id)
+  );
+
+  return normalizeColumns([...mergedFromSaved, ...missingDefaults]);
 };
 
 type SortableColumnItemProps = {
@@ -237,28 +234,7 @@ function SortableColumnItem({
   );
 }
 
-export default function StoricoTicketPage() {
-  const supabase = useMemo(() => createClient(), []);
-  const [selectedRicorsivo, setSelectedRicorsivo] = useState<'' | 'si' | 'no'>('');
-  const [tickets, setTickets] = useState<TicketRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [showConfig, setShowConfig] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [columnOrder, setColumnOrder] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCliente, setSelectedCliente] = useState('');
-  const [selectedAssegnatario, setSelectedAssegnatario] = useState('');
-  const [selectedSprint, setSelectedSprint] = useState('');
-  const [selectedAttivita, setSelectedAttivita] = useState('');
-  const [filterAttenzioneBusiness, setFilterAttenzioneBusiness] = useState(false);
-  const [selectedStato, setSelectedStato] = useState('');
-
-  const [listaAssegnatari, setListaAssegnatari] = useState<Profilo[]>([]);
-  const [listaClienti, setListaClienti] = useState<Cliente[]>([]);
-  async function fetchTagHoursMap(): Promise<Record<string, number>> {
+async function fetchTagHoursMap(): Promise<Record<string, number>> {
   const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco';
   const gid = '1523798548';
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`;
@@ -285,12 +261,34 @@ export default function StoricoTicketPage() {
     const hours = normalizeNumber(row?.c?.[1]?.v);
 
     if (!tag) continue;
-
     tagHoursMap[tag] = (tagHoursMap[tag] || 0) + hours;
   }
 
   return tagHoursMap;
 }
+
+export default function StoricoTicketPage() {
+  const supabase = useMemo(() => createClient(), []);
+
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [showConfig, setShowConfig] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [columnOrder, setColumnOrder] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCliente, setSelectedCliente] = useState('');
+  const [selectedAssegnatario, setSelectedAssegnatario] = useState('');
+  const [selectedSprint, setSelectedSprint] = useState('');
+  const [selectedAttivita, setSelectedAttivita] = useState('');
+  const [filterAttenzioneBusiness, setFilterAttenzioneBusiness] = useState(false);
+  const [selectedStato, setSelectedStato] = useState('');
+
+  const [listaAssegnatari, setListaAssegnatari] = useState<Profilo[]>([]);
+  const [listaClienti, setListaClienti] = useState<Cliente[]>([]);
+
   const [sortConfig, setSortConfig] = useState<{
     key: string | null;
     direction: 'asc' | 'desc';
@@ -330,45 +328,45 @@ export default function StoricoTicketPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
-            setCurrentUserId(user.id);
-            setSelectedAssegnatario(user.id);
+          setCurrentUserId(user.id);
+          setSelectedAssegnatario(user.id);
 
-            const { data: profilo, error: profiloError } = await supabase
-              .from('profili')
-              .select('all_ticket_settings_colonne')
-              .eq('id', user.id)
-              .single();
+          const { data: profilo, error: profiloError } = await supabase
+            .from('profili')
+            .select('all_incident_settings_colonne')
+            .eq('id', user.id)
+            .single();
 
-            if (profiloError) throw profiloError;
+          if (profiloError) throw profiloError;
 
-            setColumnOrder(
-              mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_ticket_settings_colonne)
-            );
-          } else {
-            setColumnOrder(DEFAULT_COLUMNS);
-          }
+          setColumnOrder(
+            mergeColumnConfig(DEFAULT_COLUMNS, profilo?.all_incident_settings_colonne)
+          );
+        } else {
+          setColumnOrder(DEFAULT_COLUMNS);
+        }
 
         const [tRes, pRes, cRes, tagHoursMap] = await Promise.all([
-            supabase
-              .from('ticket')
-              .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
-              .order('ultimo_ping', { ascending: false })
-              .eq('tipologia_ticket', 'Attività'),
-            supabase.from('profili').select('id, nome_completo'),
-            supabase.from('clienti').select('id, nome'),
-            fetchTagHoursMap(),
-          ]);
+          supabase
+            .from('ticket')
+            .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+            .order('ultimo_ping', { ascending: false })
+            .eq('tipologia_ticket', 'Incident'),
+          supabase.from('profili').select('id, nome_completo'),
+          supabase.from('clienti').select('id, nome'),
+          fetchTagHoursMap(),
+        ]);
 
         if (tRes.error) throw tRes.error;
         if (pRes.error) throw pRes.error;
         if (cRes.error) throw cRes.error;
 
         const ticketsWithHours: TicketRow[] = ((tRes.data as TicketRow[]) || []).map((ticket) => ({
-      ...ticket,
-      numero_ore: ticket.n_tag ? tagHoursMap[ticket.n_tag] || 0 : 0,
-    }));
+          ...ticket,
+          numero_ore: ticket.n_tag ? tagHoursMap[ticket.n_tag] || 0 : 0,
+        }));
 
-    setTickets(ticketsWithHours);
+        setTickets(ticketsWithHours);
         setListaAssegnatari((pRes.data as Profilo[]) || []);
         setListaClienti((cRes.data as Cliente[]) || []);
       } catch (err: any) {
@@ -387,33 +385,34 @@ export default function StoricoTicketPage() {
     const { error } = await supabase.from('ticket').update(updatePayload).eq('id', id);
 
     if (!error) {
-  const [{ data }, tagHoursMap] = await Promise.all([
-    supabase
-      .from('ticket')
-      .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
-      .eq('id', id)
-      .eq('tipologia_ticket', 'Attività')
-      .single(),
-    fetchTagHoursMap(),
-  ]);
+      const [{ data }, tagHoursMap] = await Promise.all([
+        supabase
+          .from('ticket')
+          .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+          .eq('id', id)
+          .eq('tipologia_ticket', 'Incident')
+          .single(),
+        fetchTagHoursMap(),
+      ]);
 
-  if (data) {
-    const updatedTicket = data as TicketRow;
+      if (data) {
+        const updatedTicket = data as TicketRow;
 
-    setTickets((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? {
-              ...updatedTicket,
-              numero_ore: updatedTicket.n_tag
-                ? tagHoursMap[updatedTicket.n_tag] || 0
-                : 0,
-            }
-          : t
-      )
-    );
-  }
-}}
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.id === id
+              ? {
+                  ...updatedTicket,
+                  numero_ore: updatedTicket.n_tag
+                    ? tagHoursMap[updatedTicket.n_tag] || 0
+                    : 0,
+                }
+              : t
+          )
+        );
+      }
+    }
+  };
 
   const saveUserSettings = async (newConfig: ColumnConfig[]) => {
     setColumnOrder(newConfig);
@@ -421,7 +420,7 @@ export default function StoricoTicketPage() {
     if (currentUserId) {
       await supabase
         .from('profili')
-        .update({ all_ticket_settings_colonne: newConfig })
+        .update({ all_incident_settings_colonne: newConfig })
         .eq('id', currentUserId);
     }
   };
@@ -462,20 +461,14 @@ export default function StoricoTicketPage() {
       const matchesAttivita = selectedAttivita === '' || t.tipo_di_attivita === selectedAttivita;
       const matchesAttenzione =
         !filterAttenzioneBusiness || t.stato === 'Attenzione Business';
-      const matchesRicorsivo =
-        selectedRicorsivo === ''
-          ? true
-          : selectedRicorsivo === 'si'
-          ? !!t.ricorsivo
-          : !t.ricorsivo;
+
       return (
         matchesSearch &&
         matchesCliente &&
         matchesAssegnatario &&
         matchesStato &&
         matchesSprint &&
-        matchesAttivita && 
-        matchesRicorsivo  &&
+        matchesAttivita &&
         matchesAttenzione
       );
     });
@@ -491,6 +484,10 @@ export default function StoricoTicketPage() {
           case 'progress':
             aVal = Number(a.percentuale_avanzamento) || 0;
             bVal = Number(b.percentuale_avanzamento) || 0;
+            break;
+          case 'numero_ore':
+            aVal = Number(a.numero_ore) || 0;
+            bVal = Number(b.numero_ore) || 0;
             break;
           case 'cliente':
             aVal = a.clienti?.nome?.toLowerCase() || '';
@@ -575,7 +572,6 @@ export default function StoricoTicketPage() {
     setSelectedSprint('');
     setSelectedAttivita('');
     setFilterAttenzioneBusiness(false);
-    setSelectedRicorsivo('');
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -617,14 +613,12 @@ export default function StoricoTicketPage() {
       <header className="max-w-[1600px] mx-auto mb-8">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div>
-            
-
             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-              Database <span className="text-slate-400 font-light italic">Attività</span>
+              Database <span className="text-slate-400 font-light italic">Incident</span>
             </h1>
 
             <p className="mt-2 text-sm font-semibold text-slate-500">
-              Numero Attività = <span className="text-slate-900">{filteredTickets.length}</span>
+              Numero Incident = <span className="text-slate-900">{filteredTickets.length}</span>
             </p>
           </div>
 
@@ -658,27 +652,14 @@ export default function StoricoTicketPage() {
               </select>
 
               <select
-                className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
+                className="bg-transparent py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
                 value={selectedSprint}
                 onChange={(e) => setSelectedSprint(e.target.value)}
               >
-                
-                {SPRINT_LIST.filter((s) => s !== 'Opex').map((s) => (
+                <option value="">Sprint</option>
+                {SPRINT_LIST.filter((s) => s !== 'Sprint').map((s) => (
                   <option key={s} value={s}>
                     {s}
-                  </option>
-                ))}
-              </select>
-             
-              <select
-                className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
-                value={selectedAttivita}
-                onChange={(e) => setSelectedAttivita(e.target.value)}
-              >
-                <option value="">Attività</option>
-                {ATTIVITA_LIST.filter((a) => a !== 'Incident Resolution').map((a) => (
-                  <option key={a} value={a}>
-                    {a}
                   </option>
                 ))}
               </select>
@@ -709,36 +690,7 @@ export default function StoricoTicketPage() {
                 ))}
               </select>
             </div>
-                <div className="flex items-center gap-2">
-  <span className="text-[10px] font-bold uppercase text-slate-400">Ricorsivo</span>
 
-  <button
-    type="button"
-    onClick={() =>
-      setSelectedRicorsivo((prev) =>
-        prev === '' ? 'si' : prev === 'si' ? 'no' : ''
-      )
-    }
-    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${
-      selectedRicorsivo === 'si'
-        ? 'bg-blue-50 text-blue-600 border-blue-200'
-        : selectedRicorsivo === 'no'
-        ? 'bg-slate-100 text-slate-600 border-slate-200'
-        : 'bg-white text-slate-400 border-slate-200'
-    }`}
-  >
-    <span
-      className={`h-2.5 w-2.5 rounded-full ${
-        selectedRicorsivo === 'si'
-          ? 'bg-blue-500'
-          : selectedRicorsivo === 'no'
-          ? 'bg-slate-500'
-          : 'bg-slate-300'
-      }`}
-    />
-    {selectedRicorsivo === '' ? 'Tutti' : selectedRicorsivo === 'si' ? 'Sì' : 'No'}
-  </button>
-</div>
             <button
               onClick={() => setFilterAttenzioneBusiness(!filterAttenzioneBusiness)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-tight transition-all border ${
@@ -756,8 +708,7 @@ export default function StoricoTicketPage() {
               selectedAssegnatario ||
               selectedSprint ||
               selectedAttivita ||
-              selectedStato || 
-              selectedRicorsivo || 
+              selectedStato ||
               filterAttenzioneBusiness) && (
               <button
                 onClick={resetFilters}
@@ -855,6 +806,7 @@ export default function StoricoTicketPage() {
                             onChange={(e) => handleUpdate(t.id, 'titolo', e.target.value)}
                           />
                         )}
+
                         {col.id === 'numero_ore' && (
                           <span className="text-[10px] font-bold text-slate-700">
                             {(t.numero_ore || 0).toLocaleString('it-IT', {
@@ -863,6 +815,7 @@ export default function StoricoTicketPage() {
                             })}
                           </span>
                         )}
+
                         {col.id === 'tipo_di_attivita' && (
                           <select
                             className="bg-transparent text-[10px] font-bold text-slate-600 outline-none"
@@ -970,21 +923,7 @@ export default function StoricoTicketPage() {
                             }
                           />
                         )}
-                        {col.id === 'ricorsivo' && (
-                          <button
-                            type="button"
-                            onClick={() => handleUpdate(t.id, 'ricorsivo', !t.ricorsivo)}
-                            className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold uppercase transition-all ${
-                              t.ricorsivo
-                                ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
-                                : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100'
-                            }`}
-                            title={t.ricorsivo ? 'Ricorsivo: Sì' : 'Ricorsivo: No'}
-                          >
-                            <Repeat2 size={12} />
-                            {t.ricorsivo ? 'Sì' : 'No'}
-                          </button>
-                        )}
+
                         {col.id === 'progress' && (
                           <div className="flex items-center gap-2 w-28 group/progress">
                             <div className="relative">

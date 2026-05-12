@@ -83,6 +83,27 @@ const SublimeEmbed = ({
     onBridgeStatusChangeRef.current = onBridgeStatusChange;
   });
 
+useEffect(() => {
+  const handler = (event: Event) => {
+    const customEvent = event as CustomEvent<{
+      userId?: string;
+    }>;
+
+    if (!socketRef.current || !socketRef.current.connected) {
+      console.warn('Socket non connesso: impossibile chiudere il terminale');
+      return;
+    }
+
+    socketRef.current.emit('close-terminal', {
+      userId: customEvent.detail?.userId || userId,
+      targetFolderName: 'live_notes',
+    });
+  };
+
+  window.addEventListener('sublime-close-terminal', handler);
+  return () => window.removeEventListener('sublime-close-terminal', handler);
+}, [userId]);
+
   useEffect(() => {
     if (!userId || !bridgeActive) {
       socketRef.current?.disconnect();
@@ -142,11 +163,23 @@ const SublimeEmbed = ({
       // Se non c'è un tab attivo o se il file aggiornato è quello appena arrivato, lo selezioniamo
       setActiveTabId((current) => current === '' ? nextFileName : current);
     });
+    socket.on('terminal-opened', () => {
+      window.dispatchEvent(new Event('sublime-terminal-opened'));
+    });
+
+    socket.on('terminal-closed', () => {
+      window.dispatchEvent(new Event('sublime-terminal-closed'));
+    });
+
+    socket.on('terminal-error', (data: { message?: string }) => {
+      console.error('Errore terminale:', data?.message);
+    });
 
     return () => {
       socket.disconnect();
     };
   }, [socketUrl, userId, bridgeActive]);
+  
 
   const lineProps = (lineNumber: number) => {
     const line = currentCode.split('\n')[lineNumber - 1] || '';
