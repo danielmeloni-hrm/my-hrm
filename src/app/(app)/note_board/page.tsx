@@ -822,7 +822,47 @@ const persistNote = useCallback(
   },
   [userId, notes]
 );
+const persistNoteUserSettings = useCallback(
+  async (
+    noteId: string,
+    settings: {
+      group_name?: string;
+      sort_order?: number | null;
+    }
+  ) => {
+    if (!userId) return false;
 
+    const payload = {
+      user_id: userId,
+      note_id: noteId,
+      group_name: settings.group_name ?? noteUserSettings[noteId]?.group_name ?? 'Generale',
+      sort_order: settings.sort_order ?? noteUserSettings[noteId]?.sort_order ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('editor_note_user_settings')
+      .upsert(payload, {
+        onConflict: 'user_id,note_id',
+      });
+
+    if (error) {
+      console.error('Errore salvataggio posizione nota:', error);
+      return false;
+    }
+
+    setNoteUserSettings((prev) => ({
+      ...prev,
+      [noteId]: {
+        group_name: payload.group_name,
+        sort_order: payload.sort_order,
+      },
+    }));
+
+    return true;
+  },
+  [userId, noteUserSettings]
+);
   const toggleShareNote = useCallback(
     async (note: EditorNote) => {
       if (!canManageNote(note)) return;
@@ -1102,47 +1142,7 @@ const persistNote = useCallback(
     },
     [activeNote, isOwnerOfActiveNote, userId]
   );
-const persistNoteUserSettings = useCallback(
-  async (
-    noteId: string,
-    settings: {
-      group_name?: string;
-      sort_order?: number | null;
-    }
-  ) => {
-    if (!userId) return false;
 
-    const payload = {
-      user_id: userId,
-      note_id: noteId,
-      group_name: settings.group_name ?? noteUserSettings[noteId]?.group_name ?? 'Generale',
-      sort_order: settings.sort_order ?? noteUserSettings[noteId]?.sort_order ?? null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase
-      .from('editor_note_user_settings')
-      .upsert(payload, {
-        onConflict: 'user_id,note_id',
-      });
-
-    if (error) {
-      console.error('Errore salvataggio posizione nota:', error);
-      return false;
-    }
-
-    setNoteUserSettings((prev) => ({
-      ...prev,
-      [noteId]: {
-        group_name: payload.group_name,
-        sort_order: payload.sort_order,
-      },
-    }));
-
-    return true;
-  },
-  [userId, noteUserSettings]
-);
   const handleDragEnd = useCallback(
   async (event: any) => {
     const { active, over } = event;
