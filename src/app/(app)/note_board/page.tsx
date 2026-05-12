@@ -680,58 +680,59 @@ export default function SublimeLikeEditorPage() {
     }
   }, []);
 
-  const persistNote = useCallback(
-    async (noteId: string, patch: Partial<EditorNote>) => {
-      try {
-        setSaveStatus('saving');
+const persistNote = useCallback(
+  async (noteId: string, patch: Partial<EditorNote>) => {
+    try {
+      setSaveStatus('saving');
 
-        const now = new Date().toISOString();
-        const payload: any = { updated_at: now };
+      const now = new Date().toISOString();
+      const payload: any = { updated_at: now };
 
-        if (patch.content !== undefined) payload.content = patch.content;
-        if (patch.file_name !== undefined) payload.file_name = patch.file_name;
-        if (patch.note_type !== undefined) payload.note_type = patch.note_type;
-        if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
-        if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
-        if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
-        if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
-        if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
-        if ((patch as any).group_name !== undefined) payload.group_name = (patch as any).group_name;
+      if (patch.content !== undefined) payload.content = patch.content;
+      if (patch.file_name !== undefined) payload.file_name = patch.file_name;
+      if (patch.note_type !== undefined) payload.note_type = patch.note_type;
+      if (patch.todo_items !== undefined) payload.todo_items = patch.todo_items;
+      if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
+      if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
+      if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
+      if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
+      if ((patch as any).group_name !== undefined) payload.group_name = (patch as any).group_name;
 
-        const noteToUpdate = notes.find((n) => n.id === noteId);
+      const noteToUpdate = notes.find((n) => n.id === noteId);
 
-        if (!noteToUpdate) {
+      if (!noteToUpdate) {
+        setSaveStatus('error');
+        return false;
+      }
+
+      const isOwner = noteToUpdate.user_id === userId;
+      const isSharedEdit = noteToUpdate.share_mode === 'shared_edit';
+
+      if (!isOwner) {
+        if (!isSharedEdit) {
           setSaveStatus('error');
           return false;
         }
 
-        const isOwner = noteToUpdate.user_id === userId;
-        const isSharedEdit = noteToUpdate.share_mode === 'shared_edit';
+        const allowedNonOwnerKeys = ['content', 'todo_items', 'updated_at'];
+        const invalidKey = Object.keys(payload).find(
+          (key) => !allowedNonOwnerKeys.includes(key)
+        );
 
-        if (!isOwner) {
-          if (!isSharedEdit) {
-            setSaveStatus('error');
-            return false;
-          }
-
-          const allowedNonOwnerKeys = ['content', 'todo_items', 'updated_at'];
-          const invalidKey = Object.keys(payload).find((key) => !allowedNonOwnerKeys.includes(key));
-
-          if (invalidKey) {
-            setSaveStatus('error');
-            return false;
-          }
+        if (invalidKey) {
+          console.error('Campo non modificabile da non-owner:', invalidKey);
+          setSaveStatus('error');
+          return false;
         }
 
-        const { data, error } = await supabase
-          .from('editor_notes')
-          .update(payload)
-          .eq('id', noteId)
-          .select()
-          .single();
+        const { data, error } = await supabase.rpc('update_shared_edit_editor_note', {
+          p_note_id: noteId,
+          p_content: payload.content ?? null,
+          p_todo_items: payload.todo_items ?? null,
+        });
 
         if (error) {
-          console.error('Errore salvataggio nota:', error);
+          console.error('Errore salvataggio nota condivisa:', error);
           setSaveStatus('error');
           return false;
         }
@@ -752,14 +753,45 @@ export default function SublimeLikeEditorPage() {
 
         setSaveStatus('saved');
         return true;
-      } catch (err) {
-        console.error('Errore persistNote:', err);
+      }
+
+      const { data, error } = await supabase
+        .from('editor_notes')
+        .update(payload)
+        .eq('id', noteId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Errore salvataggio nota:', error);
         setSaveStatus('error');
         return false;
       }
-    },
-    [userId, notes]
-  );
+
+      const updatedNote = data ? normalizeNote(data) : null;
+
+      setNotes((prev) =>
+        prev.map((note) =>
+          note.id === noteId
+            ? {
+                ...note,
+                ...(updatedNote || patch),
+                updated_at: now,
+              }
+            : note
+        )
+      );
+
+      setSaveStatus('saved');
+      return true;
+    } catch (err) {
+      console.error('Errore persistNote:', err);
+      setSaveStatus('error');
+      return false;
+    }
+  },
+  [userId, notes]
+);
 
   const toggleShareNote = useCallback(
     async (note: EditorNote) => {
@@ -1603,10 +1635,10 @@ export default function SublimeLikeEditorPage() {
   if (activeNote.note_type === 'text' || activeNote.note_type === 'taskmanager') {
     const patch: Partial<EditorNote> = {
       content: editorValue,
-      note_type: activeNote.note_type,
     };
 
     if (isOwnerOfActiveNote) {
+      patch.note_type = activeNote.note_type;
       patch.file_name = activeNote.file_name;
       patch.group_name = activeNote.group_name;
     }
