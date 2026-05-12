@@ -566,8 +566,6 @@ const loadNoteUserSettings = useCallback(async (uid: string) => {
             share_mode: 'private',
             shared_by_user_id: null,
             shared_at: null,
-            sort_order: Date.now(),
-            group_name: groupName,
           })
           .select()
           .single();
@@ -588,6 +586,7 @@ const loadNoteUserSettings = useCallback(async (uid: string) => {
     },
     []
   );
+  
 
   const loadNotes = useCallback(
     async (uid: string) => {
@@ -623,7 +622,12 @@ const loadNoteUserSettings = useCallback(async (uid: string) => {
         if (loadedNotes.length > 0) {
           setActiveNoteId(loadedNotes[0].id);
         } else {
-          const created = await createNote(uid, 'untitled.txt', 'text', 'Generale');
+const created = await createNote(
+  uid,
+  `untitled-${Date.now()}.txt`,
+  'text',
+  'Generale'
+);
           if (created) {
             setNotes([created]);
             setActiveNoteId(created.id);
@@ -725,8 +729,7 @@ const persistNote = useCallback(
       if (patch.share_mode !== undefined) payload.share_mode = patch.share_mode;
       if (patch.shared_by_user_id !== undefined) payload.shared_by_user_id = patch.shared_by_user_id;
       if (patch.shared_at !== undefined) payload.shared_at = patch.shared_at;
-      if ((patch as any).sort_order !== undefined) payload.sort_order = (patch as any).sort_order;
-      if ((patch as any).group_name !== undefined) payload.group_name = (patch as any).group_name;
+
 
       const noteToUpdate = notes.find((n) => n.id === noteId);
 
@@ -1680,13 +1683,11 @@ const persistNoteUserSettings = useCallback(
           : 'Generale';
 
       const created = await createNote(
-        userId,
-        `${type === 'todo' ? 'todo' : type === 'taskmanager' ? 'taskmanager' : 'note'}-${
-          notes.length + 1
-        }`,
-        type,
-        targetGroup
-      );
+  userId,
+  `${type === 'todo' ? 'todo' : type === 'taskmanager' ? 'taskmanager' : 'note'}-${Date.now()}`,
+  type,
+  targetGroup
+);
 
       if (!created) return;
 
