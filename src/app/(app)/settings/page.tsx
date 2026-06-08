@@ -22,6 +22,7 @@ export default function SettingsPage() {
       { name: 'Calendario Rilasci', path: '/calendario' },
       { name: 'Calendario Rilasci CHG', path: '/calendario_chg' },
       { name: 'Report', path: '/report_progetti' },
+      { name: 'Assistente AI', path: '/ai' },
     ],
     []
   )
