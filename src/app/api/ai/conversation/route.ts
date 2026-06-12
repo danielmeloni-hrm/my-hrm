@@ -22,7 +22,18 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabaseAdmin
     .from("ai_conversations")
-    .select("*")
+    .select(`
+      id,
+      title,
+      created_at,
+      updated_at,
+      ai_messages (
+        id,
+        role,
+        content,
+        created_at
+      )
+    `)
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
 
@@ -30,7 +41,27 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ conversations: data });
+  const conversations = (data ?? []).map((conv: any) => {
+    const messages = conv.ai_messages ?? [];
+
+    return {
+      id: conv.id,
+      title: conv.title || "Nuova chat",
+      created_at: conv.created_at,
+      updated_at: conv.updated_at,
+      message_count: messages.length,
+      last_message:
+        messages.length > 0
+          ? messages.sort(
+              (a: any, b: any) =>
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime()
+            )[0]?.content
+          : null,
+    };
+  });
+
+  return NextResponse.json({ conversations });
 }
 
 export async function POST(req: Request) {
@@ -46,7 +77,7 @@ export async function POST(req: Request) {
     .from("ai_conversations")
     .insert({
       user_id: user.id,
-      title: title || "Nuova conversazione",
+      title: title || "Nuova chat",
     })
     .select()
     .single();

@@ -15,29 +15,34 @@ async function getUser(req: Request) {
 
 export async function GET(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getUser(req);
-  const { id } = await context.params;
 
   if (!user) {
     return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
   }
 
-  const { data: conversation } = await supabaseAdmin
+  const { id } = await params;
+  console.log("Conversation ID:", id);
+  console.log("User ID:", user.id);
+    const { data: conversation, error: conversationError } = await supabaseAdmin
     .from("ai_conversations")
-    .select("*")
+    .select("id")
     .eq("id", id)
     .eq("user_id", user.id)
     .single();
 
-  if (!conversation) {
-    return NextResponse.json({ error: "Conversazione non trovata" }, { status: 404 });
+  if (conversationError || !conversation) {
+    return NextResponse.json(
+      { error: "Conversazione non trovata" },
+      { status: 404 }
+    );
   }
 
   const { data, error } = await supabaseAdmin
     .from("ai_messages")
-    .select("*")
+    .select("id, role, content, created_at")
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
 
@@ -45,5 +50,5 @@ export async function GET(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ messages: data });
+  return NextResponse.json({ messages: data ?? [] });
 }

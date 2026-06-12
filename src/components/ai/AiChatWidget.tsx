@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase";
+import { Bot } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Message = {
   role: "user" | "assistant";
@@ -23,67 +26,76 @@ export default function AiChatWidget() {
   }
 
   async function sendMessage() {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
 
-    const userMessage = input;
+    const userMessage = input.trim();
     setInput("");
     setLoading(true);
 
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 
-    const token = await getToken();
+    try {
+      const token = await getToken();
 
-    const res = await fetch("/api/ai/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        message: userMessage,
-        conversationId,
-      }),
-    });
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          conversationId,
+        }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (data.conversationId) {
-      setConversationId(data.conversationId);
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+              typeof data.answer === "string"
+                ? data.answer
+                : typeof data.details === "string"
+                  ? data.details
+                  : typeof data.error === "string"
+                    ? data.error
+                    : JSON.stringify(data.answer || data.details || data.error || data, null, 2),
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Si è verificato un errore durante la richiesta.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
     }
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content: data.answer || data.details || data.error || "Errore AI",
-      },
-    ]);
-
-    setLoading(false);
   }
 
   return (
     <>
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#00529F] shadow-xl hover:scale-105 transition"
+        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#00529F] shadow-xl transition hover:scale-105"
       >
-        <img
-          src="/brand/ai-assistant.png"
-          alt="Assistente AI"
-          className="h-13 w-13 object-contain"
-        />
+        <Bot className="h-8 w-8 text-white" />
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[420px] h-[560px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl flex flex-col">
+        <div className="fixed bottom-24 right-6 z-50 flex h-[560px] w-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
           <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00529F]">
-              <img
-                src="/brand/ai-assistant.png"
-                alt="Assistente AI"
-                className="h-10  w-10 object-contain"
-              />
+              <Bot className="h-7 w-7 text-white" />
             </div>
 
             <div className="flex-1">
@@ -96,23 +108,23 @@ export default function AiChatWidget() {
             </div>
 
             <button
-                onClick={() => {
-                    setOpen(false);
-                    setConversationId(null);
-                    setMessages([]);
-                    setInput("");
-                }}
-                className="rounded-full px-2 py-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                >
-                ✕
-                </button>
+              onClick={() => {
+                setOpen(false);
+                setConversationId(null);
+                setMessages([]);
+                setInput("");
+              }}
+              className="rounded-full px-2 py-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            >
+              ✕
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 space-y-4">
+          <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50 px-4 py-5">
             {messages.length === 0 && (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
                 Ciao, sono l’assistente AI di MyHRM. Puoi chiedermi informazioni
-                su ticket, clienti e documenti operativi.
+                su ticket, clienti, documenti operativi e thread email.
               </div>
             )}
 
@@ -124,13 +136,21 @@ export default function AiChatWidget() {
                 }`}
               >
                 <div
-                  className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     msg.role === "user"
-                      ? "bg-[#00529F] text-white rounded-br-md"
-                      : "bg-white text-slate-800 border border-slate-200 rounded-bl-md"
+                      ? "rounded-br-md bg-[#00529F] text-white"
+                      : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
                   }`}
                 >
-                  {msg.content}
+                  {msg.role === "assistant" ? (
+                    <div className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-slate-900">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))}
@@ -161,7 +181,7 @@ export default function AiChatWidget() {
 
               <button
                 onClick={sendMessage}
-                disabled={loading}
+                disabled={loading || !input.trim()}
                 className="h-11 rounded-2xl bg-[#00529F] px-5 text-sm font-medium text-white hover:bg-[#003F7A] disabled:opacity-50"
               >
                 Invia

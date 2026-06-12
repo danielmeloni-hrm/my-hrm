@@ -1,32 +1,32 @@
-import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
-import "./globals.css"
+import type { Metadata } from "next";
+import { Inter, Outfit } from "next/font/google";
+import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
-})
+  variable: "--font-inter",
+});
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const outfit = Outfit({
   subsets: ["latin"],
-})
+  variable: "--font-outfit",
+});
 
 export const metadata: Metadata = {
-  title: "HRM Tracker System",
-  description: "Management Dashboard",
-}
+  title: "MyHRM",
+  description: "MyHRM Platform",
+};
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="it">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${inter.variable} ${outfit.variable}`}>
         {children}
       </body>
     </html>
-  )
+  );
 }

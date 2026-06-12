@@ -2,7 +2,19 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function POST(request: NextRequest) {
-  const { email, password } = await request.json()
+  const { email, password, nome, cognome } = await request.json()
+
+  const cleanEmail = String(email || '').trim()
+  const cleanPassword = String(password || '')
+  const cleanNome = String(nome || '').trim()
+  const cleanCognome = String(cognome || '').trim()
+
+  if (!cleanNome || !cleanCognome) {
+    return NextResponse.json(
+      { ok: false, message: 'Nome e cognome sono obbligatori' },
+      { status: 400 }
+    )
+  }
 
   const response = NextResponse.json({ ok: true })
 
@@ -23,23 +35,25 @@ export async function POST(request: NextRequest) {
     }
   )
 
-  const { data, error } = await supabase.auth.signUp({
-    email: String(email || '').trim(),
-    password: String(password || ''),
+  const { error } = await supabase.auth.signUp({
+    email: cleanEmail,
+    password: cleanPassword,
     options: {
-      // dopo conferma email (se attiva) o subito (se disattiva)
       emailRedirectTo: `${request.nextUrl.origin}/login`,
+      data: {
+        nome: cleanNome,
+        cognome: cleanCognome,
+      },
     },
   })
 
-    if (error) {
-    console.log("REGISTER ERROR:", error)
+  if (error) {
+    console.log('REGISTER ERROR:', error)
     return NextResponse.json(
-        { ok: false, message: error.message },
-        { status: 400 }
+      { ok: false, message: error.message },
+      { status: 400 }
     )
-    }
+  }
 
-  // Nota: se hai "Confirm email" attivo, user potrebbe essere creato ma session null
   return response
 }

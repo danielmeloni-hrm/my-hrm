@@ -1,13 +1,20 @@
-import Sidebar from "@/components/Sidebar"
+import Sidebar from "@/components/Sidebar";
 import AiChatWidget from "@/components/ai/AiChatWidget";
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+import { theme } from "@/styles/theme";
+
+export default function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex h-screen overflow-hidden bg-[#FBFBFB]">
+    <div className={`flex h-screen overflow-hidden ${theme.colors.appBg}`}>
       <Sidebar />
-      <main className="flex-1 h-screen overflow-y-auto relative">
+
+      <main className={theme.layout.main}>
         {children}
-         <AiChatWidget />
+        <AiChatWidget />
       </main>
     </div>
-  )
+  );
 }

@@ -1,12 +1,12 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useTicket } from '../../hooks/useTicket'
 import MailThread from '@/components/ticket/MailThread'
 import ReleasePipeline from '@/components/ticket/ReleasePipeline'
-import { FieldBlock,SectionLabel,SectionCard  ,PrimaryTextarea } from '@/components/ui/ticket-ui'
+import { SectionLabel, PrimaryTextarea } from '@/components/ui/ticket-ui'
 import {
   ArrowLeft,
   MessageSquare,
@@ -14,10 +14,30 @@ import {
   Layers,
   Star,
   User,
-  Trash2,TriangleAlert,
+  Pencil,
+  ExternalLink,
+  Trash2,
+  TriangleAlert,
+  ChevronDown,
+  ChevronUp,
+  CalendarRange,
+  Pin,
+  CheckSquare,
+  Plus,Phone, FileText,Mail,
 } from 'lucide-react'
+import {
+  APPLICATIVI_LIST,
+  TOOL_LIST,
+  ATTIVITA_LIST,
+  SPRINT_LIST,
+  STATO_TICKET_LIST,
+  TIPOLOGIA_TICKET,
+  PRIORITA_LIST,
+} from "@/components/parametri_ticket/attivita";
 
 const STATO_OPTIONS = [
+  'Non Iniziato',
+  'In stand-by',
   'Attività Sospesa',
   'In lavorazione',
   'In attesa Sviluppo',
@@ -28,7 +48,7 @@ const STATO_OPTIONS = [
   'Completato',
 ]
 
-const TOOL_OPTIONS = ['GA4', 'GTM', 'BigQuery', 'Databricks']
+
 const SPRINT_OPTIONS = ['Sprint', 'Opex', 'Backlog', 'Progetto Separato']
 
 const TIPO_ATTIVITA_OPTIONS = [
@@ -84,6 +104,42 @@ const ui = {
   metaBlock: 'flex flex-col gap-2',
 }
 
+type FileLink = {
+  nome_file: string
+  link: string
+}
+
+type TicketSubSubTask = {
+  id: string
+  titolo: string
+  completato: boolean
+}
+
+type TicketSubTask = {
+  id: string
+  titolo: string
+  completato: boolean
+  sottoSottoTask: TicketSubSubTask[]
+}
+
+type TicketTask = {
+  id: string
+  titolo: string
+  completato: boolean
+  sottoTask: TicketSubTask[]
+}
+
+const defaultSections = {
+  storiaAttivita: true,
+  task: true,
+  noteTecniche: true,
+  noteImportanti: true,
+  projectMetrics: true,
+  gestioneHRM: true,
+  mailThread: true,
+  releasePipeline: true,
+}
+
 function groupLogsByMonth(logs: string[]) {
   const grouped: Record<string, string[]> = {}
 
@@ -102,15 +158,179 @@ function groupLogsByMonth(logs: string[]) {
 }
 
 export default function TicketDettaglioPage() {
-  const { id } = useParams()
+  const params = useParams()
+  const id = Array.isArray(params?.id) ? params.id[0] : params?.id
+  const [tagHours, setTagHours] = useState<number | null>(null)
+  const [canShowTicketHours, setCanShowTicketHours] = useState<boolean>(false)
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
 
+  useEffect(() => {
+    const fetchTagHours = async () => {
+      const voceCalendario = ticketData?.voce_calendario?.trim()
+
+      if (!voceCalendario) {
+        setTagHours(null)
+        return
+      }
+
+      try {
+        const sheetId = '1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco'
+        const gid = '1523798548'
+        const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${gid}&tqx=out:json`
+
+        const res = await fetch(url)
+        const text = await res.text()
+
+        const jsonText = text.substring(47, text.length - 2)
+        const data = JSON.parse(jsonText)
+        const rows = data.table.rows || []
+
+        const normalizeNumber = (value: unknown) => {
+          if (typeof value === 'number') return value
+          if (typeof value === 'string') {
+            return parseFloat(value.replace(/\./g, '').replace(',', '.')) || 0
+          }
+          return 0
+        }
+
+        const total = rows.reduce((sum: number, row: any) => {
+          const voce = row?.c?.[0]?.v?.toString()?.trim()
+          const hoursValue = row?.c?.[1]?.v
+
+          if (voce === voceCalendario) {
+            return sum + normalizeNumber(hoursValue)
+          }
+
+          return sum
+        }, 0)
+
+        setTagHours(total)
+      } catch (error) {
+        console.error('Errore caricamento ore attività:', error)
+        setTagHours(null)
+      }
+    }
+
+    fetchTagHours()
+  }, [ticketData?.voce_calendario])
+
   const [deleting, setDeleting] = useState(false)
-  const [showEsselungaDetails, setShowEsselungaDetails] = useState(false)
+  const [showTagEditor, setShowTagEditor] = useState(false)
+  const [showVisibilityPanel, setShowVisibilityPanel] = useState(false)
+
+  const [tempTag, setTempTag] = useState('')
+  const [tempLink, setTempLink] = useState('')
+  const [tempTicketCollegato, setTempTicketCollegato] = useState('')
+  const [tempTicketCollegatoLink, setTempTicketCollegatoLink] = useState('')
+
   const [newLogNote, setNewLogNote] = useState('')
   const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0])
+const [openSections, setOpenSections] = useState(defaultSections)
+
+useEffect(() => {
+  if (!ticketData) return
+
+  setOpenSections({
+    ...defaultSections,
+    ...(ticketData.componenti_visibili || {}),
+  })
+}, [ticketData])
+  
+
+  const [showFileModal, setShowFileModal] = useState(false)
+  const [newFiles, setNewFiles] = useState<FileLink[]>([{ nome_file: '', link: '' }])
+
+  useEffect(() => {
+    if (!ticketData) return
+
+    setTempTag(ticketData.n_tag || '')
+    setTempLink(ticketData.link_tag || '')
+    setTempTicketCollegato(ticketData.ticket_collegato || '')
+    setTempTicketCollegatoLink(ticketData.ticket_collegato_link || '')
+  }, [ticketData])
+const [openTaskIds, setOpenTaskIds] = useState<Record<string, boolean>>({})
+const toggleTaskAccordion = (taskId: string) => {
+  setOpenTaskIds((prev) => ({
+    ...prev,
+    [taskId]: !prev[taskId],
+  }))
+}
+  useEffect(() => {
+    const loadProfileSettings = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) return
+
+        const { data, error } = await supabase
+          .from('profili')
+          .select('ore_ticket')
+          .eq('id', user.id)
+          .single()
+
+        if (error) {
+          console.error('Errore caricamento profilo:', error.message)
+          return
+        }
+
+        setCanShowTicketHours(data?.ore_ticket === true)
+      } catch (error) {
+        console.error('Errore imprevisto caricamento profilo:', error)
+      }
+    }
+
+    loadProfileSettings()
+  }, [supabase])
+
+ const toggleSection = async (
+  section: keyof typeof openSections
+) => {
+  const updated = {
+    ...openSections,
+    [section]: !openSections[section],
+  }
+
+  setOpenSections(updated)
+
+  await handleUpdate(
+    'componenti_visibili',
+    updated
+  )
+}
+
+  const addFileRow = () => {
+    setNewFiles((prev) => [...prev, { nome_file: '', link: '' }])
+  }
+
+  const removeFile = async (index: number) => {
+    if (!ticketData) return
+
+    const currentFiles = Array.isArray(ticketData.files_link)
+      ? (ticketData.files_link as FileLink[])
+      : []
+
+    const updated = currentFiles.filter((_, i) => i !== index)
+    await handleUpdate('files_link', updated)
+  }
+
+  const saveNewFiles = async () => {
+    if (!ticketData) return
+
+    const validFiles = newFiles.filter((f) => f.nome_file.trim() && f.link.trim())
+    if (validFiles.length === 0) return
+
+    const currentFiles = Array.isArray(ticketData.files_link)
+      ? (ticketData.files_link as FileLink[])
+      : []
+
+    await handleUpdate('files_link', [...currentFiles, ...validFiles])
+    setNewFiles([{ nome_file: '', link: '' }])
+    setShowFileModal(false)
+  }
 
   const getProgressColor = (percent: number) => {
     if (percent < 30) return 'bg-[#dbeafe]'
@@ -118,12 +338,47 @@ export default function TicketDettaglioPage() {
     return 'bg-[#0150a0]'
   }
 
+  const formatDisplayDate = (value?: string | null) => {
+    if (!value) return '—'
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+
+    return date.toLocaleDateString('it-IT')
+  }
+
   const isEsselunga = Boolean(
     clienti.find((c) => c.id === ticketData?.cliente_id)?.nome?.toLowerCase().includes('esselunga')
   )
 
+  const isIncident = ticketData?.tipologia_ticket === 'Incident'
+
+  const summaryCards = [
+    ...(canShowTicketHours
+      ? [
+          {
+            label: 'Numero di ore',
+            value:
+              tagHours !== null
+                ? tagHours.toLocaleString('it-IT', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })
+                : '—',
+          },
+        ]
+      : []),
+    {
+      label: 'Ultimo Ping',
+      value: formatDisplayDate(ticketData?.ultimo_ping),
+    },
+  ]
+
+const [isCall, setIsCall] = useState(false)
+const [isVrbl, setIsVrbl] = useState(false)
+const [isPing, setIsPing] = useState(false)
   const toggleApplicativo = (app: string) => {
-    const current = Array.isArray(ticketData.applicativo) ? ticketData.applicativo : []
+    const current = Array.isArray(ticketData?.applicativo) ? ticketData.applicativo : []
     const updated = current.includes(app)
       ? current.filter((a: string) => a !== app)
       : [...current, app]
@@ -131,22 +386,18 @@ export default function TicketDettaglioPage() {
     handleUpdate('applicativo', updated)
   }
 
-//  const deleteLogNote = (index: number) => {
-//  const updatedLog = (ticketData.storia_ticket || [])
-//      .filter((_, i) => i !== index)
-//      .sort((a, b) => {
-//        const dateA = a.match(/^\[(\d{4}-\d{2}-\d{2})\]/)?.[1] || ''
-//        const dateB = b.match(/^\[(\d{4}-\d{2}-\d{2})\]/)?.[1] || ''
-//        return dateA.localeCompare(dateB)
-//      })
-//
-//    handleUpdate('storia_ticket', updatedLog)
-//  }
+  const addLogNote = async () => {
+    if (!ticketData || !newLogNote.trim()) return
 
-  const addLogNote = () => {
-    if (!newLogNote.trim()) return
+    const flags = [
+      isCall ? 'CALL' : null,
+      isVrbl ? 'VRBL' : null,
+      isPing ? 'PING' : null,
+    ]
+      .filter(Boolean)
+      .join('|')
 
-    const newEntry = `[${logDate}] ${newLogNote.trim()}`
+const newEntry = `[${logDate}]${flags ? `[${flags}]` : ''} ${newLogNote.trim()}`
 
     const updatedLog = Array.isArray(ticketData.storia_ticket)
       ? [...ticketData.storia_ticket, newEntry]
@@ -158,15 +409,217 @@ export default function TicketDettaglioPage() {
       return dateA.localeCompare(dateB)
     })
 
-    handleUpdate('storia_ticket', updatedLog)
+    await handleUpdate('storia_ticket', updatedLog)
     setNewLogNote('')
+    setIsCall(false)
+    setIsVrbl(false)
+    setIsPing(false)
   }
+  
+
+  const removeLogNote = async (noteToRemove: string) => {
+    if (!ticketData) return
+
+    const updatedLog = Array.isArray(ticketData.storia_ticket)
+      ? ticketData.storia_ticket.filter((entry: string) => entry !== noteToRemove)
+      : []
+
+    await handleUpdate('storia_ticket', updatedLog)
+  }
+
+  const getTasks = (): TicketTask[] => {
+    return Array.isArray(ticketData?.task) ? (ticketData.task as TicketTask[]) : []
+  }
+
+  const saveTasks = async (tasks: TicketTask[]) => {
+    await handleUpdate('task', tasks)
+  }
+
+  const addTask = async () => {
+    const newTask: TicketTask = {
+      id: crypto.randomUUID(),
+      titolo: '',
+      completato: false,
+      sottoTask: [],
+    }
+
+    await saveTasks([...getTasks(), newTask])
+  }
+
+  const updateTask = async (
+    taskId: string,
+    updates: Partial<Omit<TicketTask, 'id' | 'sottoTask'>>
+  ) => {
+    const updated = getTasks().map((task) =>
+      task.id === taskId ? { ...task, ...updates } : task
+    )
+
+    await saveTasks(updated)
+  }
+
+  const removeTask = async (taskId: string) => {
+    await saveTasks(getTasks().filter((task) => task.id !== taskId))
+  }
+
+  const addSubTask = async (taskId: string) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      if (currentSubTasks.length >= 6) return task
+
+      return {
+        ...task,
+        sottoTask: [
+          ...currentSubTasks,
+          {
+            id: crypto.randomUUID(),
+            titolo: '',
+            completato: false,
+            sottoSottoTask: [],
+          },
+        ],
+      }
+    })
+
+    await saveTasks(updated)
+  }
+
+  const updateSubTask = async (
+    taskId: string,
+    subTaskId: string,
+    updates: Partial<Omit<TicketSubTask, 'id'>>
+  ) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      return {
+        ...task,
+        sottoTask: currentSubTasks.map((subTask) =>
+          subTask.id === subTaskId ? { ...subTask, ...updates } : subTask
+        ),
+      }
+    })
+
+    await saveTasks(updated)
+  }
+
+  const removeSubTask = async (taskId: string, subTaskId: string) => {
+    const updated = getTasks().map((task) => {
+      if (task.id !== taskId) return task
+
+      const currentSubTasks = Array.isArray(task.sottoTask) ? task.sottoTask : []
+
+      return {
+        ...task,
+        sottoTask: currentSubTasks.filter((subTask) => subTask.id !== subTaskId),
+      }
+    })
+
+    await saveTasks(updated)
+  }
+  const addSubSubTask = async (taskId: string, subTaskId: string) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: [
+            ...currentSubSubTasks,
+            {
+              id: crypto.randomUUID(),
+              titolo: '',
+              completato: false,
+            },
+          ],
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}
+
+const updateSubSubTask = async (
+  taskId: string,
+  subTaskId: string,
+  subSubTaskId: string,
+  updates: Partial<Omit<TicketSubSubTask, 'id'>>
+) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: currentSubSubTasks.map((subSubTask) =>
+            subSubTask.id === subSubTaskId
+              ? { ...subSubTask, ...updates }
+              : subSubTask
+          ),
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}
+
+const removeSubSubTask = async (
+  taskId: string,
+  subTaskId: string,
+  subSubTaskId: string
+) => {
+  const updated = getTasks().map((task) => {
+    if (task.id !== taskId) return task
+
+    return {
+      ...task,
+      sottoTask: task.sottoTask.map((subTask) => {
+        if (subTask.id !== subTaskId) return subTask
+
+        const currentSubSubTasks = Array.isArray(subTask.sottoSottoTask)
+          ? subTask.sottoSottoTask
+          : []
+
+        return {
+          ...subTask,
+          sottoSottoTask: currentSubSubTasks.filter(
+            (subSubTask) => subSubTask.id !== subSubTaskId
+          ),
+        }
+      }),
+    }
+  })
+
+  await saveTasks(updated)
+}  
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
       'Sei sicuro di voler eliminare questo ticket? Questa azione non può essere annullata.'
     )
-    if (!confirmed) return
+    if (!confirmed || !id) return
 
     try {
       setDeleting(true)
@@ -191,7 +644,7 @@ export default function TicketDettaglioPage() {
       </div>
     )
   }
-  
+
   return (
     <div className="min-h-screen bg-[#f8fafc] px-4 py-8 lg:px-12 lg:py-12">
       <div className="max-w-[1600px] mx-auto pb-20">
@@ -208,8 +661,6 @@ export default function TicketDettaglioPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <div className={`${ui.card} px-4 py-3 min-w-[180px]`}>
-              
-
               <button
                 type="button"
                 onClick={() => handleUpdate('in_lavorazione_ora', !ticketData.in_lavorazione_ora)}
@@ -253,38 +704,114 @@ export default function TicketDettaglioPage() {
               <Trash2 size={14} />
               {deleting ? 'Eliminazione...' : 'Elimina ticket'}
             </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowVisibilityPanel((prev) => !prev)}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm font-black uppercase text-[10px] tracking-widest transition-all hover:bg-gray-50"
+              >
+                {showVisibilityPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                Componenti
+              </button>
+
+              {showVisibilityPanel && (
+                <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl p-3 z-50">
+                  <div className="space-y-2">
+                    {[
+                      ['storiaAttivita', 'Storia attività'],
+                      ['task', 'Task'],
+                      ['noteTecniche', 'Note tecniche'],
+                      ['noteImportanti', 'Note importanti'],
+                      ['projectMetrics', 'Dettagli Ticket SN'],
+                      ['gestioneHRM', 'Gestione HRM'],
+                      ['mailThread', 'Mail thread'],
+                      ['releasePipeline', 'Release pipeline'],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => toggleSection(key as keyof typeof openSections)}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+                      >
+                        <span className="text-gray-700 font-semibold">{label}</span>
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            openSections[key as keyof typeof openSections]
+                              ? 'bg-emerald-500'
+                              : 'bg-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className={`${ui.card} p-8 lg:p-10 mb-8`}>
+        <div className={`${ui.card} p-8 lg:p-10 mb-2`}>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-6 items-start">
+            <div>
+              <input
+                type="text"
+                value={ticketData.titolo || ''}
+                onChange={(e) => handleUpdate('titolo', e.target.value)}
+                className="w-full bg-transparent rounded-xl text-3xl lg:text-4xl font-black tracking-tighter text-gray-900 outline-none px-2 py-2 focus:bg-gray-50"
+                placeholder="Titolo del ticket..."
+              />
+            </div>
 
-  <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-6 items-start">
+            <div className="space-y-3 self-start -mt-1 lg:-mt-2">
+              <div className="flex items-center gap-2">
+                {ticketData.link_tag ? (
+                  <a
+                    href={ticketData.link_tag}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-[#0150a0] hover:bg-[#f5f9ff] transition-all"
+                  >
+                    <span className="truncate">{ticketData.n_tag || '#0000'}</span>
+                    <ExternalLink size={14} />
+                  </a>
+                ) : (
+                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-500">
+                    {ticketData.n_tag || '#0000'}
+                  </div>
+                )}
 
-    <input
-      type="text"
-      value={ticketData.titolo || ''}
-      onChange={(e) => handleUpdate('titolo', e.target.value)}
-      className="w-full bg-transparent rounded-xl text-3xl lg:text-4xl font-black tracking-tighter text-gray-900 outline-none px-2 py-2 focus:bg-gray-50"
-      placeholder="Titolo del ticket..."
-    />
+                <button
+                  type="button"
+                  onClick={() => setShowTagEditor(true)}
+                  className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-all"
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
 
-    <div className="space-y-1">
-      
+              <div>
+                {ticketData.ticket_collegato &&
+                  (ticketData.ticket_collegato_link ? (
+                    <a
+                      href={ticketData.ticket_collegato_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full inline-flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-[#0150a0] hover:bg-[#f5f9ff] transition-all"
+                    >
+                      <span className="truncate">{ticketData.ticket_collegato}</span>
+                      <ExternalLink size={14} />
+                    </a>
+                  ) : (
+                    <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-500">
+                      {ticketData.ticket_collegato}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
 
-      <input
-        type="text"
-        value={ticketData.n_tag || ''}
-        onChange={(e) => handleUpdate('n_tag', e.target.value)}
-        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-[#0150a0]/20 focus:border-[#0150a0]/30"
-        placeholder="#0000"
-      />
-    </div>
-
-  </div>
-
-
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 pt-6 border-t border-gray-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6 pt-6">
             <div className={ui.metaBlock}>
               <span className={`${ui.label} flex items-center gap-1`}>
                 <Layers size={10} /> Cliente
@@ -310,9 +837,7 @@ export default function TicketDettaglioPage() {
                 value={ticketData.priorita || 'Media'}
                 onChange={(e) => handleUpdate('priorita', e.target.value)}
                 className={`${ui.select} ${
-                  ticketData.priorita === 'Urgente'
-                    ? 'text-red-500 border-red-200 bg-red-50'
-                    : ''
+                  ticketData.priorita === 'Urgente' ? 'text-red-500 border-red-200 bg-red-50' : ''
                 }`}
               >
                 {PRIORITA_OPTIONS.map((p) => (
@@ -347,7 +872,7 @@ export default function TicketDettaglioPage() {
                 className={ui.select}
               >
                 <option value="">Seleziona tool</option>
-                {TOOL_OPTIONS.map((tool) => (
+                {TOOL_LIST.map((tool) => (
                   <option key={tool} value={tool}>
                     {tool}
                   </option>
@@ -379,7 +904,7 @@ export default function TicketDettaglioPage() {
                   step="5"
                   value={ticketData.percentuale_avanzamento || 0}
                   onChange={(e) =>
-                    handleUpdate('percentuale_avanzamento', parseInt(e.target.value))
+                    handleUpdate('percentuale_avanzamento', parseInt(e.target.value, 10))
                   }
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
@@ -406,55 +931,131 @@ export default function TicketDettaglioPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
-          <div className="lg:col-span-8 space-y-6">
-            <div className={`${ui.card} overflow-hidden flex flex-col h-[650px]`}>
-              <div className="px-8 py-4 border-b border-gray-100 flex items-center gap-2 bg-[#f8fbff]">
-                <MessageSquare size={16} className="text-[#0150a0]" />
-                <span className="text-[10px] font-black uppercase text-[#0150a0] tracking-widest">
-                  Storia dell'attività
-                </span>
+        <div className="grid grid-cols-1 grid-cols-9 gap-4 mb-2">
+          {summaryCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-lg border border-[#d9e7f7] bg-white px-3 py-2 shadow-sm"
+            >
+              <div className="text-[8px] font-black uppercase tracking-[0.14em] text-[#7a93b2] mb-1">
+                {card.label}
               </div>
 
-              <div className="flex flex-col flex-1 border-b border-gray-100">
-                <div className="flex-1 overflow-y-auto p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
-                  {(() => {
-                    const grouped = groupLogsByMonth(ticketData.storia_ticket || [])
-                    const sortedKeys = Object.keys(grouped).sort()
+              <div className="text-sm lg:text-base font-black tracking-tight text-[#0150a0] leading-none">
+                {card.value}
+              </div>
+            </div>
+          ))}
+        </div>
 
-                    return sortedKeys.map((key) => {
-                      const [year, month] = key.split('-')
-                      return (
-                        <div key={key} className="space-y-3">
-                          <div className="text-[10px] font-black uppercase tracking-widest text-[#0150a0]">
-                            {MONTH_NAMES[parseInt(month) - 1]} {year}
-                          </div>
-
-                          <ul className="space-y-2">
-                            {grouped[key].map((note, i) => (
-                              <li
-                                key={i}
-                                className="flex items-start justify-between gap-4 rounded-lg    px-4 py-3"
-                              >
-                                <span className="text-sm text-gray-700">{note}</span>
-
-                                <button
-                                 // onClick={() => deleteLogNote(ticketData.storia_ticket?.indexOf(grouped[key][i])!)         }
-                                  className="shrink-0 text-red-500 text-xs font-black hover:text-red-600"
-                                >
-                                  ✕
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )
-                    })
-                  })()}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
+          <div className="lg:col-span-8 space-y-6">
+            {openSections.storiaAttivita && (
+              <div className={`${ui.card} overflow-hidden flex flex-col h-[650px]`}>
+                <div className="px-8 py-4 border-b border-gray-100 flex items-center gap-2 bg-[#f8fbff]">
+                  <MessageSquare size={16} className="text-[#0150a0]" />
+                  <span className="text-[10px] font-black uppercase text-[#0150a0] tracking-widest">
+                    Storia dell'attività
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-center">
+                <div className={`${ui.card} overflow-hidden flex flex-col h-[650px] min-h-0`}>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-8 text-[14px] leading-relaxed text-gray-700 space-y-5 bg-gray-50">
+                    {(() => {
+                      const grouped = groupLogsByMonth(ticketData.storia_ticket || [])
+                      const sortedKeys = Object.keys(grouped).sort()
+
+                      return sortedKeys.map((key) => {
+                        const [year, month] = key.split('-')
+
+                        return (
+                          <div key={key} className="space-y-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-[#0150a0]">
+                              {MONTH_NAMES[parseInt(month, 10) - 1]} {year}
+                            </div>
+
+                            <ul className="space-y-2">
+                              {grouped[key].map((note, i) => {
+                               const flagsMatch = note.match(/\[(.*?)\]/g)
+
+                                const flagsText = flagsMatch?.find((item) =>
+                                  item.includes('CALL') || item.includes('VRBL') || item.includes('PING')
+                                ) || ''
+
+                                const hasCall = flagsText.includes('CALL')
+                                const hasVrbl = flagsText.includes('VRBL')
+                                const hasPing = flagsText.includes('PING')
+
+                                const cleanNote = note
+                                  .replace(/\[(CALL|VRBL|PING)(\|(CALL|VRBL|PING))*\]/g, '')
+                                  .trim()
+                                const dateText = cleanNote.split(' ')[0]
+                                const bodyText = cleanNote.replace(dateText, '').trim()
+                                const rawLog = ((ticketData.storia_ticket || []) as string[]).find(
+                                  (entry: string) => {
+                                    const match = entry.match(/^\[(\d{4})-(\d{2})-(\d{2})\]/)
+                                    if (!match) return false
+
+                                    const [, , logMonth, day] = match
+                                    const formatted = `${day}/${logMonth} ${entry
+                                      .replace(match[0], '')
+                                      .trim()}`
+                                    return formatted === note
+                                  }
+                                )
+
+                                return (
+                                 <li key={`${key}-${i}`} className="flex items-start gap-4 rounded-lg px-4 py-3">
+                                    {/* COLONNA DATA */}
+                                    <div className="w-[70px] shrink-0">
+                                      <div className="text-sm text-gray-400 font-semibold">
+                                        {dateText}
+                                      </div>
+
+                                      <div className="flex gap-1 mt-1 text-[#0150a0]">
+                                        {hasCall && <Phone size={14} />}
+                                        {hasVrbl && <FileText size={14} className="text-red-500" />}
+                                        {hasPing && <Mail size={14} className="text-emerald-500" />}
+                                      </div>
+                                    </div>
+
+                                    {/* TESTO */}
+                                    <div className="flex-1 text-sm text-gray-700 whitespace-pre-wrap">
+                                      {bodyText}
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => rawLog && removeLogNote(rawLog)}
+                                      className="shrink-0 text-red-500 text-xs font-black hover:text-red-600"
+                                    >
+                                      ✕
+                                    </button>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-3 px-6 py-3 bg-white border-t border-gray-100 items-start">
   
+                    {/* TEXTAREA */}
+                    <textarea
+                      value={newLogNote}
+                      onChange={(e) => setNewLogNote(e.target.value)}
+                      placeholder="Aggiungi nota..."
+                      className={`${ui.textarea} py-2 text-sm`}
+                      rows={4}
+                    />
+
+                    {/* COLONNA DESTRA */}
+                    <div className="flex flex-col gap-3">
+
+  {/* DATA */}
   <input
     type="date"
     value={logDate}
@@ -462,141 +1063,722 @@ export default function TicketDettaglioPage() {
     className={`${ui.field} py-2 text-xs`}
   />
 
-  <textarea
-    value={newLogNote}
-    onChange={(e) => setNewLogNote(e.target.value)}
-    placeholder="Aggiungi nota..."
-    className={`${ui.textarea} py-2 text-sm`}
-    rows={1}
-  />
+  {/* CHIP */}
+  <div className="flex gap-2">
 
+    <button
+      type="button"
+      onClick={() => setIsCall(!isCall)}
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isCall
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      CALL
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setIsVrbl(!isVrbl)}
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isVrbl
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      VRBL
+    </button>
+    <button
+      type="button"
+      onClick={() => setIsPing(!isPing)}
+      className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+        isPing
+          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          : 'bg-white text-gray-400 border-gray-200'
+      }`}
+    >
+      PING
+    </button>
+  </div>
+
+
+
+  {/* BUTTON */}
   <button
     onClick={addLogNote}
-    className="px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
+    className="w-full px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
   >
     Aggiungi
   </button>
 
 </div>
-              </div>
-
-              
-            </div>
-            <div className={`${ui.card} overflow-hidden flex flex-col h-[200px]`}>
-              <textarea
-                value={ticketData.note || ''}
-                onChange={(e) => handleUpdate('note', e.target.value)}
-                placeholder="Dettagli tecnici..."
-                className="flex-1 p-8 text-[15px] leading-relaxed outline-none resize-none bg-white text-gray-600"
-              /></div>
-          
-          </div>
-          
-
-          <div className="lg:col-span-4 space-y-8">
-            <div className={`${ui.card} p-6 space-y-4`}>
-  <div className="flex items-center justify-between">
-    <SectionLabel className="flex items-center gap-1 text-[#0150a0]">
-      <TriangleAlert size={10} />
-      Note importanti
-    </SectionLabel>
-
-    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-      {saving ? 'Salvataggio...' : 'Salvato'}
-    </span>
-  </div>
-
-  <PrimaryTextarea
-    value={ticketData.note_importanti || ''}
-    onChange={(e) => handleUpdate('note_importanti', e.target.value)}
-    placeholder="Inserisci note importanti..."
-    rows={4}
-    className="bg-amber-50 border-amber-200 text-gray-800"
-  />
-</div>
-
-
-            {isEsselunga && (
-
-            <div className={`${ui.card} p-8 space-y-8`}>
-              <h3 className={ui.sectionTitle}>Project Metrics</h3>
-
-              <div className="flex flex-col gap-3">
-                <span className={ui.label}>Applicativo</span>
-
-                <div className="flex flex-wrap gap-2">
-                  {APPLICATIVI_OPTIONS.map((app) => {
-                    const active = Array.isArray(ticketData.applicativo)
-                      ? ticketData.applicativo.includes(app)
-                      : false
-
-                    return (
-                      <button
-                        key={app}
-                        type="button"
-                        onClick={() => toggleApplicativo(app)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-all ${
-                          active
-                            ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
-                            : 'bg-[#e6eef8] text-[#0150a0] border-[#d3e0f3] hover:bg-[#d9e7f7]'
-                        }`}
-                      >
-                        {app}
-                      </button>
-                    )
-                  })}
+                  </div>
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className={ui.label}>Story ID</label>
+
+<div className="mb-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+  <button
+    type="button"
+    onClick={() => toggleSection('task')}
+    className="w-full flex items-center justify-between px-6 py-5 bg-[#f8fbff] hover:bg-[#eef6ff] "
+  >
+    <div>
+      <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+        Task
+      </h3>
+      <p className="text-xs text-gray-400">
+        {getTasks().length} task
+      </p>
+    </div>
+
+    {openSections.task ? <ChevronUp /> : <ChevronDown />}
+  </button>
+
+  {openSections.task && (
+    <div className="p-3 space-y-2">
+    <div className="p-3 space-y-2">
+
+      
+
+      {getTasks().map((task) => {
+        const isOpen = openTaskIds[task.id] ?? false
+        const subTasks = task.sottoTask || []
+        const completed = subTasks.filter(s => s.completato).length
+        const progress = subTasks.length ? (completed / subTasks.length) * 100 : 0
+
+        return (
+          <div
+  key={task.id}
+  className="relative rounded-2xl border border-gray-300 bg-white overflow-hidden shadow-sm hover:border-gray-400 transition-all"
+>
+  <div
+    className={`absolute bottom-0 left-0 h-[4px] rounded-r-full transition-all duration-500 ${
+      progress === 100
+        ? 'bg-emerald-500'
+        : progress >= 50
+          ? 'bg-yellow-500'
+          : progress > 0
+            ? 'bg-red-500'
+            : 'bg-gray-200'
+    }`}
+    style={{ width: `${progress}%` }}
+  />
+  {/* TASK HEADER */}
+  <div className="flex items-center gap-3 p-4 bg-gray-50">
+    <button
+      type="button"
+      onClick={() =>
+        setOpenTaskIds((prev) => ({
+          ...prev,
+          [task.id]: !prev[task.id],
+        }))
+      }
+      className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-[#0150a0] hover:border-[#0150a0]/40 transition-all"
+    >
+      {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+    </button>
+
+    <input
+      type="checkbox"
+      checked={task.completato}
+      onChange={(e) => updateTask(task.id, { completato: e.target.checked })}
+      className="h-4 w-4 accent-[#0150a0]"
+    />
+
+    <input
+      value={task.titolo}
+      onChange={(e) => updateTask(task.id, { titolo: e.target.value })}
+      className={`flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+        task.completato ? 'line-through text-gray-400' : 'text-gray-800'
+      }`}
+      placeholder="Titolo task"
+    />
+
+    <div className="rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
+      {completed}/{subTasks.length}
+    </div>
+
+    <button
+      type="button"
+      onClick={() => removeTask(task.id)}
+      className="flex h-9 w-9 items-center justify-center rounded-xl text-red-400 hover:bg-red-50 hover:text-red-600 transition-all"
+    >
+      <Trash2 size={15} />
+    </button>
+  </div>
+
+  
+
+  {/* SUBTASK */}
+  {isOpen && (
+    <div className="border-t border-gray-200 bg-white p-4 space-y-3">
+      {subTasks.map((sub) => {
+  const subSubTasks = Array.isArray(sub.sottoSottoTask)
+    ? sub.sottoSottoTask
+    : []
+
+  return (
+    <div key={sub.id} className="space-y-2">
+      <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2">
+        <input
+          type="checkbox"
+          checked={sub.completato}
+          onChange={(e) =>
+            updateSubTask(task.id, sub.id, {
+              completato: e.target.checked,
+            })
+          }
+          className="h-3.5 w-3.5 accent-[#0150a0]"
+        />
+
+        <input
+          value={sub.titolo}
+          onChange={(e) =>
+            updateSubTask(task.id, sub.id, {
+              titolo: e.target.value,
+            })
+          }
+          className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+            sub.completato ? 'line-through text-gray-400' : 'text-gray-700'
+          }`}
+          placeholder="Sotto-task"
+        />
+
+        <button
+          type="button"
+          onClick={() => addSubSubTask(task.id, sub.id)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#0150a0] hover:bg-blue-50 transition-all"
+          title="Aggiungi sotto-task di 3° livello"
+        >
+          <Plus size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => removeSubTask(task.id, sub.id)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      {subSubTasks.length > 0 && (
+        <div className="ml-8 space-y-2 border-l border-gray-200 pl-4">
+          {subSubTasks.map((subSub) => (
+            <div
+              key={subSub.id}
+              className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={subSub.completato}
+                onChange={(e) =>
+                  updateSubSubTask(task.id, sub.id, subSub.id, {
+                    completato: e.target.checked,
+                  })
+                }
+                className="h-3.5 w-3.5 accent-[#0150a0]"
+              />
+
+              <input
+                value={subSub.titolo}
+                onChange={(e) =>
+                  updateSubSubTask(task.id, sub.id, subSub.id, {
+                    titolo: e.target.value,
+                  })
+                }
+                className={`flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]/40 focus:ring-2 focus:ring-[#0150a0]/20 ${
+                  subSub.completato
+                    ? 'line-through text-gray-400'
+                    : 'text-gray-700'
+                }`}
+                placeholder="Sotto-task livello 3"
+              />
+
+              <button
+                type="button"
+                onClick={() => removeSubSubTask(task.id, sub.id, subSub.id)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-red-300 hover:bg-red-50 hover:text-red-500 transition-all"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+})}
+
+      {subTasks.length < 6 && (
+        <button
+          type="button"
+          onClick={() => addSubTask(task.id)}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#d9e7f7] bg-[#f8fbff] px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[#0150a0] hover:bg-[#eef6ff] transition-all"
+        >
+          <Plus size={12} />
+          Sotto-task
+        </button>
+      )}
+    </div>
+  )}
+</div>
+        )
+      })}
+      <div className="flex justify-end">
+        <button
+          onClick={addTask}
+          className="bg-[#0150a0] text-white px-4 py-2 rounded-xl text-xs font-bold"
+        >
+          + Task
+        </button>
+      </div>
+    </div>
+  </div>
+)}</div>
+
+            {openSections.noteTecniche && (
+              <div className={`${ui.card} overflow-hidden flex flex-col h-[400px]`}>
+                <textarea
+                  value={ticketData.note || ''}
+                  onChange={(e) => handleUpdate('note', e.target.value)}
+                  placeholder="Dettagli tecnici..."
+                  className="flex-1 p-8 text-[15px] leading-relaxed outline-none resize-none bg-white text-gray-600"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-4 space-y-8">
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-3">
+                {Array.isArray(ticketData.files_link) &&
+                  ticketData.files_link.map((file: FileLink, idx: number) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-3 px-4 py-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:border-gray-300 transition-all group"
+                    >
+                      <ExternalLink size={14} className="text-[#0150a0]" />
+                      <a
+                        href={file.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-gray-700 hover:underline"
+                      >
+                        {file.nome_file}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(idx)}
+                        className="ml-2 text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+
+                <button
+                  type="button"
+                  onClick={() => setShowFileModal(true)}
+                  className="w-12 h-12 flex items-center justify-center rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-[#0150a0] hover:text-[#0150a0] hover:bg-blue-50 transition-all"
+                >
+                  <span className="text-2xl font-light">+</span>
+                </button>
+              </div>
+            </div>
+
+            {showFileModal && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+                      Aggiungi Documenti
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowFileModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="max-h-[40vh] overflow-y-auto space-y-4 pr-2">
+                    {newFiles.map((f, i) => (
+                      <div
+                        key={i}
+                        className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100"
+                      >
+                        <div className="space-y-1">
+                          <label className={ui.label}>Nome File</label>
+                          <input
+                            type="text"
+                            value={f.nome_file}
+                            onChange={(e) => {
+                              setNewFiles((prev) =>
+                                prev.map((item, index) =>
+                                  index === i ? { ...item, nome_file: e.target.value } : item
+                                )
+                              )
+                            }}
+                            className={ui.field}
+                            placeholder="es. Brief Progetto"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className={ui.label}>Link File</label>
+                          <input
+                            type="url"
+                            value={f.link}
+                            onChange={(e) => {
+                              setNewFiles((prev) =>
+                                prev.map((item, index) =>
+                                  index === i ? { ...item, link: e.target.value } : item
+                                )
+                              )
+                            }}
+                            className={ui.field}
+                            placeholder="https://..."
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addFileRow}
+                    className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400 hover:bg-gray-50 transition-all"
+                  >
+                    + Aggiungi un altro documento
+                  </button>
+
+                  <div className="flex justify-end gap-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFileModal(false)
+                        setNewFiles([{ nome_file: '', link: '' }])
+                      }}
+                      className="px-6 py-2 text-xs font-black uppercase text-gray-400"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveNewFiles}
+                      className="px-8 py-3 bg-[#0150a0] text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#013f82] shadow-lg shadow-blue-900/20"
+                    >
+                      Salva Documenti
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {openSections.noteImportanti && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('noteImportanti')}
+                  className="w-full p-6 flex items-center justify-between text-left"
+                >
+                  <SectionLabel className="flex items-center gap-1 text-[#0150a0]">
+                    <TriangleAlert size={10} />
+                    Note importanti
+                  </SectionLabel>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      {saving ? 'Salvataggio...' : 'Salvato'}
+                    </span>
+                    {openSections.noteImportanti ? (
+                      <ChevronUp size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
+                  </div>
+                </button>
+
+                {openSections.noteImportanti && (
+                  <div className="px-6 pb-6">
+                    <PrimaryTextarea
+                      value={ticketData.note_importanti || ''}
+                      onChange={(e) => handleUpdate('note_importanti', e.target.value)}
+                      placeholder="Inserisci note importanti..."
+                      rows={4}
+                      className="bg-amber-50 border-amber-200 text-gray-800"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isEsselunga && openSections.projectMetrics && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('projectMetrics')}
+                  className="w-full p-8 flex items-center justify-between text-left"
+                >
+                  <h3 className={`${ui.sectionTitle} border-b-0 pb-0`}>Dettagli Ticket SN</h3>
+                  {openSections.projectMetrics ? (
+                    <ChevronUp size={16} />
+                  ) : (
+                    <ChevronDown size={16} />
+                  )}
+                </button>
+
+                {openSections.projectMetrics && (
+                  <div className="px-8 pb-8 space-y-8">
+                    <div className="flex flex-col gap-3">
+                      <span className={ui.label}>Applicativo</span>
+
+                      <div className="flex flex-wrap gap-2">
+                        {APPLICATIVI_OPTIONS.map((app) => {
+                          const active = Array.isArray(ticketData.applicativo)
+                            ? ticketData.applicativo.includes(app)
+                            : false
+
+                          return (
+                            <button
+                              key={app}
+                              type="button"
+                              onClick={() => toggleApplicativo(app)}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-all ${
+                                active
+                                  ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                                  : 'bg-[#e6eef8] text-[#0150a0] border-[#d3e0f3] hover:bg-[#d9e7f7]'
+                              }`}
+                            >
+                              {app}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className={ui.label}>Story ID</label>
+                        <input
+                          value={ticketData.numero_storia || ''}
+                          onChange={(e) => handleUpdate('numero_storia', e.target.value)}
+                          className={ui.field}
+                          placeholder="#0000"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={ui.label}>Slot Sprint</label>
+                        <select
+                          value={ticketData.sprint || ''}
+                          onChange={(e) => handleUpdate('sprint', e.target.value)}
+                          className={ui.select}
+                        >
+                          <option value="">Nessuno</option>
+                          {SPRINT_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={ui.label}>Tipo attività</label>
+                      <select
+                        value={ticketData.tipo_di_attivita || ''}
+                        onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
+                        className={ui.select}
+                      >
+                        <option value="">Seleziona tipo</option>
+                        {TIPO_ATTIVITA_OPTIONS.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {openSections.gestioneHRM && (
+              <div className={ui.card}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('gestioneHRM')}
+                  className="w-full p-8 flex items-center justify-between text-left"
+                >
+                  <h3 className={`${ui.sectionTitle} border-b-0 pb-0`}>Gestione HRM</h3>
+                  {openSections.gestioneHRM ? (
+                    <ChevronUp size={16} />
+                  ) : (
+                    <ChevronDown size={16} />
+                  )}
+                </button>
+
+                {openSections.gestioneHRM && (
+                  <div className="px-8 pb-8 space-y-8">
+                    <div className="space-y-2">
+                      <label className={`${ui.label} flex items-center gap-1`}>
+                        <CalendarRange size={10} />
+                        Voce calendario
+                      </label>
+                      <input
+                        value={ticketData.voce_calendario || ''}
+                        onChange={(e) => handleUpdate('voce_calendario', e.target.value)}
+                        className={ui.field}
+                        placeholder="Voce usata per il conteggio ore"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                      <div className="space-y-2">
+                        <label className={ui.label}>Numero di ore</label>
+                        <div className="flex items-center justify-between rounded-xl border border-[#d9e7f7] bg-[#f8fbff] px-4 py-4">
+                          <div>
+                            <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7a93b2]">
+                              Totale attività
+                            </div>
+                            <div className="mt-1 text-2xl font-black tracking-tight text-[#0150a0]">
+                              {tagHours !== null
+                                ? tagHours.toLocaleString('it-IT', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleUpdate('pin_ore_in_header', !ticketData.pin_ore_in_header)
+                        }
+                        className={`inline-flex items-center gap-2 px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                          ticketData.pin_ore_in_header
+                            ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Pin size={14} />
+                        {ticketData.pin_ore_in_header ? 'Pinned in alto' : 'Pin in alto'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {openSections.mailThread && (
+              <MailThread ticketData={ticketData} onUpdate={handleUpdate} saving={saving} />
+            )}
+
+            {openSections.releasePipeline && (
+              <ReleasePipeline ticketData={ticketData} onUpdate={handleUpdate} />
+            )}
+          </div>
+        </div>
+
+        {showTagEditor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-6 space-y-5">
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
+                Modifica Ticket
+              </h3>
+
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Numero Incident' : 'Numero Tag'}
+                  </label>
                   <input
-                    value={ticketData.numero_storia || ''}
-                    onChange={(e) => handleUpdate('numero_storia', e.target.value)}
-                    className={ui.field}
+                    type="text"
+                    value={tempTag}
+                    onChange={(e) => setTempTag(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#0150a0]/20"
                     placeholder="#0000"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className={ui.label}>Slot Sprint</label>
-                  <select
-                    value={ticketData.sprint || ''}
-                    onChange={(e) => handleUpdate('sprint', e.target.value)}
-                    className={ui.select}
-                  >
-                    <option value="">Nessuno</option>
-                    {SPRINT_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Link Incident' : 'Link Ticket'}
+                  </label>
+                  <input
+                    type="url"
+                    value={tempLink}
+                    onChange={(e) => setTempLink(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-100" />
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Incident Padre' : 'Change collegata'}
+                  </label>
+                  <input
+                    type="text"
+                    value={tempTicketCollegato}
+                    onChange={(e) => setTempTicketCollegato(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="es. TAG0123456"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">
+                    {isIncident ? 'Link Incident Padre' : 'Link Change collegata'}
+                  </label>
+                  <input
+                    type="url"
+                    value={tempTicketCollegatoLink}
+                    onChange={(e) => setTempTicketCollegatoLink(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+                    placeholder="https://..."
+                  />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className={ui.label}>Tipo attività</label>
-                <select
-                  value={ticketData.tipo_di_attivita || ''}
-                  onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
-                  className={ui.select}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTagEditor(false)}
+                  className="px-4 py-2 text-xs font-black uppercase text-gray-500 hover:text-gray-700"
                 >
-                  <option value="">Seleziona tipo</option>
-                  {TIPO_ATTIVITA_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                  Annulla
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleUpdate('n_tag', tempTag)
+                    await handleUpdate('link_tag', tempLink)
+                    await handleUpdate('ticket_collegato', tempTicketCollegato)
+                    await handleUpdate('ticket_collegato_link', tempTicketCollegatoLink)
+                    setShowTagEditor(false)
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#0150a0] text-white text-xs font-black uppercase tracking-widest hover:bg-[#013f82]"
+                >
+                  Salva
+                </button>
               </div>
             </div>
-            )}
-            <MailThread ticketData={ticketData} onUpdate={handleUpdate} saving={saving} />
-            <ReleasePipeline ticketData={ticketData} onUpdate={handleUpdate} />
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

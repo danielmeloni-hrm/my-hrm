@@ -29,6 +29,10 @@ import TicketCard, { Ticket } from "@/components/ticket/TicketCard";
 import TicketDragPreview from "@/components/ticket/TicketDragPreview";
 import TicketDetailModal from "@/components/ticket/TicketDetailModal";
 
+import AppPage from "@/components/ui/AppPage";
+import AppCard from "@/components/ui/AppCard";
+import AppButton from "@/components/ui/AppButton";
+
 const supabase = createClient();
 
 type BoardColumn = {
@@ -141,9 +145,6 @@ const columnIdToStatus: Record<string, string> = {
 };
 
 const ui = {
-  shell: "min-h-screen bg-[#f6f8fb] px-4 pt-6 pb-24",
-  container: "max-w-[2600px] mx-auto",
-  panel: "bg-white border border-gray-200 rounded-2xl shadow-sm",
   label: "text-[10px] font-black uppercase tracking-widest text-gray-400",
 };
 
@@ -161,37 +162,41 @@ function cn(...classes: Array<string | false | null | undefined>) {
 
 function getDaysDiff(date?: string | null) {
   if (!date) return 999;
+
   const d = new Date(date);
+
   if (Number.isNaN(d.getTime())) return 999;
-  return Math.floor((new Date().getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+
+  return Math.floor(
+    (new Date().getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
+  );
 }
 
 function formatDateShort(date?: string | null) {
   if (!date) return "Mai";
+
   const d = new Date(date);
-  return d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" });
+
+  return d.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 }
 
 function visibleColumnsArrayToMap(columnIds?: string[] | null) {
-  const defaultMap = allBoardColumns.reduce(
-    (acc, col) => {
-      acc[col.id] = true;
-      return acc;
-    },
-    {} as Record<string, boolean>
-  );
+  const defaultMap = allBoardColumns.reduce((acc, col) => {
+    acc[col.id] = true;
+    return acc;
+  }, {} as Record<string, boolean>);
 
   if (!Array.isArray(columnIds) || columnIds.length === 0) {
     return defaultMap;
   }
 
-  const allFalseMap = allBoardColumns.reduce(
-    (acc, col) => {
-      acc[col.id] = false;
-      return acc;
-    },
-    {} as Record<string, boolean>
-  );
+  const allFalseMap = allBoardColumns.reduce((acc, col) => {
+    acc[col.id] = false;
+    return acc;
+  }, {} as Record<string, boolean>);
 
   for (const id of columnIds) {
     if (id in allFalseMap) {
@@ -210,7 +215,9 @@ function visibleColumnsMapToArray(columns: Record<string, boolean>) {
 
 function extractTagNumber(tag?: string | null) {
   if (!tag) return 0;
+
   const match = String(tag).match(/\d+/);
+
   return match ? parseInt(match[0], 10) : 0;
 }
 
@@ -245,7 +252,9 @@ export default function SprintBoardRefactor() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCliente, setSelectedCliente] = useState("Tutti");
-  const [selectedSprint, setSelectedSprint] = useState<"Sprint" | "Backlog" | "Tutti">("Sprint");
+  const [selectedSprint, setSelectedSprint] = useState<
+    "Sprint" | "Backlog" | "Tutti"
+  >("Sprint");
   const [filterOnlyExpired, setFilterOnlyExpired] = useState(false);
   const [filterMe, setFilterMe] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -283,15 +292,22 @@ export default function SprintBoardRefactor() {
           .single();
 
         if (profileError) {
-          console.error("Errore caricamento kanban_columns:", profileError.message);
+          console.error(
+            "Errore caricamento kanban_columns:",
+            profileError.message
+          );
         } else {
-          setVisibleColumns(visibleColumnsArrayToMap(profileData?.kanban_columns));
+          setVisibleColumns(
+            visibleColumnsArrayToMap(profileData?.kanban_columns)
+          );
         }
       }
 
       const { data, error } = await supabase
         .from("ticket")
-        .select("*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)");
+        .select(
+          "*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)"
+        );
 
       if (error) {
         console.error("Errore caricamento ticket:", error.message);
@@ -320,12 +336,15 @@ export default function SprintBoardRefactor() {
         (payload) => {
           const updatedPatch: Partial<Ticket> = {
             ...(payload.new as Partial<Ticket>),
-            columnId: statusToColumnId[(payload.new as any).stato] || "non-iniziato",
+            columnId:
+              statusToColumnId[(payload.new as any).stato] || "non-iniziato",
           };
 
           setTickets((current) =>
             current.map((t) =>
-              t.id === payload.new.id ? ({ ...t, ...updatedPatch } as Ticket) : t
+              t.id === payload.new.id
+                ? ({ ...t, ...updatedPatch } as Ticket)
+                : t
             )
           );
 
@@ -343,7 +362,9 @@ export default function SprintBoardRefactor() {
     };
   }, []);
 
-  const saveKanbanColumns = async (nextVisibleColumns: Record<string, boolean>) => {
+  const saveKanbanColumns = async (
+    nextVisibleColumns: Record<string, boolean>
+  ) => {
     setVisibleColumns(nextVisibleColumns);
 
     if (!currentUserId) return;
@@ -361,7 +382,9 @@ export default function SprintBoardRefactor() {
   };
 
   const handleUpdateTicket = async (id: string, patch: Partial<Ticket>) => {
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    setTickets((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+    );
 
     setSelectedTicket((prev) =>
       prev?.id === id ? ({ ...prev, ...patch } as Ticket) : prev
@@ -371,7 +394,10 @@ export default function SprintBoardRefactor() {
 
     if (Object.keys(supabasePatch).length === 0) return;
 
-    const { error } = await supabase.from("ticket").update(supabasePatch).eq("id", id);
+    const { error } = await supabase
+      .from("ticket")
+      .update(supabasePatch)
+      .eq("id", id);
 
     if (error) {
       console.error("Errore salvataggio:", error.message);
@@ -390,19 +416,24 @@ export default function SprintBoardRefactor() {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+
     setActiveTicket(null);
+
     if (!over) return;
 
     const activeId = String(active.id);
     let targetColId = String(over.id);
 
     const overTicket = tickets.find((t) => t.id === targetColId);
+
     if (overTicket) targetColId = overTicket.columnId;
 
     const draggedTicket = tickets.find((t) => t.id === activeId);
+
     if (!draggedTicket || draggedTicket.columnId === targetColId) return;
 
     const newStatus = columnIdToStatus[targetColId];
+
     const updatePayload: Partial<Ticket> = {
       stato: newStatus,
       ultimo_ping: new Date().toISOString(),
@@ -435,7 +466,8 @@ export default function SprintBoardRefactor() {
         const matchesSprint =
           selectedSprint === "Tutti" || t.sprint === selectedSprint;
 
-        const matchesExpired = !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
+        const matchesExpired =
+          !filterOnlyExpired || getDaysDiff(t.ultimo_ping) >= 5;
 
         const matchesMe = !filterMe || t.assignee === currentUserId;
 
@@ -448,7 +480,6 @@ export default function SprintBoardRefactor() {
         );
       })
       .sort((a, b) => {
-        // 1. in lavorazione ora prima
         if (a.in_lavorazione_ora && !b.in_lavorazione_ora) return -1;
         if (!a.in_lavorazione_ora && b.in_lavorazione_ora) return 1;
 
@@ -457,17 +488,18 @@ export default function SprintBoardRefactor() {
         const tagA = extractTagNumber(a.n_tag);
         const tagB = extractTagNumber(b.n_tag);
 
-        // 2. ordinamento scelto
         if (sortMode === "priorita") {
           if (priorityA !== priorityB) {
             return priorityA - priorityB;
           }
+
           return tagB - tagA;
         }
 
         if (tagA !== tagB) {
           return tagB - tagA;
         }
+
         return priorityA - priorityB;
       });
   }, [
@@ -483,212 +515,222 @@ export default function SprintBoardRefactor() {
 
   if (!isMounted) {
     return (
-      <div className="p-10 text-center font-black uppercase text-gray-300">
-        Caricamento Board...
-      </div>
+      <AppPage
+        title="Sprint Board"
+        subtitle="Caricamento board operativo"
+        icon={<LayoutDashboard size={22} />}
+        maxWidth="full"
+      >
+        <AppCard className="flex min-h-[400px] items-center justify-center">
+          <span className="animate-pulse text-sm font-black uppercase tracking-widest text-slate-300">
+            Caricamento Board...
+          </span>
+        </AppCard>
+      </AppPage>
     );
   }
 
   return (
-    <div className={ui.shell}>
-      <div className={ui.container}>
-        <div className="mb-8 space-y-4">
-          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
-                <LayoutDashboard size={22} className="text-[#0150a0]" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-black tracking-tighter text-gray-900 uppercase">
-                  Sprint Board
-                </h1>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#0150a0]">
-                  Aggiornamento Realtime Attivo
-                </p>
-              </div>
-            </div>
+    <AppPage
+      title="Sprint Board"
+      subtitle="Aggiornamento realtime attivo"
+      icon={<LayoutDashboard size={22} />}
+      maxWidth="full"
+      actions={
+        <>
+          <AppButton
+            type="button"
+            variant={filterOnlyExpired ? "danger" : "secondary"}
+            onClick={() => setFilterOnlyExpired(!filterOnlyExpired)}
+            className="gap-2 text-[10px] font-black uppercase"
+          >
+            <Activity
+              size={12}
+              className={filterOnlyExpired ? "animate-pulse" : ""}
+            />
+            Da pingare
+          </AppButton>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setFilterOnlyExpired(!filterOnlyExpired)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
-                  filterOnlyExpired
-                    ? "bg-red-500 text-white border-red-600 shadow-lg shadow-red-200"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
-              >
-                <Activity size={12} className={filterOnlyExpired ? "animate-pulse" : ""} />
-                Da pingare
-              </button>
+          <AppButton
+            type="button"
+            variant={filterMe ? "primary" : "secondary"}
+            onClick={() => setFilterMe(!filterMe)}
+            className="gap-2 text-[10px] font-black uppercase"
+          >
+            {filterMe ? <User size={12} /> : <Users size={12} />}
+            {filterMe ? "Miei Task" : "Tutti i Task"}
+          </AppButton>
 
-              <button
-                onClick={() => setFilterMe(!filterMe)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
-                  filterMe
-                    ? "bg-[#0150a0] text-white border-[#0150a0] shadow-lg shadow-blue-200"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
-              >
-                {filterMe ? <User size={12} /> : <Users size={12} />}
-                {filterMe ? "Miei Task" : "Tutti i Task"}
-              </button>
+          <AppButton
+            type="button"
+            variant="secondary"
+            onClick={() => setShowSettings(true)}
+            className="h-10 w-10 p-0"
+            aria-label="Impostazioni board"
+          >
+            <Settings2 size={18} />
+          </AppButton>
+        </>
+      }
+    >
+      <AppCard className="mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="relative flex-1">
+            <Search
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              size={16}
+            />
 
-              <button
-                onClick={() => setShowSettings(true)}
-                className="p-3.5 bg-white text-gray-500 rounded-xl border border-gray-200 hover:border-gray-400 shadow-sm transition-all"
-              >
-                <Settings2 size={18} />
-              </button>
-            </div>
+            <input
+              type="text"
+              placeholder="Cerca titolo, TAG o cliente..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-xl border border-transparent bg-slate-50 py-3.5 pl-12 pr-4 text-sm font-bold outline-none transition-all focus:border-slate-300 focus:bg-white"
+            />
           </div>
 
-          <div className={`${ui.panel} p-4`}>
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-                  size={16}
-                />
-                <input
-                  type="text"
-                  placeholder="Cerca titolo, TAG o cliente..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3.5 bg-gray-50 rounded-xl text-sm font-bold outline-none border border-transparent focus:border-[#0150a0]/30 focus:bg-white transition-all"
-                />
-              </div>
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={selectedCliente}
+              onChange={(e) => setSelectedCliente(e.target.value)}
+              className="rounded-xl border border-transparent bg-slate-50 px-6 py-3.5 text-[11px] font-black uppercase outline-none transition-all focus:border-slate-200"
+            >
+              <option value="Tutti">Tutti i Clienti</option>
 
-              <div className="flex gap-2">
-                <select
-                  value={selectedCliente}
-                  onChange={(e) => setSelectedCliente(e.target.value)}
-                  className="px-6 py-3.5 bg-gray-50 rounded-xl text-[11px] font-black uppercase border border-transparent focus:border-gray-200 outline-none appearance-none cursor-pointer"
+              {clientiList.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex rounded-xl bg-slate-100 p-1">
+              {(["Sprint", "Backlog", "Tutti"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSelectedSprint(s)}
+                  className={`rounded-lg px-5 py-2.5 text-[10px] font-black uppercase transition-all ${
+                    selectedSprint === s
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
                 >
-                  <option value="Tutti">Tutti i Clienti</option>
-                  {clientiList.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                  {s}
+                </button>
+              ))}
+            </div>
 
-                <div className="flex bg-gray-100 p-1 rounded-xl">
-                  {(["Sprint", "Backlog", "Tutti"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSelectedSprint(s)}
-                      className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                        selectedSprint === s
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+            <div className="flex rounded-xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setSortMode("priorita")}
+                className={`rounded-lg px-4 py-2.5 text-[10px] font-black uppercase transition-all ${
+                  sortMode === "priorita"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Priorità
+              </button>
 
-                <div className="flex bg-gray-100 p-1 rounded-xl">
-                  <button
-                    onClick={() => setSortMode("priorita")}
-                    className={`px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                      sortMode === "priorita"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
-                  >
-                    Priorità
-                  </button>
-                  <button
-                    onClick={() => setSortMode("n_tag")}
-                    className={`px-4 py-2.5 rounded-lg text-[10px] font-black uppercase transition-all ${
-                      sortMode === "n_tag"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
-                  >
-                    N° TAG
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSortMode("n_tag")}
+                className={`rounded-lg px-4 py-2.5 text-[10px] font-black uppercase transition-all ${
+                  sortMode === "n_tag"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                N° TAG
+              </button>
             </div>
           </div>
         </div>
+      </AppCard>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex gap-6 overflow-x-auto pb-10 custom-scrollbar">
-            {allBoardColumns.map((col) => {
-              if (visibleColumns[col.id] === false) return null;
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex gap-6 overflow-x-auto pb-10 custom-scrollbar">
+          {allBoardColumns.map((col) => {
+            if (visibleColumns[col.id] === false) return null;
 
-              const columnTickets = filteredTickets.filter((t) => t.columnId === col.id);
+            const columnTickets = filteredTickets.filter(
+              (t) => t.columnId === col.id
+            );
 
-              return (
-                <div
-                  key={col.id}
-                  style={{ width: `${currentStyles.colWidth}px` }}
-                  className="flex-shrink-0 flex flex-col gap-4"
-                >
-                  <div className="px-1">
-                    <div
-                      className={`flex items-center justify-between px-5 py-4 rounded-2xl ${col.bgColorClass} border border-white shadow-sm`}
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-[8px] font-black uppercase opacity-50 tracking-tighter">
-                          {col.group}
-                        </span>
-                        <span
-                          className={`text-[11px] font-black uppercase tracking-widest ${col.textColorClass}`}
-                        >
-                          {col.label}
-                        </span>
-                      </div>
+            return (
+              <div
+                key={col.id}
+                style={{ width: `${currentStyles.colWidth}px` }}
+                className="flex-shrink-0 flex flex-col gap-4"
+              >
+                <div className="px-1">
+                  <AppCard
+                    padded={false}
+                    className={`flex items-center justify-between px-5 py-4 ${col.bgColorClass}`}
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black uppercase tracking-tighter opacity-50">
+                        {col.group}
+                      </span>
 
                       <span
-                        className={`text-[10px] font-black px-2.5 py-1 rounded-lg bg-white/90 shadow-sm ${col.textColorClass}`}
+                        className={`text-[11px] font-black uppercase tracking-widest ${col.textColorClass}`}
                       >
-                        {columnTickets.length}
+                        {col.label}
                       </span>
                     </div>
-                  </div>
 
-                  <DroppableColumn id={col.id} bgColorClass={col.bgColorClass}>
-                    <SortableContext
-                      items={columnTickets.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
+                    <span
+                      className={`rounded-lg bg-white/90 px-2.5 py-1 text-[10px] font-black shadow-sm ${col.textColorClass}`}
                     >
-                      <div className="space-y-3">
-                        {columnTickets.map((t) => (
-                          <TicketCard
-                            key={t.id}
-                            ticket={t}
-                            currentStyles={currentStyles}
-                            setSelectedTicket={setSelectedTicket}
-                            handleUpdateTicket={handleUpdateTicket}
-                            setTickets={setTickets}
-                          />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DroppableColumn>
+                      {columnTickets.length}
+                    </span>
+                  </AppCard>
                 </div>
-              );
-            })}
-          </div>
 
-          <DragOverlay adjustScale={true}>
-            {activeTicket && (
-              <div className="rotate-2 scale-[1.05] shadow-2xl">
-                <TicketDragPreview ticket={activeTicket} currentStyles={currentStyles} />
+                <DroppableColumn id={col.id} bgColorClass={col.bgColorClass}>
+                  <SortableContext
+                    items={columnTickets.map((t) => t.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-3">
+                      {columnTickets.map((t) => (
+                        <TicketCard
+                          key={t.id}
+                          ticket={t}
+                          currentStyles={currentStyles}
+                          setSelectedTicket={setSelectedTicket}
+                          handleUpdateTicket={handleUpdateTicket}
+                          setTickets={setTickets}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DroppableColumn>
               </div>
-            )}
-          </DragOverlay>
-        </DndContext>
-      </div>
+            );
+          })}
+        </div>
+
+        <DragOverlay adjustScale>
+          {activeTicket && (
+            <div className="rotate-2 scale-[1.05] shadow-2xl">
+              <TicketDragPreview
+                ticket={activeTicket}
+                currentStyles={currentStyles}
+              />
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
 
       <TicketDetailModal
         selectedTicket={selectedTicket}
@@ -713,35 +755,40 @@ export default function SprintBoardRefactor() {
           onClick={() => setShowSettings(false)}
         >
           <div
-            className="w-full max-w-sm bg-white h-full shadow-2xl p-6 animate-in slide-in-from-right duration-300"
+            className="h-full w-full max-w-sm bg-white p-6 shadow-2xl animate-in slide-in-from-right duration-300"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-8">
+            <div className="mb-8 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black uppercase tracking-tighter">
+                <h2 className="font-title text-xl font-black uppercase tracking-tighter text-slate-900">
                   Impostazioni Board
                 </h2>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   Personalizza la tua vista
                 </p>
               </div>
-              <button
+
+              <AppButton
+                type="button"
+                variant="ghost"
                 onClick={() => setShowSettings(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                className="h-10 w-10 rounded-full p-0"
+                aria-label="Chiudi impostazioni"
               >
                 <X size={20} />
-              </button>
+              </AppButton>
             </div>
 
-            <div className="space-y-3 overflow-y-auto max-h-[calc(100vh-150px)] pr-2">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">
+            <div className="max-h-[calc(100vh-150px)] space-y-3 overflow-y-auto pr-2">
+              <p className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
                 Visibilità Colonne
               </p>
 
               {allBoardColumns.map((col) => (
-                <div
+                <AppCard
                   key={col.id}
-                  className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-white hover:shadow-md transition-all cursor-pointer"
+                  className="flex cursor-pointer items-center justify-between transition-all hover:shadow-md"
                   onClick={() => {
                     const nextVisibleColumns = {
                       ...visibleColumns,
@@ -753,30 +800,33 @@ export default function SprintBoardRefactor() {
                 >
                   <div className="flex items-center gap-4">
                     <div
-                      className={`w-3 h-3 rounded-full ${col.bgColorClass} border border-black/5`}
+                      className={`h-3 w-3 rounded-full border border-black/5 ${col.bgColorClass}`}
                     />
-                    <span className="text-[11px] font-bold text-gray-700 uppercase">
+
+                    <span className="text-[11px] font-bold uppercase text-slate-700">
                       {col.label}
                     </span>
                   </div>
 
                   <div
-                    className={`w-10 h-5 rounded-full relative transition-colors ${
-                      visibleColumns[col.id] !== false ? "bg-[#0150a0]" : "bg-gray-300"
+                    className={`relative h-5 w-10 rounded-full transition-colors ${
+                      visibleColumns[col.id] !== false
+                        ? "bg-slate-900"
+                        : "bg-slate-300"
                     }`}
                   >
                     <div
-                      className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-transform ${
+                      className={`absolute top-1 h-3 w-3 rounded-full bg-white transition-transform ${
                         visibleColumns[col.id] !== false ? "left-6" : "left-1"
                       }`}
                     />
                   </div>
-                </div>
+                </AppCard>
               ))}
             </div>
           </div>
         </div>
       )}
-    </div>
+    </AppPage>
   );
 }
