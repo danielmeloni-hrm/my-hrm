@@ -59,6 +59,12 @@ function extractSearchText(message: string) {
     .replace(/cliente/gi, "")
     .replace(/documento/gi, "")
     .replace(/documenti/gi, "")
+    .replace(/persona/gi, "")
+    .replace(/persone/gi, "")
+    .replace(/dipendente/gi, "")
+    .replace(/dipendenti/gi, "")
+    .replace(/attività/gi, "")
+    .replace(/attivita/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -70,9 +76,9 @@ function extractCodes(value?: string | null) {
     text.matchAll(/\b(TAG|INC|CHG)\d+\b/gi)
   ).map((match) => match[0].toUpperCase());
 
-  const hashCodes = Array.from(
-    text.matchAll(/#[A-Z0-9_-]{2,30}/gi)
-  ).map((match) => match[0].replace("#", "").toUpperCase());
+  const hashCodes = Array.from(text.matchAll(/#[A-Z0-9_-]{2,30}/gi)).map(
+    (match) => match[0].replace("#", "").toUpperCase()
+  );
 
   return Array.from(new Set([...standardCodes, ...hashCodes]));
 }
@@ -110,6 +116,21 @@ function getIntent(message: string) {
   const text = normalizeText(message);
   const codes = extractCodes(message);
 
+  const asksPeople =
+    text.includes("persona") ||
+    text.includes("persone") ||
+    text.includes("profilo") ||
+    text.includes("profili") ||
+    text.includes("dipendente") ||
+    text.includes("dipendenti") ||
+    text.includes("assegnatario") ||
+    text.includes("assegnatari") ||
+    text.includes("assignee") ||
+    text.includes("tecnico") ||
+    text.includes("tecnici") ||
+    text.includes("hr_admin") ||
+    text.includes("ruolo");
+
   const asksMail =
     text.includes("mail") ||
     text.includes("email") ||
@@ -122,6 +143,12 @@ function getIntent(message: string) {
     text.includes("segnalazione") ||
     text.includes("bug") ||
     text.includes("attività") ||
+    text.includes("attivita") ||
+    text.includes("lavorando") ||
+    text.includes("lavora") ||
+    text.includes("assegnato") ||
+    text.includes("assegnati") ||
+    asksPeople ||
     /\b(TAG|INC)\d+\b/i.test(message);
 
   const asksClienti = text.includes("cliente") || text.includes("clienti");
@@ -142,13 +169,15 @@ function getIntent(message: string) {
     text.includes("cosa e successo") ||
     text.includes("cosa sai dirmi");
 
-  const isGeneric = !asksMail && !asksTicket && !asksClienti && !asksDocumenti;
+  const isGeneric =
+    !asksMail && !asksTicket && !asksClienti && !asksDocumenti && !asksPeople;
 
   return {
     asksMail,
     asksTicket,
     asksClienti,
     asksDocumenti,
+    asksPeople,
     asksOverview,
     isGeneric,
     searchText: extractSearchText(message),
@@ -218,7 +247,8 @@ function buildMailThreadContext(rows: any[]) {
           preview: email.body_preview || emailText.slice(0, 300),
           body_text: emailText,
           outlook_message_id: email.outlook_message_id || row.outlook_message_id,
-          internet_message_id: email.internet_message_id || row.internet_message_id,
+          internet_message_id:
+            email.internet_message_id || row.internet_message_id,
         });
 
         group.totalEmails += 1;
@@ -237,7 +267,8 @@ function buildMailThreadContext(rows: any[]) {
     }
 
     const emailText = row.body_text || row.contenuto || stripHtml(row.body_html);
-    const emailDate = row.received_at || row.sent_at || row.created_at || row.data_invio;
+    const emailDate =
+      row.received_at || row.sent_at || row.created_at || row.data_invio;
 
     group.emails.push({
       id: row.id,
@@ -322,6 +353,37 @@ function threadMatchesSearch(thread: any, intent: any) {
   return codeMatches || textMatches;
 }
 
+function findProfiloForTicket(ticket: any, profili: any[]) {
+  const possibleValues = [
+    ticket.assignee,
+    ticket.assegnatario,
+    ticket.owner,
+    ticket.user_id,
+    ticket.profilo_id,
+    ticket.tecnico_id,
+    ticket.responsabile_id,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  if (possibleValues.length === 0) return null;
+
+  return (
+    profili.find((profilo: any) => {
+      const values = [
+        profilo.id,
+        profilo.email,
+        profilo.nome,
+        profilo.nome_completo,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      return possibleValues.some((ticketValue) => values.includes(ticketValue));
+    }) || null
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const user = await getUser(req);
@@ -370,33 +432,42 @@ export async function POST(req: Request) {
       .order("created_at", { ascending: false })
       .limit(8);
 
+    const profiliPromise =
+      intent.asksPeople || intent.asksTicket || intent.isGeneric
+        ? supabaseAdmin
+            .from("profili")
+            .select(
+              "id, nome_completo, nome, email, ruolo, creato_at, kanban_columns, all_ticket_settings_colonne, all_ticket_settings_sort, all_incident_settings_colonne, tickek_setting_colonne, ore_ticket, sidebar_position"
+            )
+            .order("creato_at", { ascending: false })
+            .limit(200)
+        : Promise.resolve({ data: [] });
+
     const ticketsPromise =
       intent.asksTicket || intent.isGeneric || intent.asksMail
         ? supabaseAdmin
             .from("ticket")
-            .select("id, n_tag, titolo, stato, priorita, cliente_id, creato_at")
+            .select("*")
             .order("creato_at", { ascending: false })
-            .limit(intent.isGeneric ? 20 : 100)
+            .limit(intent.isGeneric ? 50 : 300)
         : Promise.resolve({ data: [] });
 
     const clientiPromise =
-      intent.asksClienti || intent.isGeneric || intent.asksMail
+      intent.asksClienti || intent.isGeneric || intent.asksMail || intent.asksTicket
         ? supabaseAdmin
             .from("clienti")
-            .select("id, nome, creato_at")
+            .select("*")
             .order("creato_at", { ascending: false })
-            .limit(intent.isGeneric ? 30 : 100)
+            .limit(intent.isGeneric ? 50 : 200)
         : Promise.resolve({ data: [] });
 
     const documentiPromise =
       intent.asksDocumenti || intent.isGeneric
         ? supabaseAdmin
             .from("documenti_operativi")
-            .select(
-              "id, cliente_id, applicativo, versione, nome_evolutiva, numero_change, created_at"
-            )
+            .select("*")
             .order("created_at", { ascending: false })
-            .limit(intent.isGeneric ? 20 : 80)
+            .limit(intent.isGeneric ? 30 : 120)
         : Promise.resolve({ data: [] });
 
     let mailThreadsQuery = supabaseAdmin
@@ -442,6 +513,7 @@ export async function POST(req: Request) {
     const [
       insertUserMessageResult,
       oldMessagesResult,
+      profiliResult,
       ticketsResult,
       clientiResult,
       documentiResult,
@@ -449,6 +521,7 @@ export async function POST(req: Request) {
     ] = await Promise.all([
       insertUserMessagePromise,
       oldMessagesPromise,
+      profiliPromise,
       ticketsPromise,
       clientiPromise,
       documentiPromise,
@@ -456,13 +529,21 @@ export async function POST(req: Request) {
     ]);
 
     if (insertUserMessageResult.error) throw insertUserMessageResult.error;
-    if ("error" in oldMessagesResult && oldMessagesResult.error) throw oldMessagesResult.error;
-    if ("error" in ticketsResult && ticketsResult.error) throw ticketsResult.error;
-    if ("error" in clientiResult && clientiResult.error) throw clientiResult.error;
-    if ("error" in documentiResult && documentiResult.error) throw documentiResult.error;
-    if ("error" in mailThreadsResult && mailThreadsResult.error) throw mailThreadsResult.error;
+    if ("error" in oldMessagesResult && oldMessagesResult.error)
+      throw oldMessagesResult.error;
+    if ("error" in profiliResult && profiliResult.error)
+      throw profiliResult.error;
+    if ("error" in ticketsResult && ticketsResult.error)
+      throw ticketsResult.error;
+    if ("error" in clientiResult && clientiResult.error)
+      throw clientiResult.error;
+    if ("error" in documentiResult && documentiResult.error)
+      throw documentiResult.error;
+    if ("error" in mailThreadsResult && mailThreadsResult.error)
+      throw mailThreadsResult.error;
 
     const oldMessages = [...(oldMessagesResult.data ?? [])].reverse();
+    const profili = profiliResult.data ?? [];
     const tickets = ticketsResult.data ?? [];
     const clienti = clientiResult.data ?? [];
     const documenti = documentiResult.data ?? [];
@@ -472,17 +553,56 @@ export async function POST(req: Request) {
     const clientiMap = new Map(
       clienti.map((cliente: any) => [
         cliente.id,
-        cliente.ragione_sociale || cliente.nome,
+        cliente.ragione_sociale || cliente.nome || cliente.nome_cliente,
       ])
     );
 
-    const ticketsWithClient = tickets.map((ticket: any) => ({
-      ...ticket,
-      cliente_nome: clientiMap.get(ticket.cliente_id) || null,
-    }));
+    const ticketsWithRelations = tickets.map((ticket: any) => {
+      const profilo = findProfiloForTicket(ticket, profili);
+
+      return {
+        ...ticket,
+        cliente_nome: clientiMap.get(ticket.cliente_id) || null,
+        assegnatario_profilo: profilo
+          ? {
+              id: profilo.id,
+              nome: profilo.nome,
+              nome_completo: profilo.nome_completo,
+              email: profilo.email,
+              ruolo: profilo.ruolo,
+            }
+          : null,
+      };
+    });
+
+    const attivitaPerPersona = profili.map((profilo: any) => {
+      const relatedTickets = ticketsWithRelations.filter((ticket: any) => {
+        const assigned = ticket.assegnatario_profilo;
+        return assigned?.id === profilo.id;
+      });
+
+      return {
+        profilo: {
+          id: profilo.id,
+          nome: profilo.nome,
+          nome_completo: profilo.nome_completo,
+          email: profilo.email,
+          ruolo: profilo.ruolo,
+        },
+        totale_attivita: relatedTickets.length,
+        attivita_aperte: relatedTickets.filter(
+          (ticket: any) =>
+            !String(ticket.stato || "").toLowerCase().includes("chius")
+        ).length,
+        attivita_chiuse: relatedTickets.filter((ticket: any) =>
+          String(ticket.stato || "").toLowerCase().includes("chius")
+        ).length,
+        ticket: relatedTickets.slice(0, 50),
+      };
+    });
 
     const mailThreadsWithTicket = mailThreads.map((thread: any) => {
-      const ticket = ticketsWithClient.find(
+      const ticket = ticketsWithRelations.find(
         (item: any) => item.n_tag === thread.n_tag
       );
 
@@ -495,6 +615,7 @@ export async function POST(req: Request) {
               stato: ticket.stato,
               priorita: ticket.priorita,
               cliente_nome: ticket.cliente_nome,
+              assegnatario: ticket.assegnatario_profilo,
             }
           : null,
       };
@@ -508,28 +629,28 @@ export async function POST(req: Request) {
         : mailThreadsWithTicket;
 
     const finalMailThreads =
-      filteredMailThreads.length > 0 ? filteredMailThreads : mailThreadsWithTicket;
-
-    console.log("AI MAIL DEBUG", {
-      message,
-      searchText: intent.searchText,
-      codes: intent.codes,
-      rawRows: mailThreadsRaw.length,
-      groupedThreads: mailThreadsWithTicket.length,
-      filteredThreads: filteredMailThreads.length,
-      firstSubjects: mailThreadsWithTicket.slice(0, 5).map((t: any) => t.subject),
-    });
+      filteredMailThreads.length > 0
+        ? filteredMailThreads
+        : mailThreadsWithTicket;
 
     const context = {
       intent,
       oldMessages,
-      tickets: ticketsWithClient,
+      profili,
+      tickets: ticketsWithRelations,
       clienti,
       documenti,
       mailThreads: finalMailThreads,
-      mailThreadsRawCount: mailThreadsRaw.length,
-      mailThreadGroupsCount: mailThreadsWithTicket.length,
-      filteredMailThreadGroupsCount: filteredMailThreads.length,
+      attivitaPerPersona,
+      counts: {
+        profili: profili.length,
+        tickets: ticketsWithRelations.length,
+        clienti: clienti.length,
+        documenti: documenti.length,
+        mailThreadsRaw: mailThreadsRaw.length,
+        mailThreadGroups: mailThreadsWithTicket.length,
+        filteredMailThreadGroups: filteredMailThreads.length,
+      },
     };
 
     const prompt = `
@@ -542,30 +663,39 @@ Regole:
 - Se i dati non sono sufficienti, dillo chiaramente.
 - Non inventare dati.
 
+Tabelle disponibili nel contesto:
+- profili: persone/dipendenti/tecnici/admin.
+- tickets: attività, ticket, incident e segnalazioni.
+- clienti: anagrafiche clienti.
+- documenti: documenti operativi.
+- mailThreads: thread email raggruppati.
+
+Dati persone:
+- "profili" contiene: id, nome_completo, nome, email, ruolo e impostazioni utente.
+- "attivitaPerPersona" contiene un riepilogo dei ticket assegnati a ogni persona.
+- Per domande tipo "a cosa sta lavorando Mario", "quali attività ha Daniel", "ticket assegnati a X":
+  usa prima attivitaPerPersona, poi tickets.
+- Se non trovi un collegamento certo tra ticket e profilo, dillo chiaramente.
+
+Dati ticket:
+- "tickets" contiene i dati dei ticket e, quando possibile, il campo "assegnatario_profilo".
+- Usa stato, priorita, cliente_nome, titolo, n_tag e date disponibili per rispondere.
+
 Dati email disponibili:
 - "mailThreads" contiene i thread email raggruppati.
 - Il campo autorevole per identificare un thread email è "subject".
 - "topic" è solo informativo e non deve essere usato come identificatore principale.
 - Ogni thread ha: n_tag, subject, raw_subject, topic, ticket, totalEmails, lastEmailAt, emails.
 - Ogni elemento in emails è una singola email.
-- Le email vengono lette prima dal campo jsonb mail_threads.emails.
-- Se mail_threads.emails è vuoto, viene usato il contenuto della riga mail_threads.
-- Per ogni email puoi usare: subject, raw_subject, direction, from_email, date, text, preview, body_text.
 - Il campo più importante per capire il contenuto della mail è "text" oppure "body_text".
-- Usa n_tag per collegarlo al ticket quando disponibile.
 
 Resoconti email:
 Quando l'utente chiede un resoconto, una sintesi o un riepilogo di un thread email:
 - Prima identifica il thread più pertinente usando subject/raw_subject.
 - Leggi tutte le email del thread in ordine cronologico.
-- Scrivi un resoconto discorsivo e parlante, come se stessi spiegando a un collega cosa è successo.
-- Non limitarti a un elenco puntato.
+- Scrivi un resoconto discorsivo e parlante.
 - Cita data, mittente e passaggi principali quando sono disponibili.
 - Concludi con stato finale e punti aperti se emergono dai dati.
-
-Quando l'utente chiede "quali thread ci sono", "mostrami i thread", "thread email":
-- Elenca i thread disponibili con subject, n_tag, cliente, numero email e ultima email.
-- Se non ci sono email importate, specifica che il thread è solo collegato.
 
 DOMANDA UTENTE:
 ${message}

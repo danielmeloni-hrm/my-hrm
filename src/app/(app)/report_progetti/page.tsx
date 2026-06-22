@@ -1,1263 +1,963 @@
 "use client";
+
 import React, { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase";
+import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+
+type ChartType = "bar" | "horizontal_bar" | "line" | "pie";
+type Period = "all" | "thisYear" | "last12" | "last90" | "last30";
+type FilterToOmit = "risorsa" | "cliente" | "tipo" | "tag" | null;
+
+type TimesheetEvent = {
+  id_attivita: string;
+  id_evento: string | null;
+  titolo: string | null;
+  cliente: string | null;
+  id_cliente: string | null;
+  tipo_attivita: string | null;
+  attivita: string | null;
+  attivita_json: string[] | null;
+  data_inizio: string | null;
+  durata_minuti: number | null;
+  durata_ore: number | null;
+  risorsa: string | null;
+};
+
+type SavedChart = {
+  id: string;
+  title: string;
+  chart_type: ChartType;
+  dimension: string;
+  metric: string;
+  position: number;
+  col_span: number;
+};
+
 const UI = {
   bg: "#f6f8fb",
   card: "#ffffff",
   border: "#e6eaf0",
   text: "#1f2937",
   subtext: "#6b7280",
-
   primary: "#0150a0",
-  primarySoft: "#dbeafe",
-
-  success: "#16a34a",
-  warning: "#f59e0b",
   danger: "#dc2626",
-
-  bar: "#0150a0",
-  barSoft: "#93c5fd"
-};
-type SheetName = "Andrea" | "Daniel" | "Simone" | "Corrado" | "Alessandro"| "Alice";
-
-type RawRow = {
-  sheet: SheetName;
-  idEvento: string;
-  titolo: string;
-  dataInizio: string;
-  oraInizio: string;
-  dataFine: string;
-  oraFine: string;
-  durataMinuti: number;
-  durataOre: number;
 };
 
-type Period = "all" | "thisYear" | "last12" | "last90" | "last30";
-type DateRange = { from: string; to: string }; // yyyy-mm-dd
+const DIMENSIONS = [
+  { value: "cliente", label: "Cliente" },
+  { value: "risorsa", label: "Risorsa" },
+  { value: "tipo_attivita", label: "Tipo attività" },
+  { value: "attivita", label: "Attività" },
+  { value: "tag_attivita", label: "TAG attività" },
+  { value: "mese", label: "Mese" },
+  { value: "giorno", label: "Giorno" },
+];
 
-const SPREADSHEET_ID = "1HrbA7vxZOuCK2bR6XQIy5nq4fVJhYh-SYsmDVGUGbco";
-const SHEETS: SheetName[] = ["Andrea", "Daniel", "Simone", "Corrado", "Alessandro","Alice"];
+const METRICS = [
+  { value: "durata_ore", label: "Somma ore" },
+  { value: "durata_minuti", label: "Somma minuti" },
+  { value: "eventi", label: "Numero eventi" },
+];
 
-const COLS = [
-  "ID Evento",
-  "Titolo",
-  "Data Inizio",
-  "Ora Inizio",
-  "Data Fine",
-  "Ora Fine",
-  "Durata (minuti)",
-  "Durata (ore)",
-] as const;
+const CHART_TYPES = [
+  { value: "bar", label: "Barre verticali" },
+  { value: "horizontal_bar", label: "Barre orizzontali" },
+  { value: "line", label: "Linea" },
+  { value: "pie", label: "Torta" },
+];
 
-type TitleParts = {
-  cliente: string;
-  attivita: string; // Tipo attività
-  progetto: string; // opzionale
-};
+const COL_SPANS = [
+  { value: 1, label: "1/4" },
+  { value: 2, label: "2/4" },
+  { value: 3, label: "3/4" },
+  { value: 4, label: "4/4" },
+];
 
-function normalizeLabel(s: string): string {
-  return (s || "")
-    .replace(/\u00A0/g, " ") // NBSP
-    .replace(/\s+/g, " ")
-    .trim();
+const PIE_COLORS = [
+  "#0150a0",
+  "#2563eb",
+  "#60a5fa",
+  "#93c5fd",
+  "#bfdbfe",
+  "#1d4ed8",
+];
+
+function formatHours(h: number) {
+  return `${Math.round(h * 100) / 100}`.replace(".", ",");
 }
 
-function parseTitleParts(titolo: string): TitleParts {
-  const raw = normalizeLabel(titolo);
-  if (!raw) return { cliente: "", attivita: "", progetto: "" };
-
-  // SOLO split su " - "
-  const parts = raw
-    .split(" - ")
-    .map((p) => normalizeLabel(p))
-    .filter(Boolean);
-
-  const cliente = parts[0] ?? "";
-  const attivitaFull = parts[1] ?? "";
-  const attivita = (attivitaFull.split(" ")[0] || "").trim(); // prima parola
-  const progetto = parts[2] ?? "";
-
-  return { cliente, attivita, progetto };
+function parseDate(d: string | null) {
+  if (!d) return null;
+  const date = new Date(d);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * Supporta:
- * - "dd/mm/yyyy"
- * - "Date(YYYY,MM,DD)"
- */
-function parseEventDate(d: string): Date | null {
-  const s = (d || "").trim();
+function getDimensionValue(row: TimesheetEvent, dimension: string) {
+  if (dimension === "mese") return row.data_inizio?.slice(0, 7) || "Senza mese";
+  if (dimension === "giorno") return row.data_inizio || "Senza giorno";
 
-  const it = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (it) {
-    const day = Number(it[1]);
-    const month = Number(it[2]) - 1;
-    const year = Number(it[3]);
-    const dt = new Date(year, month, day);
-    if (!Number.isNaN(dt.getTime())) {
-      dt.setHours(0, 0, 0, 0);
-      return dt;
+  const value = row[dimension as keyof TimesheetEvent];
+  return String(value || "").trim() || "Non valorizzato";
+}
+
+function getMetricValue(row: TimesheetEvent, metric: string) {
+  if (metric === "eventi") return 1;
+  if (metric === "durata_minuti") return Number(row.durata_minuti || 0);
+  return Number(row.durata_ore || 0);
+}
+
+function buildChartData(
+  rows: TimesheetEvent[],
+  dimension: string,
+  metric: string
+) {
+  const map = new Map<string, number>();
+
+  for (const row of rows) {
+    const keys =
+      dimension === "tag_attivita"
+        ? row.attivita_json?.length
+          ? row.attivita_json
+          : ["Senza TAG"]
+        : [getDimensionValue(row, dimension)];
+
+    for (const key of keys) {
+      map.set(key, (map.get(key) || 0) + getMetricValue(row, metric));
     }
   }
 
-  const gv = s.match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)$/);
-  if (gv) {
-    const year = Number(gv[1]);
-    const month = Number(gv[2]); // 0-based
-    const day = Number(gv[3]);
-    const dt = new Date(year, month, day);
-    if (!Number.isNaN(dt.getTime())) {
-      dt.setHours(0, 0, 0, 0);
-      return dt;
-    }
+  const data = Array.from(map.entries()).map(([label, value]) => ({
+    label,
+    value: Number(value.toFixed(2)),
+  }));
+
+  if (dimension === "mese" || dimension === "giorno") {
+    return data.sort((a, b) => a.label.localeCompare(b.label)).slice(0, 30);
   }
 
-  return null;
+  return data.sort((a, b) => b.value - a.value).slice(0, 20);
 }
 
-function parseISODate(d: string): Date | null {
-  const m = (d || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const year = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  const day = Number(m[3]);
-  const dt = new Date(year, month, day);
-  if (Number.isNaN(dt.getTime())) return null;
-  dt.setHours(0, 0, 0, 0);
-  return dt;
+function metricFormatter(metric: string) {
+  if (metric === "durata_ore") return (n: number) => `${formatHours(n)} h`;
+  if (metric === "durata_minuti") return (n: number) => `${Math.round(n)} min`;
+  return (n: number) => `${Math.round(n)}`;
 }
 
-function isoDayKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+export default function ReportBuilderPage() {
+  const supabase = createClient();
 
-function monthKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function clampPeriod(rows: any[], period: Period): any[] {
-  if (period === "all") return rows;
-
-  const now = new Date();
-  const start = new Date(now);
-
-  if (period === "thisYear") start.setMonth(0, 1);
-  else if (period === "last12") start.setMonth(start.getMonth() - 12);
-  else if (period === "last90") start.setDate(start.getDate() - 90);
-  else if (period === "last30") start.setDate(start.getDate() - 30);
-
-  start.setHours(0, 0, 0, 0);
-
-  return rows.filter((r) => {
-    const di = parseEventDate(r.dataInizio);
-    if (!di) return true;
-    return di >= start && di <= now;
-  });
-}
-
-function clampDateRange(rows: any[], range: DateRange): any[] {
-  const from = parseISODate(range.from);
-  const to = parseISODate(range.to);
-
-  if (!from && !to) return rows;
-
-  const toEnd = to ? new Date(to) : null;
-  if (toEnd) toEnd.setHours(23, 59, 59, 999);
-
-  return rows.filter((r) => {
-    const di = parseEventDate(r.dataInizio);
-    if (!di) return true;
-    const t = di.getTime();
-    if (from && t < from.getTime()) return false;
-    if (toEnd && t > toEnd.getTime()) return false;
-    return true;
-  });
-}
-
-async function fetchSheetTab(tab: SheetName): Promise<RawRow[]> {
-  const query = encodeURIComponent("select A,B,C,D,E,F,G,H");
-  const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?sheet=${encodeURIComponent(
-    tab
-  )}&tq=${query}`;
-
-  const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
-
-  const jsonMatch = text.match(/setResponse\(([\s\S]+)\);\s*$/);
-  if (!jsonMatch) throw new Error("Risposta GViz non valida (sheet privato o struttura diversa).");
-
-  const payload = JSON.parse(jsonMatch[1]);
-  if (payload.status !== "ok") {
-    throw new Error(payload.errors?.[0]?.detailed_message || "Errore GViz");
-  }
-
-  const rows = payload.table?.rows ?? [];
-
-  return rows
-    .map((r: any) => (r.c || []).map((cell: any) => (cell ? cell.v : null)))
-    .filter((arr: any[]) => arr.some((x) => x !== null && x !== ""))
-    .map((arr: any[]) => {
-      const [idEvento, titolo, dataInizio, oraInizio, dataFine, oraFine, durataMinuti, durataOre] = arr;
-
-      return {
-        sheet: tab,
-        idEvento: String(idEvento ?? ""),
-        titolo: String(titolo ?? ""),
-        dataInizio: String(dataInizio ?? ""),
-        oraInizio: String(oraInizio ?? ""),
-        dataFine: String(dataFine ?? ""),
-        oraFine: String(oraFine ?? ""),
-        durataMinuti: Number(durataMinuti ?? 0) || 0,
-        durataOre: Number(durataOre ?? 0) || 0,
-      };
-    });
-}
-
-function normalizeKey(s: string): string {
-  const label = normalizeLabel(s);
-  if (!label) return "";
-  return label
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // rimuove accenti
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function firstPartBeforeDash(titolo: string): string {
-  // prende tutto PRIMA del primo " - " (spazio-trattino-spazio)
-  const raw = normalizeLabel(titolo);
-  if (!raw) return "";
-  const i = raw.indexOf(" - ");
-  return i >= 0 ? normalizeLabel(raw.slice(0, i)) : normalizeLabel(raw);
-}
-
-/** Legge SOLO i clienti validi da Voci!A */
-async function fetchValidClients(): Promise<Array<{ key: string; label: string }>> {
-  const query = encodeURIComponent("select A");
-  const url =
-    `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?sheet=${encodeURIComponent("Voci")}&tq=${query}` +
-    `&headers=1`;
-
-  const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
-
-  const jsonMatch = text.match(/setResponse\(([\s\S]+)\);\s*$/);
-  if (!jsonMatch) throw new Error("Risposta GViz non valida per tab Voci (permessi/nome tab).");
-
-  const payload = JSON.parse(jsonMatch[1]);
-  if (payload.status !== "ok") {
-    throw new Error(payload.errors?.[0]?.detailed_message || "Errore GViz (Voci)");
-  }
-
-  const rows = payload.table?.rows ?? [];
-  const map = new Map<string, string>(); // key -> label
-
-  for (const r of rows) {
-    const cell = r?.c?.[0];
-    const raw = String(cell?.f ?? cell?.v ?? "");
-    const label = normalizeLabel(raw);
-    if (!label) continue;
-
-    // scarta l'header se viene incluso
-    if (label.toLowerCase() === "clienti") continue;
-
-    const key = normalizeKey(label);
-    if (!key) continue;
-
-    if (!map.has(key)) map.set(key, label);
-  }
-
-  return Array.from(map.entries())
-    .map(([key, label]) => ({ key, label }))
-    .sort((a, b) => a.label.localeCompare(b.label, "it"));
-}
-
-
-
-function downloadTextFile(filename: string, content: string, mime = "text/plain") {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function toCSV(rows: any[]): string {
-  const header = ["Tab", "Cliente", "Attività", "Progetto", ...COLS];
-  const esc = (v: any) => {
-    const s = String(v ?? "");
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [
-    header.join(","),
-    ...rows.map((r) =>
-      [
-        r.sheet,
-        r.cliente,
-        r.attivita,
-        r.progetto,
-        r.idEvento,
-        r.titolo,
-        r.dataInizio,
-        r.oraInizio,
-        r.dataFine,
-        r.oraFine,
-        r.durataMinuti,
-        r.durataOre,
-      ]
-        .map(esc)
-        .join(",")
-    ),
-  ];
-  return lines.join("\n");
-}
-
-function formatHours(h: number): string {
-  const v = Math.round(h * 100) / 100;
-  return `${v}`.replace(".", ",");
-}
-
-/* -------------------- NEW: aggregazioni e matrici -------------------- */
-
-type Agg = { key: string; label: string; hours: number; events: number };
-
-function topN<T>(arr: T[], n: number) {
-  return arr.slice(0, n);
-}
-
-function groupByKey(rows: any[], keyFn: (r: any) => string, labelFn?: (r: any) => string): Agg[] {
-  const map = new Map<string, Agg>();
-  for (const r of rows) {
-    const key = keyFn(r) || "";
-    if (!key) continue;
-
-    const label = (labelFn ? labelFn(r) : key) || key;
-    const cur = map.get(key) ?? { key, label, hours: 0, events: 0 };
-    cur.hours += Number(r.durataOre || 0);
-    cur.events += 1;
-    map.set(key, cur);
-  }
-  return Array.from(map.values()).sort((a, b) => b.hours - a.hours);
-}
-
-/** matrice: righe = rowKey, colonne = colKey, valore = hours */
-function matrixHours(rows: any[], rowKeyFn: (r: any) => string, colKeyFn: (r: any) => string) {
-  const map = new Map<string, Map<string, number>>();
-  const rowTotals = new Map<string, number>();
-  const colTotals = new Map<string, number>();
-
-  for (const r of rows) {
-    const rk = rowKeyFn(r);
-    const ck = colKeyFn(r);
-    if (!rk || !ck) continue;
-
-    const h = Number(r.durataOre || 0);
-    if (!map.has(rk)) map.set(rk, new Map());
-    const inner = map.get(rk)!;
-    inner.set(ck, (inner.get(ck) ?? 0) + h);
-
-    rowTotals.set(rk, (rowTotals.get(rk) ?? 0) + h);
-    colTotals.set(ck, (colTotals.get(ck) ?? 0) + h);
-  }
-
-  return { map, rowTotals, colTotals };
-}
-
-/* -------------------------------------------------------------------- */
-
-export default function ClientReportsPage() {
+  const [allRows, setAllRows] = useState<TimesheetEvent[]>([]);
+  const [savedCharts, setSavedCharts] = useState<SavedChart[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const [allRows, setAllRows] = useState<RawRow[]>([]);
-  const [validClients, setValidClients] = useState<Array<{ key: string; label: string }>>([]);
-
-  const [sheetFilter, setSheetFilter] = useState<SheetName | "Tutte">("Tutte");
-  const [clientFilter, setClientFilter] = useState<string>("all"); // key
-  const [attivitaFilter, setAttivitaFilter] = useState<string>("Tutte");
-  const [progettoFilter, setProgettoFilter] = useState<string>("Tutti");
-
+  const [tagFilter, setTagFilter] = useState("Tutti");
+  const [risorsaFilter, setRisorsaFilter] = useState("Tutte");
+  const [clienteFilter, setClienteFilter] = useState("Tutti");
+  const [tipoFilter, setTipoFilter] = useState("Tutte");
+  const [period, setPeriod] = useState<Period>("all");
   const [search, setSearch] = useState("");
 
-  const [dateRange, setDateRange] = useState<DateRange>({ from: "", to: "" });
-  const [period, setPeriod] = useState<Period>("all");
-  const [dateMode, setDateMode] = useState<"period" | "range">("period");
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [clientsFromVoci, ...parts] = await Promise.all([
-        fetchValidClients(),
-        ...SHEETS.map((s) => fetchSheetTab(s)),
-      ]);
-
-      setValidClients(clientsFromVoci);
-      setAllRows(parts.flat());
-    } catch (e: any) {
-      setError(e?.message || "Errore caricamento dati");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [chartTitle, setChartTitle] = useState("Nuovo grafico");
+  const [chartType, setChartType] = useState<ChartType>("bar");
+  const [chartDimension, setChartDimension] = useState("cliente");
+  const [chartMetric, setChartMetric] = useState("durata_ore");
+  const [chartColSpan, setChartColSpan] = useState(1);
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadData();
+    void loadCharts();
   }, []);
 
-  /** Parse titolo -> cliente/attività/progetto + filtro cliente valido */
-  const rowsWithParts = useMemo(() => {
-    // mappa: key -> label (dal foglio Voci colonna A)
-    const validMap = new Map(validClients.map((c) => [c.key, c.label]));
+  async function loadData() {
+    setLoading(true);
 
-    return allRows
-      .map((r) => {
-        // match cliente: prima parte del titolo fino al primo " - "
-        const first = firstPartBeforeDash(r.titolo);
-        const firstKey = normalizeKey(first);
+    const { data, error } = await supabase
+      .from("timesheet_events")
+      .select("*")
+      .order("data_inizio", { ascending: false });
 
-        const validLabel = validMap.get(firstKey);
-        if (!validLabel) return null; // cliente NON valido -> scarta evento
+    if (!error) setAllRows((data || []) as TimesheetEvent[]);
 
-        const p = parseTitleParts(r.titolo);
+    setLoading(false);
+  }
 
-        return {
-          ...r,
-          cliente: validLabel, // label ufficiale
-          clienteKey: firstKey, // chiave normalizzata per filtri
-          attivita: p.attivita,
-          progetto: p.progetto,
-        };
-      })
-      .filter(Boolean) as any[];
-  }, [allRows, validClients]);
+  async function loadCharts() {
+    const { data, error } = await supabase
+      .from("report_charts")
+      .select("id,title,chart_type,dimension,metric,position,col_span")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
 
-  /** Clienti SOLO da Voci!A */
-  const clients = useMemo(() => validClients, [validClients]);
+    if (!error) setSavedCharts((data || []) as SavedChart[]);
+  }
 
-  const attivitaOptions = useMemo(() => {
-    let rows = rowsWithParts as any[];
-    if (sheetFilter !== "Tutte") rows = rows.filter((r) => r.sheet === sheetFilter);
-    if (clientFilter !== "all") rows = rows.filter((r) => r.clienteKey === clientFilter);
+  function applyFilters(sourceRows: TimesheetEvent[], omit: FilterToOmit = null) {
+    let rows = [...sourceRows];
 
-    const set = new Set(rows.map((r) => r.attivita).filter(Boolean));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "it"));
-  }, [rowsWithParts, sheetFilter, clientFilter]);
+    if (omit !== "risorsa" && risorsaFilter !== "Tutte") {
+      rows = rows.filter((r) => r.risorsa === risorsaFilter);
+    }
 
-  const progettoOptions = useMemo(() => {
-    let rows = rowsWithParts as any[];
-    if (sheetFilter !== "Tutte") rows = rows.filter((r) => r.sheet === sheetFilter);
-    if (clientFilter !== "all") rows = rows.filter((r) => r.clienteKey === clientFilter);
-    if (attivitaFilter !== "Tutte") rows = rows.filter((r) => r.attivita === attivitaFilter);
+    if (omit !== "cliente" && clienteFilter !== "Tutti") {
+      rows = rows.filter((r) => r.cliente === clienteFilter);
+    }
 
-    const set = new Set(rows.map((r) => r.progetto).filter((p) => p && p.trim().length > 0));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "it"));
-  }, [rowsWithParts, sheetFilter, clientFilter, attivitaFilter]);
+    if (omit !== "tipo" && tipoFilter !== "Tutte") {
+      rows = rows.filter((r) => r.tipo_attivita === tipoFilter);
+    }
 
-  useEffect(() => {
-    if (attivitaFilter !== "Tutte" && !attivitaOptions.includes(attivitaFilter)) setAttivitaFilter("Tutte");
-    if (progettoFilter !== "Tutti" && !progettoOptions.includes(progettoFilter)) setProgettoFilter("Tutti");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetFilter, clientFilter, attivitaOptions, progettoOptions]);
-
-  const filteredRows = useMemo(() => {
-    let rows = rowsWithParts as any[];
-
-    if (sheetFilter !== "Tutte") rows = rows.filter((r) => r.sheet === sheetFilter);
-    if (clientFilter !== "all") rows = rows.filter((r) => r.clienteKey === clientFilter);
-
-    if (attivitaFilter !== "Tutte") rows = rows.filter((r) => r.attivita === attivitaFilter);
-    if (progettoFilter !== "Tutti") rows = rows.filter((r) => r.progetto === progettoFilter);
+    if (omit !== "tag" && tagFilter !== "Tutti") {
+      rows = rows.filter((r) => r.attivita_json?.includes(tagFilter));
+    }
 
     const s = search.trim().toLowerCase();
+
     if (s) {
+      rows = rows.filter((r) =>
+        `${r.cliente} ${r.risorsa} ${r.tipo_attivita} ${r.attivita} ${r.attivita_json?.join(
+          " "
+        )} ${r.titolo}`
+          .toLowerCase()
+          .includes(s)
+      );
+    }
+
+    if (period !== "all") {
+      const now = new Date();
+      const start = new Date();
+
+      if (period === "thisYear") start.setMonth(0, 1);
+      if (period === "last12") start.setMonth(start.getMonth() - 12);
+      if (period === "last90") start.setDate(start.getDate() - 90);
+      if (period === "last30") start.setDate(start.getDate() - 30);
+
       rows = rows.filter((r) => {
-        const hay = `${r.cliente} ${r.attivita} ${r.progetto} ${r.titolo} ${r.idEvento}`.toLowerCase();
-        return hay.includes(s);
+        const d = parseDate(r.data_inizio);
+        if (!d) return true;
+        return d >= start && d <= now;
       });
     }
 
-    const useRange = Boolean(dateRange.from || dateRange.to);
-    rows = dateMode === "range" ? clampDateRange(rows, dateRange) : clampPeriod(rows, period);
+    return rows;
+  }
 
-    rows.sort((a, b) => {
-      const da = parseEventDate(a.dataInizio)?.getTime() ?? 0;
-      const db = parseEventDate(b.dataInizio)?.getTime() ?? 0;
-      if (da !== db) return db - da;
-      return String(b.oraInizio).localeCompare(String(a.oraInizio));
+  const filteredRows = useMemo(() => {
+    return applyFilters(allRows);
+  }, [
+    allRows,
+    risorsaFilter,
+    clienteFilter,
+    tipoFilter,
+    tagFilter,
+    search,
+    period,
+  ]);
+
+  const risorse = useMemo(() => {
+    return Array.from(
+      new Set(
+        applyFilters(allRows, "risorsa")
+          .map((r) => r.risorsa)
+          .filter(Boolean) as string[]
+      )
+    ).sort();
+  }, [allRows, clienteFilter, tipoFilter, tagFilter, search, period]);
+
+  const clienti = useMemo(() => {
+    return Array.from(
+      new Set(
+        applyFilters(allRows, "cliente")
+          .map((r) => r.cliente)
+          .filter(Boolean) as string[]
+      )
+    ).sort();
+  }, [allRows, risorsaFilter, tipoFilter, tagFilter, search, period]);
+
+  const tipi = useMemo(() => {
+    return Array.from(
+      new Set(
+        applyFilters(allRows, "tipo")
+          .map((r) => r.tipo_attivita)
+          .filter(Boolean) as string[]
+      )
+    ).sort();
+  }, [allRows, risorsaFilter, clienteFilter, tagFilter, search, period]);
+
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+
+    applyFilters(allRows, "tag").forEach((row) => {
+      row.attivita_json?.forEach((tag) => {
+        if (tag) set.add(tag);
+      });
     });
 
-    return rows;
-  }, [rowsWithParts, sheetFilter, clientFilter, attivitaFilter, progettoFilter, search, period, dateRange, dateMode]);
+    return Array.from(set).sort();
+  }, [allRows, risorsaFilter, clienteFilter, tipoFilter, search, period]);
 
-  const selectedClientName = useMemo(() => {
-    if (clientFilter === "all") return "Tutti";
-    return validClients.find((c) => c.key === clientFilter)?.label ?? "Tutti";
-  }, [clientFilter, validClients]);
+  useEffect(() => {
+    if (risorsaFilter !== "Tutte" && !risorse.includes(risorsaFilter)) {
+      setRisorsaFilter("Tutte");
+    }
+
+    if (clienteFilter !== "Tutti" && !clienti.includes(clienteFilter)) {
+      setClienteFilter("Tutti");
+    }
+
+    if (tipoFilter !== "Tutte" && !tipi.includes(tipoFilter)) {
+      setTipoFilter("Tutte");
+    }
+
+    if (tagFilter !== "Tutti" && !tags.includes(tagFilter)) {
+      setTagFilter("Tutti");
+    }
+  }, [
+    risorse,
+    clienti,
+    tipi,
+    tags,
+    risorsaFilter,
+    clienteFilter,
+    tipoFilter,
+    tagFilter,
+  ]);
 
   const kpis = useMemo(() => {
-    const totalHours = filteredRows.reduce((sum, r: any) => sum + (r.durataOre || 0), 0);
-    const totalMin = filteredRows.reduce((sum, r: any) => sum + (r.durataMinuti || 0), 0);
-    const events = filteredRows.length;
-    const avgMin = events ? totalMin / events : 0;
-
-    const dates = filteredRows.map((r: any) => parseEventDate(r.dataInizio)).filter(Boolean) as Date[];
-
-    const first = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
-    const last = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
-
-    const uniqueClients = new Set(filteredRows.map((r: any) => r.clienteKey)).size;
-
-    return { totalHours, events, avgMin, first, last, uniqueClients };
-  }, [filteredRows]);
-
-  const monthly = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of filteredRows as any[]) {
-      const d = parseEventDate(r.dataInizio);
-      if (!d) continue;
-      const key = monthKey(d);
-      map.set(key, (map.get(key) ?? 0) + (r.durataOre || 0));
-    }
-    const items = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    return items.map(([k, v]) => ({ month: k, hours: v }));
-  }, [filteredRows]);
-
-  const bySheet = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of filteredRows as any[]) {
-      map.set(r.sheet, (map.get(r.sheet) ?? 0) + (r.durataOre || 0));
-    }
-    return Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([sheet, hours]) => ({ sheet, hours }));
-  }, [filteredRows]);
-
-  const byClient = useMemo(() => {
-    const map = new Map<string, { label: string; hours: number; events: number }>();
-    for (const r of filteredRows as any[]) {
-      const key = String(r.clienteKey || "");
-      const label = String(r.cliente || "Senza cliente");
-      const cur = map.get(key) ?? { label, hours: 0, events: 0 };
-      cur.hours += Number(r.durataOre || 0);
-      cur.events += 1;
-      map.set(key, cur);
-    }
-    return Array.from(map.entries())
-      .map(([clienteKey, v]) => ({ clienteKey, cliente: v.label, hours: v.hours, events: v.events }))
-      .sort((a, b) => b.hours - a.hours);
-  }, [filteredRows]);
-
-  // NEW: ore per attività
-  const byAttivita = useMemo(() => {
-    return groupByKey(
-      filteredRows as any[],
-      (r) => String(r.attivita || ""),
-      (r) => String(r.attivita || "")
+    const ore = filteredRows.reduce(
+      (sum, r) => sum + Number(r.durata_ore || 0),
+      0
     );
+
+    return {
+      ore,
+      eventi: filteredRows.length,
+      clienti: new Set(filteredRows.map((r) => r.cliente).filter(Boolean)).size,
+      risorse: new Set(filteredRows.map((r) => r.risorsa).filter(Boolean)).size,
+    };
   }, [filteredRows]);
 
-
-  // NEW: Risorsa x Cliente
-const risorsaXCliente = useMemo(() => {
-  const { map, rowTotals, colTotals } = matrixHours(
-    filteredRows as any[],
-    (r) => String(r.sheet || ""),   // riga = risorsa
-    (r) => String(r.cliente || "")  // colonna = cliente
+  const previewData = useMemo(
+    () => buildChartData(filteredRows, chartDimension, chartMetric),
+    [filteredRows, chartDimension, chartMetric]
   );
 
-  const topRisorse = Array.from(rowTotals.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([k]) => k);
+  async function saveChart() {
+    setSaving(true);
 
-  const topClienti = Array.from(colTotals.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([k]) => k);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  return { map, topRisorse, topClienti };
-}, [filteredRows]);
+    if (!user) {
+      alert("Devi essere autenticato.");
+      setSaving(false);
+      return;
+    }
 
-  // NEW: ore per progetto
-  const byProgetto = useMemo(() => {
-    return groupByKey(
-      filteredRows as any[],
-      (r) => String(r.progetto || "").trim(),
-      (r) => String(r.progetto || "").trim()
-    ).filter((x) => x.key.length > 0);
-  }, [filteredRows]);
+    const nextPosition =
+      savedCharts.length > 0
+        ? Math.max(...savedCharts.map((c) => Number(c.position || 0))) + 1
+        : 1;
 
-  // NEW: Cliente x Attività (Top 10 x Top 10)
-  const clientXAttivita = useMemo(() => {
-    const { map, rowTotals, colTotals } = matrixHours(
-      filteredRows as any[],
-      (r) => String(r.cliente || ""),
-      (r) => String(r.attivita || "")
+    const { error } = await supabase.from("report_charts").insert({
+      user_id: user.id,
+      title: chartTitle.trim() || "Grafico senza titolo",
+      chart_type: chartType,
+      dimension: chartDimension,
+      metric: chartMetric,
+      col_span: chartColSpan,
+      position: nextPosition,
+    });
+
+    setSaving(false);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setChartTitle("Nuovo grafico");
+    setChartType("bar");
+    setChartColSpan(1);
+    await loadCharts();
+  }
+
+  async function deleteChart(id: string) {
+    if (!confirm("Eliminare questo grafico?")) return;
+
+    const { error } = await supabase.from("report_charts").delete().eq("id", id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadCharts();
+  }
+
+  async function updateChartSize(chart: SavedChart, colSpan: number) {
+    setSavedCharts((prev) =>
+      prev.map((c) => (c.id === chart.id ? { ...c, col_span: colSpan } : c))
     );
 
-    const topClients = Array.from(rowTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([k]) => k);
+    const { error } = await supabase
+      .from("report_charts")
+      .update({ col_span: colSpan })
+      .eq("id", chart.id);
 
-    const topActs = Array.from(colTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([k]) => k);
+    if (error) {
+      alert(error.message);
+      await loadCharts();
+    }
+  }
 
-    return { map, topClients, topActs };
-  }, [filteredRows]);
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
 
-  // NEW: Cliente x Progetto (Top 10 x Top 10)
-  const clientXProgetto = useMemo(() => {
-    const { map, rowTotals, colTotals } = matrixHours(
-      filteredRows as any[],
-      (r) => String(r.cliente || ""),
-      (r) => String(r.progetto || "").trim()
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = savedCharts.findIndex((c) => c.id === active.id);
+    const newIndex = savedCharts.findIndex((c) => c.id === over.id);
+
+    const reordered = arrayMove(savedCharts, oldIndex, newIndex).map(
+      (chart, index) => ({
+        ...chart,
+        position: index + 1,
+      })
     );
 
-    const topClients = Array.from(rowTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([k]) => k);
+    setSavedCharts(reordered);
 
-    const topProjects = Array.from(colTotals.entries())
-      .filter(([k]) => k && k.trim().length > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([k]) => k);
-
-    return { map, topClients, topProjects };
-  }, [filteredRows]);
-
-  const renderBars = (items: { label: string; value: number }[], valueFormatter?: (n: number) => string) => {
-    const max = Math.max(1, ...items.map((i) => i.value));
-    return (
-      <div style={{ display: "grid", gap: 8 }}>
-        {items.map((i) => {
-          const pct = Math.round((i.value / max) * 100);
-          return (
-            <div
-              key={i.label}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "240px 1fr 80px",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "#333",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={i.label}
-              >
-                {i.label}
-              </div>
-              <div style={{ background: UI.card, borderRadius: 999, height: 10, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${UI.bar}, ${UI.barSoft})` }} />
-              </div>
-              <div style={{ fontSize: 12, color: UI.text, textAlign: "right" }}>
-                {valueFormatter ? valueFormatter(i.value) : i.value}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+    const results = await Promise.all(
+      reordered.map((chart) =>
+        supabase
+          .from("report_charts")
+          .update({ position: chart.position })
+          .eq("id", chart.id)
+      )
     );
-  };
 
-  const renderMatrix = (
-  title: string,
-  rowsKeys: string[],
-  colsKeys: string[],
-  getVal: (rk: string, ck: string) => number
-) => {
-  const max = Math.max(1, ...rowsKeys.flatMap((rk) => colsKeys.map((ck) => getVal(rk, ck))));
+    const hasError = results.find((r) => r.error);
 
-  return (
-    <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{title}</div>
+    if (hasError?.error) {
+      alert(hasError.error.message);
+      await loadCharts();
+    }
+  }
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "4px" }}>
-          <thead>
-            <tr>
-              <th
-                style={{
-                  position: "sticky",
-                  left: 0,
-                  background: "#fff",
-                  borderBottom: "1px solid #eee",
-                  padding: "10px 8px",
-                  fontSize: 12,
-                  zIndex: 10,
-                }}
-              >
-                Risorsa
-              </th>
-              {colsKeys.map((c) => (
-                <th
-                  key={c}
-                  style={{
-                    borderBottom: "1px solid #eee",
-                    padding: "10px 8px",
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
-                    textAlign: "right"
-                  }}
-                  title={c}
-                >
-                  {c}
-                </th>
+  function renderChart(
+    data: { label: string; value: number }[],
+    type: ChartType,
+    metric: string
+  ) {
+    if (data.length === 0) {
+      return (
+        <div style={{ fontSize: 12, color: UI.subtext }}>
+          Nessun dato disponibile.
+        </div>
+      );
+    }
+
+    const formatter = metricFormatter(metric);
+
+    if (type === "line") {
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v) => formatter(Number(v))} />
+            <Line dataKey="value" stroke={UI.primary} strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    if (type === "pie") {
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="label" label>
+              {data.map((_, index) => (
+                <Cell
+                  key={index}
+                  fill={PIE_COLORS[index % PIE_COLORS.length]}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rowsKeys.map((rk) => (
-              <tr key={rk}>
-                <td
-                  style={{
-                    position: "sticky",
-                    left: 0,
-                    background: "#fff",
-                    borderBottom: "1px solid #f1f1f1",
-                    padding: "10px 8px",
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
-                    fontWeight: 700,
-                    zIndex: 5,
-                  }}
-                  title={rk}
-                >
-                  {rk}
-                </td>
+            </Pie>
+            <Tooltip formatter={(v) => formatter(Number(v))} />
+          </PieChart>
+        </ResponsiveContainer>
+      );
+    }
 
-                {colsKeys.map((ck) => {
-                  const v = getVal(rk, ck);
-                  const intensity = max > 0 ? v / max : 0;
+    if (type === "horizontal_bar") {
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={data} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis type="number" tick={{ fontSize: 11 }} />
+            <YAxis
+              type="category"
+              dataKey="label"
+              tick={{ fontSize: 11 }}
+              width={120}
+            />
+            <Tooltip formatter={(v) => formatter(Number(v))} />
+            <Bar dataKey="value" fill={UI.primary} radius={[0, 8, 8, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
 
-                  return (
-                    <td key={`${rk}-${ck}`} style={{ padding: 2 }}>
-                      <div
-                        style={{
-                          background: v > 0 
-                            ? `rgba(37, 99, 235, ${0.15 + intensity * 0.75})` 
-                            : "transparent",
-                          borderRadius: 6,
-                          padding: "6px 8px",
-                          textAlign: "right",
-                          fontWeight: 600,
-                          fontSize: 12,
-                          color: intensity > 0.6 ? "white" : "#111",
-                          transition: "all 0.2s ease",
-                          minWidth: "60px"
-                        }}
-                      >
-                        {v > 0 ? `${formatHours(v)} h` : "—"}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
-        Matrice ore: intensità basata sul massimo valore rilevato.
-      </div>
-    </div>
-  );
-};
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} />
+          <Tooltip formatter={(v) => formatter(Number(v))} />
+          <Bar dataKey="value" fill={UI.primary} radius={[8, 8, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: UI.bg, color: UI.text }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 5, background: "#fff", borderBottom: "1px solid #e9e9e9" }}>
-        <div style={{ margin: "0 auto", padding: "20px 20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>Report clienti</div>
-              <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>Fonte: Google Sheet → tab {SHEETS.join(", ")}</div>
-            </div>
+      <div style={headerStyle}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Report clienti</div>
+          <div style={{ fontSize: 12, color: UI.subtext, marginTop: 4 }}>
+            Dashboard personalizzabile su 4 colonne
+          </div>
+        </div>
 
-            {/* FILTRI */}
-<div
-  style={{
-    display: "flex",
-    gap: 10,
-    flexWrap: "wrap",
-    alignItems: "end",
-    padding: 12,
-    border: "1px solid #eee",
-    borderRadius: 16,
-    background: "#fff",
-    boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
-  }}
->
-  {/* helper per stile input */}
-  {/*
-    NB: uso inline style per restare coerente col tuo file.
-  */}
-  {/* Risorsa */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 160 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Risorsa (tab)</label>
-    <select
-      value={sheetFilter}
-      onChange={(e) => setSheetFilter(e.target.value as any)}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        fontSize: 12,
-        outline: "none",
-      }}
-    >
-      <option value="Tutte">Tutte</option>
-      {SHEETS.map((s) => (
-        <option key={s} value={s}>
-          {s}
-        </option>
-      ))}
-    </select>
-  </div>
+        <div style={filtersStyle}>
+          <FilterSelect
+            label="Risorsa"
+            value={risorsaFilter}
+            onChange={setRisorsaFilter}
+            options={["Tutte", ...risorse]}
+          />
 
-  {/* Cliente */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Cliente</label>
-    <select
-      value={clientFilter}
-      onChange={(e) => setClientFilter(e.target.value)}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        fontSize: 12,
-        outline: "none",
-      }}
-    >
-      <option value="all">Tutti</option>
-      {clients.map((c) => (
-        <option key={c.key} value={c.key}>
-          {c.label}
-        </option>
-      ))}
-    </select>
-  </div>
-  
-      
-  {/* Tipo attività */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Tipo attività</label>
-    <select
-      value={attivitaFilter}
-      onChange={(e) => setAttivitaFilter(e.target.value)}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        fontSize: 12,
-        outline: "none",
-      }}
-    >
-      <option value="Tutte">Tutte</option>
-      {attivitaOptions.map((t) => (
-        <option key={t} value={t}>
-          {t}
-        </option>
-      ))}
-    </select>
-  </div>
+          <FilterSelect
+            label="Cliente"
+            value={clienteFilter}
+            onChange={setClienteFilter}
+            options={["Tutti", ...clienti]}
+          />
 
-  {/* Progetto */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 200 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Progetto</label>
-    <select
-      value={progettoFilter}
-      onChange={(e) => setProgettoFilter(e.target.value)}
-      disabled={progettoOptions.length === 0}
-      title={progettoOptions.length === 0 ? "Nessun progetto disponibile per i filtri attuali" : ""}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: progettoOptions.length === 0 ? "#fafafa" : "#fff",
-        fontSize: 12,
-        outline: "none",
-        color: progettoOptions.length === 0 ? "#999" : "#111",
-      }}
-    >
-      <option value="Tutti">Tutti</option>
-      {progettoOptions.map((p) => (
-        <option key={p} value={p}>
-          {p}
-        </option>
-      ))}
-    </select>
-  </div>
+          <FilterSelect
+            label="Tipo attività"
+            value={tipoFilter}
+            onChange={setTipoFilter}
+            options={["Tutte", ...tipi]}
+          />
 
-  {/* Cerca */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Cerca</label>
-    <input
-      value={search}
-      onChange={(e) => setSearch(e.target.value)}
-      placeholder="es. Esselunga, 2FTE, Clarity..."
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        fontSize: 12,
-        outline: "none",
-      }}
-    />
-  </div>
+          <FilterSelect
+            label="TAG"
+            value={tagFilter}
+            onChange={setTagFilter}
+            options={["Tutti", ...tags]}
+          />
 
-  {/* Modalità data */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 160 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Modalità data</label>
-    <select
-      value={dateMode}
-      onChange={(e) => {
-        const mode = e.target.value as "period" | "range";
-        setDateMode(mode);
+          <FilterSelect
+            label="Periodo"
+            value={period}
+            onChange={(v) => setPeriod(v as Period)}
+            options={["all", "thisYear", "last12", "last90", "last30"]}
+            labels={{
+              all: "Tutto",
+              thisYear: "Anno corrente",
+              last12: "Ultimi 12 mesi",
+              last90: "Ultimi 90 giorni",
+              last30: "Ultimi 30 giorni",
+            }}
+          />
 
-        // pulizia automatica dell'altra modalità
-        if (mode === "period") setDateRange({ from: "", to: "" });
-        if (mode === "range") setPeriod("all");
-      }}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        fontSize: 12,
-        outline: "none",
-      }}
-    >
-      <option value="period">Periodo</option>
-      <option value="range">Intervallo date</option>
-    </select>
-  </div>
-
-  {/* Date range (attivo solo se dateMode === "range") */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 150 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Da</label>
-    <input
-      type="date"
-      value={dateRange.from}
-      onChange={(e) => setDateRange((p) => ({ ...p, from: e.target.value }))}
-      disabled={dateMode !== "range"}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: dateMode !== "range" ? "#fafafa" : "#fff",
-        fontSize: 12,
-        outline: "none",
-        color: dateMode !== "range" ? "#999" : "#111",
-      }}
-    />
-  </div>
-
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 150 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>A</label>
-    <input
-      type="date"
-      value={dateRange.to}
-      onChange={(e) => setDateRange((p) => ({ ...p, to: e.target.value }))}
-      disabled={dateMode !== "range"}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: dateMode !== "range" ? "#fafafa" : "#fff",
-        fontSize: 12,
-        outline: "none",
-        color: dateMode !== "range" ? "#999" : "#111",
-      }}
-    />
-  </div>
-
-  {/* Periodo (attivo solo se dateMode === "period") */}
-  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 170 }}>
-    <label style={{ fontSize: 11, color: "#555" }}>Periodo</label>
-    <select
-      value={period}
-      onChange={(e) => setPeriod(e.target.value as Period)}
-      disabled={dateMode !== "period"}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: dateMode !== "period" ? "#fafafa" : "#fff",
-        fontSize: 12,
-        outline: "none",
-        color: dateMode !== "period" ? "#999" : "#111",
-      }}
-    >
-      <option value="all">Tutto</option>
-      <option value="thisYear">Anno corrente</option>
-      <option value="last12">Ultimi 12 mesi</option>
-      <option value="last90">Ultimi 90 giorni</option>
-      <option value="last30">Ultimi 30 giorni</option>
-    </select>
-  </div>
-
-  {/* Pulsanti */}
-  <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
-    <button
-      onClick={() => {
-        setSearch("");
-        setSheetFilter("Tutte");
-        setClientFilter("all");
-        setAttivitaFilter("Tutte");
-        setProgettoFilter("Tutti");
-        setDateRange({ from: "", to: "" });
-        setPeriod("all");
-        setDateMode("period");
-      }}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#fff",
-        cursor: "pointer",
-        fontSize: 12,
-      }}
-      disabled={loading}
-      title="Reset filtri"
-    >
-      Reset
-    </button>
-
-    <button
-      onClick={() => void load()}
-      style={{
-        padding: "8px 10px",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        background: "#111",
-        color: "#fff",
-        cursor: "pointer",
-        fontSize: 12,
-      }}
-      disabled={loading}
-    >
-      {loading ? "Caricamento..." : "Ricarica"}
-    </button>
-  </div>
-</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={labelStyle}>Cerca</label>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="es. Esselunga, 2FTE..."
+              style={inputStyle}
+            />
           </div>
 
-          <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
-            {error ? (
-              <span style={{ color: "#b00020" }}>
-                {error} — verifica permessi del foglio (pubblico in lettura) e che i nomi tab siano corretti.
-              </span>
-            ) : (
-              <span>
-                Righe caricate: <b>{allRows.length}</b> · Righe valide (cliente match): <b>{rowsWithParts.length}</b> · Righe filtrate:{" "}
-                <b>{filteredRows.length}</b> · Cliente: <b>{selectedClientName}</b>
-              </span>
-            )}
-          </div>
+          <button
+            style={buttonStyle}
+            onClick={() => {
+              setRisorsaFilter("Tutte");
+              setClienteFilter("Tutti");
+              setTipoFilter("Tutte");
+              setTagFilter("Tutti");
+              setPeriod("all");
+              setSearch("");
+            }}
+          >
+            Reset
+          </button>
+
+          <button
+            style={{ ...buttonStyle, background: "#111", color: "#fff" }}
+            onClick={() => void loadData()}
+          >
+            {loading ? "Caricamento..." : "Ricarica"}
+          </button>
         </div>
       </div>
 
-      <div style={{ margin: "0 auto", padding: 14, display: "grid", gap: 12 }}>
-        {/* KPI */}
-        <div style={{ background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>KPIs</div>
+      <main style={{ padding: 14, display: "grid", gap: 14 }}>
+        <div style={kpiGridStyle}>
+          <KPI label="Ore totali" value={`${formatHours(kpis.ore)} h`} />
+          <KPI label="Eventi" value={String(kpis.eventi)} />
+          <KPI label="Clienti" value={String(kpis.clienti)} />
+          <KPI label="Risorse" value={String(kpis.risorse)} />
+        </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 10 }}>
-            <KPI label="Ore totali" value={formatHours(kpis.totalHours)} />
-            <KPI label="# Eventi" value={String(kpis.events)} />
-            <KPI label="Media (min)" value={String(Math.round(kpis.avgMin))} />
-            <KPI label="Clienti unici" value={String(kpis.uniqueClients)} />
-            <KPI label="Primo evento" value={kpis.first ? isoDayKey(kpis.first) : "—"} />
-            <KPI label="Ultimo evento" value={kpis.last ? isoDayKey(kpis.last) : "—"} />
+        <section style={cardStyle}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
+            Crea grafico
+          </div>
+
+          <div style={builderStyle}>
+            <TextInput
+              label="Titolo"
+              value={chartTitle}
+              onChange={setChartTitle}
+            />
+
+            <FilterSelect
+              label="Tipo grafico"
+              value={chartType}
+              onChange={(v) => setChartType(v as ChartType)}
+              options={CHART_TYPES.map((c) => c.value)}
+              labels={Object.fromEntries(
+                CHART_TYPES.map((c) => [c.value, c.label])
+              )}
+            />
+
+            <FilterSelect
+              label="Dimensione"
+              value={chartDimension}
+              onChange={setChartDimension}
+              options={DIMENSIONS.map((d) => d.value)}
+              labels={Object.fromEntries(
+                DIMENSIONS.map((d) => [d.value, d.label])
+              )}
+            />
+
+            <FilterSelect
+              label="Metrica"
+              value={chartMetric}
+              onChange={setChartMetric}
+              options={METRICS.map((m) => m.value)}
+              labels={Object.fromEntries(METRICS.map((m) => [m.value, m.label]))}
+            />
+
+            <FilterSelect
+              label="Larghezza"
+              value={String(chartColSpan)}
+              onChange={(v) => setChartColSpan(Number(v))}
+              options={COL_SPANS.map((c) => String(c.value))}
+              labels={Object.fromEntries(
+                COL_SPANS.map((c) => [String(c.value), c.label])
+              )}
+            />
+
+            <button
+              style={{ ...buttonStyle, background: UI.primary, color: "#fff" }}
+              onClick={() => void saveChart()}
+              disabled={saving}
+            >
+              {saving ? "Salvataggio..." : "Salva grafico"}
+            </button>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            {renderChart(previewData, chartType, chartMetric)}
+          </div>
+        </section>
+
+        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext
+            items={savedCharts.map((chart) => chart.id)}
+            strategy={rectSortingStrategy}
+          >
+            <section style={dashboardGridStyle}>
+              {savedCharts.map((chart) => {
+                const data = buildChartData(
+                  filteredRows,
+                  chart.dimension,
+                  chart.metric
+                );
+
+                return (
+                  <SortableChartCard
+                    key={chart.id}
+                    chart={chart}
+                    onDelete={deleteChart}
+                    onResize={updateChartSize}
+                  >
+                    {renderChart(data, chart.chart_type, chart.metric)}
+                  </SortableChartCard>
+                );
+              })}
+            </section>
+          </SortableContext>
+        </DndContext>
+      </main>
+    </div>
+  );
+}
+
+function SortableChartCard({
+  chart,
+  children,
+  onDelete,
+  onResize,
+}: {
+  chart: SavedChart;
+  children: React.ReactNode;
+  onDelete: (id: string) => void;
+  onResize: (chart: SavedChart, colSpan: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: chart.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        ...cardStyle,
+        gridColumn: `span ${chart.col_span || 1}`,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : 1,
+      }}
+    >
+      <div style={chartHeaderStyle}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{chart.title}</div>
+          <div style={{ fontSize: 12, color: UI.subtext }}>
+            {chart.chart_type} · {chart.dimension} · {chart.metric}
           </div>
         </div>
 
-        {/* Charts */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gap: 12 }}>
-          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per mese</div>
-            {monthly.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666" }}>Nessun dato nel periodo selezionato.</div>
-            ) : (
-              renderBars(
-                monthly.map((m) => ({ label: m.month, value: m.hours })),
-                (n) => `${formatHours(n)} h`
-              )
-            )}
-          </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select
+            value={chart.col_span || 1}
+            onChange={(e) => onResize(chart, Number(e.target.value))}
+            style={smallSelectStyle}
+          >
+            <option value={1}>1/4</option>
+            <option value={2}>2/4</option>
+            <option value={3}>3/4</option>
+            <option value={4}>4/4</option>
+          </select>
 
-          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per risorsa (tab)</div>
-            {bySheet.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666" }}>Nessun dato nel periodo selezionato.</div>
-            ) : (
-              renderBars(
-                bySheet.map((s) => ({ label: s.sheet, value: s.hours })),
-                (n) => `${formatHours(n)} h`
-              )
-            )}
-          </div>
+          <button style={dragButtonStyle} {...attributes} {...listeners}>
+            ↕ Drag
+          </button>
 
-          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per cliente (Top 20)</div>
-            {byClient.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666" }}>Nessun dato nel periodo selezionato.</div>
-            ) : (
-              renderBars(
-                byClient.slice(0, 20).map((c) => ({
-                  label: `${c.cliente} (${c.events})`,
-                  value: c.hours,
-                })),
-                (n) => `${formatHours(n)} h`
-              )
-            )}
-            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
-          </div>
-          
-
-          {/* NEW: Ore per attività */}
-          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per tipo attività (Top 20)</div>
-            {byAttivita.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666" }}>Nessun dato nel periodo selezionato.</div>
-            ) : (
-              renderBars(
-                topN(byAttivita, 20).map((a) => ({ label: `${a.label} (${a.events})`, value: a.hours })),
-                (n) => `${formatHours(n)} h`
-              )
-            )}
-          </div>
-
-          {/* NEW: Ore per progetto */}
-          <div style={{ gridColumn: "span 12", background: "#fff", border: "1px solid #e9e9e9", borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ore per progetto (Top 20)</div>
-            {byProgetto.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#666" }}>Nessun progetto nel periodo selezionato.</div>
-            ) : (
-              renderBars(
-                topN(byProgetto, 20).map((p) => ({ label: `${p.label} (${p.events})`, value: p.hours })),
-                (n) => `${formatHours(n)} h`
-              )
-            )}
-            <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>Tra parentesi: numero eventi.</div>
-          </div>
-
-
-            
-
-
-
-
-
-          <div style={{ gridColumn: "span 12" }}>
-            {renderMatrix(
-              "Risorsa × Cliente (ore)",
-              risorsaXCliente.topRisorse,
-              risorsaXCliente.topClienti,
-              (rk, ck) => risorsaXCliente.map.get(rk)?.get(ck) ?? 0
-            )}
-          </div>
-          {/* NEW: Matrici */}
-          <div style={{ gridColumn: "span 12" }}>
-            {renderMatrix(
-              "Cliente × Attività (ore)",
-              clientXAttivita.topClients,
-              clientXAttivita.topActs,
-              (rk, ck) => clientXAttivita.map.get(rk)?.get(ck) ?? 0
-            )}
-          </div>
-
-          <div style={{ gridColumn: "span 12" }}>
-            {renderMatrix(
-              "Cliente × Progetto (ore)",
-              clientXProgetto.topClients,
-              clientXProgetto.topProjects,
-              (rk, ck) => clientXProgetto.map.get(rk)?.get(ck) ?? 0
-            )}
-          </div>
+          <button
+            style={{ ...buttonStyle, color: UI.danger }}
+            onClick={() => onDelete(chart.id)}
+          >
+            Elimina
+          </button>
         </div>
-
-        
       </div>
+
+      {children}
     </div>
   );
 }
 
 function KPI({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      style={{
-        border: `1px solid ${UI.border}`,
-        borderRadius: 16,
-        padding: 14,
-        background: UI.card,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 800,
-          fontSize: 20,
-          color: UI.primary
-        }}
-      >
+    <div style={cardStyle}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: UI.primary }}>
         {value}
       </div>
-
-      <div
-        style={{
-          fontSize: 12,
-          color: UI.subtext,
-          fontWeight: 600
-        }}
-      >
-        {label}
-      </div>
+      <div style={{ fontSize: 12, color: UI.subtext }}>{label}</div>
     </div>
   );
 }
 
-function Td({ children }: { children: React.ReactNode }) {
+function TextInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <td
-      style={{
-        borderBottom: "1px solid #f1f1f1",
-        padding: "10px 8px",
-        fontSize: 12,
-        color: "#222",
-        verticalAlign: "top",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </td>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      />
+    </div>
   );
 }
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  labels = {},
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  labels?: Record<string, string>;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {labels[option] || option}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const headerStyle: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  zIndex: 10,
+  background: "#fff",
+  borderBottom: "1px solid #e9e9e9",
+  padding: 20,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 14,
+  flexWrap: "wrap",
+  alignItems: "end",
+};
+
+const filtersStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "end",
+  padding: 12,
+  border: "1px solid #eee",
+  borderRadius: 16,
+  background: "#fff",
+};
+
+const builderStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 10,
+  alignItems: "end",
+};
+
+const dashboardGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 14,
+  alignItems: "start",
+};
+
+const kpiGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 14,
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "#fff",
+  border: "1px solid #e9e9e9",
+  borderRadius: 16,
+  padding: 14,
+};
+
+const chartHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 12,
+};
+
+const inputStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  border: "1px solid #e5e5e5",
+  borderRadius: 12,
+  background: "#fff",
+  fontSize: 12,
+  outline: "none",
+};
+
+const smallSelectStyle: React.CSSProperties = {
+  ...inputStyle,
+  padding: "6px 8px",
+};
+
+const buttonStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  border: "1px solid #e5e5e5",
+  borderRadius: 12,
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: 12,
+};
+
+const dragButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  cursor: "grab",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#555",
+};
