@@ -61,6 +61,10 @@ function extractSearchText(message: string) {
     .replace(/documenti/gi, "")
     .replace(/persona/gi, "")
     .replace(/persone/gi, "")
+    .replace(/utente/gi, "")
+    .replace(/utenti/gi, "")
+    .replace(/profilo/gi, "")
+    .replace(/profili/gi, "")
     .replace(/dipendente/gi, "")
     .replace(/dipendenti/gi, "")
     .replace(/attività/gi, "")
@@ -119,17 +123,23 @@ function getIntent(message: string) {
   const asksPeople =
     text.includes("persona") ||
     text.includes("persone") ||
+    text.includes("utente") ||
+    text.includes("utenti") ||
     text.includes("profilo") ||
     text.includes("profili") ||
     text.includes("dipendente") ||
     text.includes("dipendenti") ||
-    text.includes("assegnatario") ||
-    text.includes("assegnatari") ||
-    text.includes("assignee") ||
     text.includes("tecnico") ||
     text.includes("tecnici") ||
-    text.includes("hr_admin") ||
-    text.includes("ruolo");
+    text.includes("assegnatario") ||
+    text.includes("assignee") ||
+    text.includes("ruolo") ||
+    text.includes("accesso") ||
+    text.includes("login") ||
+    text.includes("loggato") ||
+    text.includes("chi sono") ||
+    text.includes("mio id") ||
+    text.includes("id utente");
 
   const asksMail =
     text.includes("mail") ||
@@ -354,7 +364,7 @@ function threadMatchesSearch(thread: any, intent: any) {
 }
 
 function findProfiloForTicket(ticket: any, profili: any[]) {
-  const possibleValues = [
+  const ticketValues = [
     ticket.assignee,
     ticket.assegnatario,
     ticket.owner,
@@ -366,11 +376,11 @@ function findProfiloForTicket(ticket: any, profili: any[]) {
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());
 
-  if (possibleValues.length === 0) return null;
+  if (ticketValues.length === 0) return null;
 
   return (
     profili.find((profilo: any) => {
-      const values = [
+      const profiloValues = [
         profilo.id,
         profilo.email,
         profilo.nome,
@@ -379,7 +389,9 @@ function findProfiloForTicket(ticket: any, profili: any[]) {
         .filter(Boolean)
         .map((value) => String(value).toLowerCase());
 
-      return possibleValues.some((ticketValue) => values.includes(ticketValue));
+      return ticketValues.some((ticketValue) =>
+        profiloValues.includes(ticketValue)
+      );
     }) || null
   );
 }
@@ -432,6 +444,14 @@ export async function POST(req: Request) {
       .order("created_at", { ascending: false })
       .limit(8);
 
+    const loggedUserProfilePromise = supabaseAdmin
+      .from("profili")
+      .select(
+        "id, nome_completo, nome, email, ruolo, creato_at, kanban_columns, all_ticket_settings_colonne, all_ticket_settings_sort, all_incident_settings_colonne, tickek_setting_colonne, ore_ticket, sidebar_position"
+      )
+      .eq("id", user.id)
+      .maybeSingle();
+
     const profiliPromise =
       intent.asksPeople || intent.asksTicket || intent.isGeneric
         ? supabaseAdmin
@@ -440,8 +460,16 @@ export async function POST(req: Request) {
               "id, nome_completo, nome, email, ruolo, creato_at, kanban_columns, all_ticket_settings_colonne, all_ticket_settings_sort, all_incident_settings_colonne, tickek_setting_colonne, ore_ticket, sidebar_position"
             )
             .order("creato_at", { ascending: false })
-            .limit(200)
-        : Promise.resolve({ data: [] });
+            .limit(300)
+        : Promise.resolve({ data: [], error: null });
+
+    const authUsersPromise =
+      intent.asksPeople || intent.isGeneric
+        ? supabaseAdmin.auth.admin.listUsers()
+        : Promise.resolve({
+            data: { users: [] },
+            error: null,
+          });
 
     const ticketsPromise =
       intent.asksTicket || intent.isGeneric || intent.asksMail
@@ -449,8 +477,8 @@ export async function POST(req: Request) {
             .from("ticket")
             .select("*")
             .order("creato_at", { ascending: false })
-            .limit(intent.isGeneric ? 50 : 300)
-        : Promise.resolve({ data: [] });
+            .limit(intent.isGeneric ? 80 : 300)
+        : Promise.resolve({ data: [], error: null });
 
     const clientiPromise =
       intent.asksClienti || intent.isGeneric || intent.asksMail || intent.asksTicket
@@ -458,8 +486,8 @@ export async function POST(req: Request) {
             .from("clienti")
             .select("*")
             .order("creato_at", { ascending: false })
-            .limit(intent.isGeneric ? 50 : 200)
-        : Promise.resolve({ data: [] });
+            .limit(intent.isGeneric ? 80 : 200)
+        : Promise.resolve({ data: [], error: null });
 
     const documentiPromise =
       intent.asksDocumenti || intent.isGeneric
@@ -467,8 +495,8 @@ export async function POST(req: Request) {
             .from("documenti_operativi")
             .select("*")
             .order("created_at", { ascending: false })
-            .limit(intent.isGeneric ? 30 : 120)
-        : Promise.resolve({ data: [] });
+            .limit(intent.isGeneric ? 50 : 120)
+        : Promise.resolve({ data: [], error: null });
 
     let mailThreadsQuery = supabaseAdmin
       .from("mail_threads")
@@ -508,12 +536,14 @@ export async function POST(req: Request) {
     const mailThreadsPromise =
       intent.asksMail || intent.isGeneric || intent.codes.length > 0
         ? mailThreadsQuery
-        : Promise.resolve({ data: [] });
+        : Promise.resolve({ data: [], error: null });
 
     const [
       insertUserMessageResult,
       oldMessagesResult,
+      loggedUserProfileResult,
       profiliResult,
+      authUsersResult,
       ticketsResult,
       clientiResult,
       documentiResult,
@@ -521,7 +551,9 @@ export async function POST(req: Request) {
     ] = await Promise.all([
       insertUserMessagePromise,
       oldMessagesPromise,
+      loggedUserProfilePromise,
       profiliPromise,
+      authUsersPromise,
       ticketsPromise,
       clientiPromise,
       documentiPromise,
@@ -529,18 +561,14 @@ export async function POST(req: Request) {
     ]);
 
     if (insertUserMessageResult.error) throw insertUserMessageResult.error;
-    if ("error" in oldMessagesResult && oldMessagesResult.error)
-      throw oldMessagesResult.error;
-    if ("error" in profiliResult && profiliResult.error)
-      throw profiliResult.error;
-    if ("error" in ticketsResult && ticketsResult.error)
-      throw ticketsResult.error;
-    if ("error" in clientiResult && clientiResult.error)
-      throw clientiResult.error;
-    if ("error" in documentiResult && documentiResult.error)
-      throw documentiResult.error;
-    if ("error" in mailThreadsResult && mailThreadsResult.error)
-      throw mailThreadsResult.error;
+    if (oldMessagesResult.error) throw oldMessagesResult.error;
+    if (loggedUserProfileResult.error) throw loggedUserProfileResult.error;
+    if (profiliResult.error) throw profiliResult.error;
+    if (authUsersResult.error) throw authUsersResult.error;
+    if (ticketsResult.error) throw ticketsResult.error;
+    if (clientiResult.error) throw clientiResult.error;
+    if (documentiResult.error) throw documentiResult.error;
+    if (mailThreadsResult.error) throw mailThreadsResult.error;
 
     const oldMessages = [...(oldMessagesResult.data ?? [])].reverse();
     const profili = profiliResult.data ?? [];
@@ -549,6 +577,68 @@ export async function POST(req: Request) {
     const documenti = documentiResult.data ?? [];
     const mailThreadsRaw = mailThreadsResult.data ?? [];
     const mailThreads = buildMailThreadContext(mailThreadsRaw);
+
+    const authUsers = (authUsersResult.data.users ?? []).map((authUser: any) => ({
+      id: authUser.id,
+      email: authUser.email,
+      phone: authUser.phone,
+      created_at: authUser.created_at,
+      updated_at: authUser.updated_at,
+      last_sign_in_at: authUser.last_sign_in_at,
+      confirmed_at: authUser.confirmed_at,
+      email_confirmed_at: authUser.email_confirmed_at,
+      invited_at: authUser.invited_at,
+      banned_until: authUser.banned_until,
+      role: authUser.role,
+      app_metadata: authUser.app_metadata,
+      user_metadata: authUser.user_metadata,
+    }));
+
+    const loggedUserAuth = authUsers.find((item: any) => item.id === user.id);
+
+    const loggedUser = {
+      id: user.id,
+      email: user.email ?? loggedUserAuth?.email ?? null,
+      aud: user.aud,
+      role: user.role,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      last_sign_in_at: loggedUserAuth?.last_sign_in_at ?? null,
+      profilo: loggedUserProfileResult.data ?? null,
+    };
+
+    const utentiCompleti = authUsers.map((authUser: any) => {
+      const profilo = profili.find((p: any) => p.id === authUser.id);
+
+      return {
+        id: authUser.id,
+        email: authUser.email,
+        created_at: authUser.created_at,
+        last_sign_in_at: authUser.last_sign_in_at,
+        confirmed_at: authUser.confirmed_at,
+        nome: profilo?.nome ?? null,
+        nome_completo: profilo?.nome_completo ?? null,
+        ruolo_profilo: profilo?.ruolo ?? null,
+        profilo,
+      };
+    });
+
+    if (
+      loggedUser.profilo &&
+      !utentiCompleti.some((item: any) => item.id === loggedUser.id)
+    ) {
+      utentiCompleti.push({
+        id: loggedUser.id,
+        email: loggedUser.email,
+        created_at: loggedUser.created_at,
+        last_sign_in_at: loggedUser.last_sign_in_at,
+        confirmed_at: null,
+        nome: loggedUser.profilo.nome,
+        nome_completo: loggedUser.profilo.nome_completo,
+        ruolo_profilo: loggedUser.profilo.ruolo,
+        profilo: loggedUser.profilo,
+      });
+    }
 
     const clientiMap = new Map(
       clienti.map((cliente: any) => [
@@ -575,19 +665,44 @@ export async function POST(req: Request) {
       };
     });
 
-    const attivitaPerPersona = profili.map((profilo: any) => {
+    const attivitaPerPersona = utentiCompleti.map((utente: any) => {
       const relatedTickets = ticketsWithRelations.filter((ticket: any) => {
-        const assigned = ticket.assegnatario_profilo;
-        return assigned?.id === profilo.id;
+        const values = [
+          ticket.assignee,
+          ticket.assegnatario,
+          ticket.owner,
+          ticket.user_id,
+          ticket.profilo_id,
+          ticket.tecnico_id,
+          ticket.responsabile_id,
+          ticket.assegnatario_profilo?.id,
+          ticket.assegnatario_profilo?.email,
+          ticket.assegnatario_profilo?.nome,
+          ticket.assegnatario_profilo?.nome_completo,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+
+        const userValues = [
+          utente.id,
+          utente.email,
+          utente.nome,
+          utente.nome_completo,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+
+        return values.some((value) => userValues.includes(value));
       });
 
       return {
-        profilo: {
-          id: profilo.id,
-          nome: profilo.nome,
-          nome_completo: profilo.nome_completo,
-          email: profilo.email,
-          ruolo: profilo.ruolo,
+        utente: {
+          id: utente.id,
+          email: utente.email,
+          nome: utente.nome,
+          nome_completo: utente.nome_completo,
+          ruolo: utente.ruolo_profilo,
+          last_sign_in_at: utente.last_sign_in_at,
         },
         totale_attivita: relatedTickets.length,
         attivita_aperte: relatedTickets.filter(
@@ -597,7 +712,7 @@ export async function POST(req: Request) {
         attivita_chiuse: relatedTickets.filter((ticket: any) =>
           String(ticket.stato || "").toLowerCase().includes("chius")
         ).length,
-        ticket: relatedTickets.slice(0, 50),
+        ticket: relatedTickets.slice(0, 80),
       };
     });
 
@@ -633,17 +748,41 @@ export async function POST(req: Request) {
         ? filteredMailThreads
         : mailThreadsWithTicket;
 
+    console.log("AI DEBUG", {
+      loggedUserId: loggedUser.id,
+      loggedUserEmail: loggedUser.email,
+      message,
+      searchText: intent.searchText,
+      codes: intent.codes,
+      profili: profili.length,
+      authUsers: authUsers.length,
+      utentiCompleti: utentiCompleti.length,
+      tickets: ticketsWithRelations.length,
+      rawRows: mailThreadsRaw.length,
+      groupedThreads: mailThreadsWithTicket.length,
+      filteredThreads: filteredMailThreads.length,
+      firstSubjects: mailThreadsWithTicket
+        .slice(0, 5)
+        .map((t: any) => t.subject),
+    });
+
     const context = {
+      loggedUser,
       intent,
       oldMessages,
+      authUsers,
       profili,
+      utentiCompleti,
+      attivitaPerPersona,
       tickets: ticketsWithRelations,
       clienti,
       documenti,
       mailThreads: finalMailThreads,
-      attivitaPerPersona,
       counts: {
+        authUsers: authUsers.length,
         profili: profili.length,
+        utentiCompleti: utentiCompleti.length,
+        attivitaPerPersona: attivitaPerPersona.length,
         tickets: ticketsWithRelations.length,
         clienti: clienti.length,
         documenti: documenti.length,
@@ -663,25 +802,34 @@ Regole:
 - Se i dati non sono sufficienti, dillo chiaramente.
 - Non inventare dati.
 
-Tabelle disponibili nel contesto:
-- profili: persone/dipendenti/tecnici/admin.
+Utente loggato:
+- Nel contesto trovi "loggedUser".
+- loggedUser.id è l'id Supabase Auth dell'utente attualmente loggato.
+- loggedUser.email è l'email dell'utente loggato.
+- loggedUser.profilo contiene il record della tabella profili collegato a loggedUser.id.
+- Se l'utente chiede "chi sono", "qual è il mio id", "che ruolo ho", usa loggedUser.
+
+Tabelle disponibili:
+- authUsers: utenti Supabase Authentication.
+- profili: profili applicativi collegati a auth.users tramite profili.id = auth.users.id.
+- utentiCompleti: unione logica tra authUsers e profili.
+- attivitaPerPersona: riepilogo dei ticket/attività associati alle persone.
 - tickets: attività, ticket, incident e segnalazioni.
 - clienti: anagrafiche clienti.
 - documenti: documenti operativi.
 - mailThreads: thread email raggruppati.
 
-Dati persone:
-- "profili" contiene: id, nome_completo, nome, email, ruolo e impostazioni utente.
-- "attivitaPerPersona" contiene un riepilogo dei ticket assegnati a ogni persona.
-- Per domande tipo "a cosa sta lavorando Mario", "quali attività ha Daniel", "ticket assegnati a X":
-  usa prima attivitaPerPersona, poi tickets.
+Dati utenti/accessi:
+- authUsers contiene id, email, created_at, last_sign_in_at, confirmed_at.
+- id di authUsers corrisponde a UID nella schermata Supabase Authentication.
+- Se l'utente chiede utenti registrati, ultimo accesso, id utente, email o login, usa authUsers o utentiCompleti.
+- Se l'utente chiede dati applicativi come ruolo, nome o impostazioni, usa profili o utentiCompleti.
+
+Dati persone e attività:
+- Per domande tipo "a cosa sta lavorando Mario", "quali attività ha Daniel", "ticket assegnati a X", usa prima attivitaPerPersona e poi tickets.
 - Se non trovi un collegamento certo tra ticket e profilo, dillo chiaramente.
 
-Dati ticket:
-- "tickets" contiene i dati dei ticket e, quando possibile, il campo "assegnatario_profilo".
-- Usa stato, priorita, cliente_nome, titolo, n_tag e date disponibili per rispondere.
-
-Dati email disponibili:
+Dati email:
 - "mailThreads" contiene i thread email raggruppati.
 - Il campo autorevole per identificare un thread email è "subject".
 - "topic" è solo informativo e non deve essere usato come identificatore principale.
