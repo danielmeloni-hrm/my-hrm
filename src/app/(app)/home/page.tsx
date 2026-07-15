@@ -7,6 +7,8 @@ import {
   Clock, CheckCircle2, Activity, Zap
 } from 'lucide-react'
 import Link from 'next/link'
+import AppPage from '@/components/ui/AppPage'
+import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 
 export default function HomePage() {
   const supabase = createClient()
@@ -47,6 +49,22 @@ useEffect(() => {
   fetchData();
 }, []);
 
+  useRealtimeTable({
+    supabase,
+    table: 'ticket',
+    onChange: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: tData, error: tErr } = await supabase
+        .from('ticket')
+        .select('*, clienti(nome)')
+        .eq('assignee', user.id);
+
+      if (!tErr) setTickets(tData || []);
+    },
+  });
+
   // Dipendenze vuote per eseguire solo al mount
 
   // --- LOGICA FILTRI (Invariata) ---
@@ -67,18 +85,18 @@ useEffect(() => {
   })
 
   if (loading) return (
-    <div className="flex items-center justify-center h-screen bg-[#FBFBFB]">
-      <div className="flex flex-col items-center gap-4">
+    <AppPage maxWidth="7xl">
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">Loading Control Center...</span>
       </div>
-    </div>
+    </AppPage>
   )
 
   return (
-    <div className="min-h-screen bg-[#FBFBFB] p-8 font-sans">
-      <div className="max-w-[1400px] mx-auto">
-        
+    <AppPage maxWidth="7xl">
+      <div>
+
         {/* WELCOME HEADER */}
         <div className="flex items-end justify-between mb-12">
           <div>
@@ -180,9 +198,7 @@ useEffect(() => {
 
         </div>
 
-        
-
       </div>
-    </div>
+    </AppPage>
   )
 }

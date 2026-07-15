@@ -1,9 +1,10 @@
 import AiFullPageChat from "@/components/ai/AiFullPageChat";
+import AppPage from "@/components/ui/AppPage";
 
 export default function AiPage() {
   return (
-    <div className="p-6">
+    <AppPage maxWidth="7xl">
       <AiFullPageChat />
-    </div>
+    </AppPage>
   );
 }

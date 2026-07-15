@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
+import { sendTicketChangeNotification } from '@/lib/ticket-notifications'
 
 export function useTicket(id: string | string[] | undefined) {
   const supabase = createClient()
@@ -64,10 +65,17 @@ export function useTicket(id: string | string[] | undefined) {
     
     if (error) {
       console.error("Errore durante l'aggiornamento:", error.message)
+    } else if (ticketData) {
+      // Notifica realtime agli assegnatari (ticket pre-modifica + patch)
+      void sendTicketChangeNotification(
+        supabase,
+        { ...ticketData, id: String(id) },
+        { [field]: sanitizedValue }
+      )
     }
 
     setTimeout(() => setSaving(false), 400)
-  }, [id, clienti, supabase])
+  }, [id, clienti, supabase, ticketData])
 
   return { 
     ticketData, 

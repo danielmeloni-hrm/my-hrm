@@ -1,5 +1,6 @@
 import Sidebar from "@/components/Sidebar";
 import AiChatWidget from "@/components/ai/AiChatWidget";
+import TicketChangeToaster from "@/components/notifications/TicketChangeToaster";
 import { theme } from "@/styles/theme";
 
 export default function AppLayout({
@@ -14,6 +15,7 @@ export default function AppLayout({
       <main className={theme.layout.main}>
         {children}
         <AiChatWidget />
+        <TicketChangeToaster />
       </main>
     </div>
   );

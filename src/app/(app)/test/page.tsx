@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import SublimeEmbed from "@/components/SublimeEmbed";
+import AppPage from "@/components/ui/AppPage";
 
 type Tab = {
   id: number | string;
@@ -22,10 +23,8 @@ console.log(message);`,
   const localStreamStatus = "connected";
 
   return (
-    <div style={{ padding: 40 }}>
-      <h1>Note Board</h1>
-
-     
-    </div>
+    <AppPage title="Test" subtitle="Pagina di prova" maxWidth="4xl">
+      <div />
+    </AppPage>
   );
 }

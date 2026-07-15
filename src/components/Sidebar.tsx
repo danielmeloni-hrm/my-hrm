@@ -183,6 +183,13 @@ export default function Sidebar() {
         defaultColor: '#4b5563',
       },
       {
+        name: 'Flussi Operativi',
+        path: '/flussi_operativi',
+        defaultIcon: 'ClipboardList',
+        defaultEmoji: '🔀',
+        defaultColor: '#0e7490',
+      },
+      {
         name: 'Calendario Rilasci',
         path: '/calendario',
         defaultIcon: 'CalendarDays',

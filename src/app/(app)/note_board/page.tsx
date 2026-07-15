@@ -8,8 +8,10 @@ import {
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
   useDroppable,
   DragOverlay,
+  type CollisionDetection,
 } from "@dnd-kit/core";
 
 import {
@@ -21,6 +23,7 @@ import {
 
 import { CSS } from "@dnd-kit/utilities";
 import {
+  AtSign,
   CheckSquare,
   Cloud,
   FileText,
@@ -37,6 +40,7 @@ import {
   Pencil,
   X,
 } from "lucide-react";
+import { sendNotePingNotification } from "@/lib/ticket-notifications";
 
 const supabase = createClient();
 
@@ -260,6 +264,49 @@ function SortableTabItem({
   );
 }
 
+/**
+ * Collision detection per la sidebar delle note.
+ *
+ * - Quando si trascina una NOTA: usa la posizione del puntatore e
+ *   preferisce le note rispetto ai contenitori cartella, così il drop
+ *   su una tab riordina e il drop sull'intestazione/area della cartella
+ *   sposta la nota in quella cartella (anche se collassata).
+ * - Quando si trascina una CARTELLA: considera solo le altre cartelle
+ *   (id "group-sort:"), per un riordino affidabile.
+ */
+const noteBoardCollisionDetection: CollisionDetection = (args) => {
+  const activeId = String(args.active.id);
+  const isGroupDrag = activeId.startsWith("group-sort:");
+
+  if (isGroupDrag) {
+    const groupContainers = args.droppableContainers.filter((c) =>
+      String(c.id).startsWith("group-sort:")
+    );
+    return closestCenter({ ...args, droppableContainers: groupContainers });
+  }
+
+  const pointerCollisions = pointerWithin(args);
+
+  if (pointerCollisions.length > 0) {
+    const noteHit = pointerCollisions.find((c) => {
+      const id = String(c.id);
+      return !id.startsWith("group:") && !id.startsWith("group-sort:");
+    });
+
+    if (noteHit) return [noteHit];
+
+    // Solo contenitori cartella sotto il puntatore: preferisci il
+    // droppable "group:<nome>" (quello gestito per lo spostamento)
+    const groupHit = pointerCollisions.find((c) =>
+      String(c.id).startsWith("group:")
+    );
+
+    return groupHit ? [groupHit] : pointerCollisions;
+  }
+
+  return closestCenter(args);
+};
+
 function SortableDroppableGroup({
   group,
   children,
@@ -332,6 +379,16 @@ export default function SublimeLikeEditorPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [editorValue, setEditorValue] = useState("");
   const [pinnedNoteIds, setPinnedNoteIds] = useState<string[]>([]);
+
+  // Menzioni @ nelle note testuali
+  const [profiliUtenti, setProfiliUtenti] = useState<
+    { id: string; nome: string }[]
+  >([]);
+  const [mentionState, setMentionState] = useState<{
+    query: string;
+    anchor: number;
+  } | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   const [taskMatches, setTaskMatches] = useState<TaskManagerMatch[]>([]);
   const [scanStatus, setScanStatus] = useState<
@@ -1485,9 +1542,17 @@ export default function SublimeLikeEditorPage() {
     let targetGroup = activeGroup;
     let targetOverNoteId: string | null = null;
 
-    // Drop diretto sulla cartella
+    // Drop diretto sulla cartella (droppable "group:<nome>")
     if (overId.startsWith("group:")) {
       targetGroup = overId.replace("group:", "").trim();
+    } else if (overId.startsWith("group-sort:")) {
+      // Il drop può risolversi sull'id sortable della cartella:
+      // lo mappo al nome della cartella corrispondente
+      const overGroupId = overId.replace("group-sort:", "");
+      const overGroup = noteGroups.find((g) => g.id === overGroupId);
+      if (!overGroup) return;
+
+      targetGroup = overGroup.name.trim();
     } else {
       // Drop sopra una tab: prendo la cartella della tab target
       const overNote = notesWithUserPins.find((n) => n.id === overId);
@@ -1544,6 +1609,9 @@ export default function SublimeLikeEditorPage() {
 
       return next;
     });
+
+    // Espandi la cartella di destinazione per mostrare la nota spostata
+    setCollapsedGroups((prev) => ({ ...prev, [targetGroup]: false }));
 
     // Salvataggio su Supabase
     for (const note of reorderedTargetGroup) {
@@ -1730,6 +1798,101 @@ export default function SublimeLikeEditorPage() {
 
     setCursorInfo({ line, col });
   }, []);
+
+  // Utenti registrati al gestionale, per le menzioni @ (nome e cognome)
+  useEffect(() => {
+    if (!authReady) return;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("profili")
+        .select("id, nome, nome_completo");
+
+      if (error) {
+        console.error("Errore caricamento profili per menzioni:", error.message);
+        return;
+      }
+
+      setProfiliUtenti(
+        (data || []).map((p: any) => ({
+          id: p.id,
+          nome: p.nome_completo || p.nome || "Sconosciuto",
+        }))
+      );
+    })();
+  }, [authReady]);
+
+  // Apertura diretta di una nota (click sul popup giallo di ping):
+  // gestisce sia il query param ?note= sia l'evento custom quando la
+  // pagina è già montata
+  useEffect(() => {
+    const openNote = (noteId: string | null) => {
+      if (noteId && notes.some((n) => n.id === noteId)) {
+        setActiveNoteId(noteId);
+      }
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const noteParam = params.get("note");
+
+    if (noteParam && notes.some((n) => n.id === noteParam)) {
+      openNote(noteParam);
+      window.history.replaceState({}, "", "/note_board");
+    }
+
+    const onOpenNote = (e: Event) => {
+      openNote((e as CustomEvent).detail?.noteId ?? null);
+    };
+
+    window.addEventListener("myhrm:open-note", onOpenNote);
+    return () => window.removeEventListener("myhrm:open-note", onOpenNote);
+  }, [notes]);
+
+  const mentionCandidates = useMemo(() => {
+    if (!mentionState) return [];
+    const q = mentionState.query.toLowerCase().trim();
+    return profiliUtenti
+      .filter((p) => !q || p.nome.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [mentionState, profiliUtenti]);
+
+  const insertMention = useCallback(
+    (utente: { id: string; nome: string }) => {
+      const textarea = editorRef.current;
+      if (!textarea || !mentionState || !activeNote) return;
+
+      const caret = textarea.selectionStart;
+      const value = textarea.value;
+      const start = mentionState.anchor; // posizione della @
+      const inserted = `@${utente.nome} `;
+
+      const nextValue = value.slice(0, start) + inserted + value.slice(caret);
+
+      setEditorValue(nextValue);
+      setHasUnsavedChanges(true);
+      setSaveStatus("idle");
+      setMentionState(null);
+
+      requestAnimationFrame(() => {
+        if (!editorRef.current) return;
+        const pos = start + inserted.length;
+        editorRef.current.focus();
+        editorRef.current.selectionStart = pos;
+        editorRef.current.selectionEnd = pos;
+        updateCursorPosition();
+      });
+
+      // Ping realtime all'utente menzionato (popup giallo)
+      if (utente.id !== userId) {
+        void sendNotePingNotification(supabase, {
+          noteId: activeNote.id,
+          noteTitle: activeNote.file_name,
+          targetUserId: utente.id,
+        });
+      }
+    },
+    [mentionState, activeNote, userId, updateCursorPosition]
+  );
 
   const extractTaskManagerEntries = useCallback(
     (content: string): TaskManagerMatch[] => {
@@ -1978,6 +2141,32 @@ export default function SublimeLikeEditorPage() {
       setEditorValue(value);
       setHasUnsavedChanges(true);
       setSaveStatus("idle");
+
+      // Rileva la menzione @ in corso (solo note testuali)
+      if (activeNote.note_type === "text") {
+        requestAnimationFrame(() => {
+          const textarea = editorRef.current;
+          if (!textarea) return;
+
+          const caret = textarea.selectionStart;
+          const before = value.slice(0, caret);
+          const match = before.match(
+            /(^|[\s(,;])@([A-Za-zÀ-ÿ'’.]*(?:\s[A-Za-zÀ-ÿ'’.]*)?)$/
+          );
+
+          if (match) {
+            setMentionState({
+              query: match[2],
+              anchor: caret - match[2].length - 1,
+            });
+            setMentionIndex(0);
+          } else {
+            setMentionState(null);
+          }
+        });
+      } else {
+        setMentionState(null);
+      }
     },
     [activeNote, canEditActiveNote],
   );
@@ -1988,6 +2177,32 @@ export default function SublimeLikeEditorPage() {
 
   const handleEditorKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Navigazione del dropdown menzioni
+      if (mentionState && mentionCandidates.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setMentionIndex(
+            (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length
+          );
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          insertMention(mentionCandidates[mentionIndex]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setMentionState(null);
+          return;
+        }
+      }
+
       if (e.key !== "Tab") return;
 
       e.preventDefault();
@@ -2011,7 +2226,16 @@ export default function SublimeLikeEditorPage() {
         updateCursorPosition();
       });
     },
-    [activeNote, canEditActiveNote, persistNote, updateCursorPosition],
+    [
+      activeNote,
+      canEditActiveNote,
+      persistNote,
+      updateCursorPosition,
+      mentionState,
+      mentionCandidates,
+      mentionIndex,
+      insertMention,
+    ],
   );
 
   const handleCreateNote = useCallback(
@@ -2509,7 +2733,7 @@ export default function SublimeLikeEditorPage() {
         <div className="flex-1 overflow-y-auto">
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={noteBoardCollisionDetection}
             onDragStart={(event) => {
               const id = String(event.active.id);
               setDraggedNoteId(id.startsWith('group-sort:') ? null : id);
@@ -3337,6 +3561,46 @@ Altra nota`}
                   placeholder="Scrivi qui le tue note..."
                   style={{ tabSize: 2 }}
                 />
+
+                {/* Dropdown menzioni @ */}
+                {mentionState && mentionCandidates.length > 0 && (
+                  <div
+                    className="absolute z-50 w-72 overflow-hidden rounded-lg border border-white/10 bg-[#252526] shadow-2xl"
+                    style={{
+                      top: Math.max(
+                        8,
+                        cursorInfo.line * 28 +
+                          20 -
+                          (editorRef.current?.scrollTop ?? 0)
+                      ),
+                      left: 16,
+                    }}
+                  >
+                    <div className="border-b border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-white/40">
+                      Menziona utente
+                    </div>
+
+                    {mentionCandidates.map((utente, i) => (
+                      <button
+                        key={utente.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          insertMention(utente);
+                        }}
+                        onMouseEnter={() => setMentionIndex(i)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                          i === mentionIndex
+                            ? "bg-[#0e639c] text-white"
+                            : "text-white/80 hover:bg-white/10"
+                        }`}
+                      >
+                        <AtSign size={13} className="shrink-0 opacity-60" />
+                        <span className="truncate">{utente.nome}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           ) : (

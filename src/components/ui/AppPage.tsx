@@ -29,20 +29,20 @@ export default function AppPage({
   className = "",
 }: AppPageProps) {
   return (
-    <div className={`${theme.page.background} ${theme.page.padding} ${theme.page.text} ${className}`}>
-      <div className={`mx-auto w-full ${maxWidthClass[maxWidth]}`}>
+    <div className={`min-h-full ${theme.page.background} ${theme.page.padding} ${theme.page.text} ${className}`}>
+      <div className={`animate-app-fade-in mx-auto w-full ${maxWidthClass[maxWidth]}`}>
         {(title || subtitle || actions) && (
           <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="flex items-start gap-3">
               {icon && (
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 text-[#0150a0] shadow-sm">
                   {icon}
                 </div>
               )}
 
-              <div>
+              <div className="min-w-0">
                 {title && (
-                  <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                  <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
                     {title}
                   </h1>
                 )}

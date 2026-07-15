@@ -58,6 +58,8 @@ function toISODateOrEmpty(v: any) {
   return `${y}-${m}-${d}`;
 }
 
+import AppPage from '@/components/ui/AppPage';
+
 export default function EditChange({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
   const params = use(paramsPromise);
   const id = params.id;
@@ -170,21 +172,21 @@ export default function EditChange({ params: paramsPromise }: { params: Promise<
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 p-8">
-        <div className="max-w-5xl mx-auto bg-white rounded-[28px] border border-slate-100 shadow-sm p-8">
+      <AppPage maxWidth="4xl">
+        <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-8">
           <div className="animate-pulse space-y-4">
             <div className="h-8 w-64 bg-slate-100 rounded-xl" />
             <div className="h-4 w-96 bg-slate-100 rounded-xl" />
             <div className="h-40 bg-slate-100 rounded-2xl" />
           </div>
         </div>
-      </div>
+      </AppPage>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 md:px-8">
-      <div className="max-w-5xl mx-auto">
+    <AppPage maxWidth="4xl">
+      <div>
         {/* Top bar */}
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -437,7 +439,7 @@ export default function EditChange({ params: paramsPromise }: { params: Promise<
           grazie a <code className="px-1 py-0.5 bg-slate-100 rounded">...formData</code>.
         </div>
       </div>
-    </div>
+    </AppPage>
   );
 }
 

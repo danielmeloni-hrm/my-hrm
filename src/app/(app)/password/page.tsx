@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase';
+import AppPage from '@/components/ui/AppPage';
 import {
   AppWindow,
   Copy,
@@ -457,45 +458,31 @@ export default function PasswordVaultPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
-        <div className="max-w-[2200px] mx-auto">
-          <div className="h-[300px] flex items-center justify-center">
-            <div className="text-sm font-bold text-slate-400">Caricamento password...</div>
-          </div>
+      <AppPage title="Password Vault" maxWidth="full">
+        <div className="h-[300px] flex items-center justify-center">
+          <div className="text-sm font-bold text-slate-400">Caricamento password...</div>
         </div>
-      </div>
+      </AppPage>
     );
   }
 
   if (authError) {
     return (
-      <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
-        <div className="max-w-[2200px] mx-auto">
-          <div className="h-[300px] flex items-center justify-center">
-            <div className="text-sm font-bold text-slate-400">{authError}</div>
-          </div>
+      <AppPage title="Password Vault" maxWidth="full">
+        <div className="h-[300px] flex items-center justify-center">
+          <div className="text-sm font-bold text-slate-400">{authError}</div>
         </div>
-      </div>
+      </AppPage>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8">
-      <div className="max-w-[2200px] mx-auto">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter" style={{ color: BRAND }}>
-              PASSWORD VAULT
-            </h1>
-            <p
-              className="text-[10px] font-bold uppercase tracking-[0.3em]"
-              style={{ color: BRAND_SOFT_TEXT }}
-            >
-              Credenziali condivise, link rapidi e gestione globale
-            </p>
-          </div>
-
-          <div className="flex gap-2 flex-wrap w-full lg:w-auto">
+    <AppPage
+      title="Password Vault"
+      subtitle="Credenziali condivise, link rapidi e gestione globale"
+      maxWidth="full"
+      actions={
+        <div className="flex gap-2 flex-wrap w-full lg:w-auto">
             <div className="flex items-center gap-2 px-4 py-2 rounded-[10px] bg-white border border-gray-100 text-[12px] font-bold outline-none w-full lg:w-80 shadow-sm">
               <Search size={15} className="text-slate-400" />
               <input
@@ -520,8 +507,8 @@ export default function PasswordVaultPage() {
               <Plus size={18} />
             </button>
           </div>
-        </div>
-
+      }
+    >
         {saveError && (
           <div className="mb-4 rounded-[10px] border px-4 py-3 text-sm font-bold text-red-700 bg-red-50 border-red-200">
             {saveError}
@@ -958,7 +945,6 @@ export default function PasswordVaultPage() {
             </table>
           </div>
         </div>
-      </div>
-    </div>
+    </AppPage>
   );
 }

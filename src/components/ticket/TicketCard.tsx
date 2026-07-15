@@ -5,6 +5,7 @@ import {
   Activity,
   ChevronRight,
   Circle,
+  GripVertical,
   PlayCircle,
   TriangleAlert,
   AlertTriangle,
@@ -165,13 +166,29 @@ export default function TicketCard({
 
   const pingStyles = getPingStyles(ticket.ultimo_ping);
 
+  // Guard: distingue click da drag (il click dopo un drag non deve aprire il modale)
+  const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      onClick={() => setSelectedTicket({ ...ticket })}
+      onPointerDown={(e) => {
+        pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+        listeners?.onPointerDown?.(e);
+      }}
+      onClick={(e) => {
+        const down = pointerDownPosRef.current;
+        if (
+          down &&
+          (Math.abs(e.clientX - down.x) > 5 || Math.abs(e.clientY - down.y) > 5)
+        ) {
+          return; // era un drag, non un click
+        }
+        setSelectedTicket({ ...ticket });
+      }}
       className={`relative rounded-xl border transition-all duration-500 overflow-hidden group cursor-grab active:cursor-grabbing touch-none ${
         showConflictPopup 
           ? "bg-yellow-50 border-yellow-400 shadow-xl ring-2 ring-yellow-400 animate-[pulse_3s_infinite]" 
@@ -212,6 +229,15 @@ export default function TicketCard({
         </div>
       )}
 
+      {/* MANIGLIA DRAG */}
+      <div
+        className="absolute top-3 right-9 z-10 rounded p-0.5 text-gray-300 opacity-0 transition-opacity group-hover:opacity-100 hover:text-gray-500 cursor-grab active:cursor-grabbing"
+        title="Trascina per spostare"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical size={14} />
+      </div>
+
       {/* TASTO PLAY/STOP */}
       <button
         onClick={(e) => {
@@ -231,7 +257,7 @@ export default function TicketCard({
       <div className={`space-y-3 transition-all duration-300 ${showConflictPopup ? "blur-[1px] opacity-30 pointer-events-none" : ""}`}>
         
         {/* HEADER: CLIENTE, APP, % */}
-        <div className="flex items-center gap-2 flex-wrap pr-6">
+        <div className="flex items-center gap-2 flex-wrap pr-14">
           <span className="text-[9px] font-black text-[#0150a0] bg-[#e6eef8] px-2 py-1 rounded-lg uppercase tracking-widest truncate max-w-[100px]">
             {ticket.clienti?.nome || "N/D"}
           </span>

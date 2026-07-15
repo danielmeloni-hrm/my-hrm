@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import AppPage from '@/components/ui/AppPage'
 import type { LucideIcon } from 'lucide-react'
 import {
   Check,
@@ -488,12 +489,12 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <AppPage title="Impostazioni" maxWidth="4xl">
         <div className="flex items-center gap-2 text-gray-500">
           <Loader2 className="animate-spin" />
           Caricamento impostazioni...
         </div>
-      </div>
+      </AppPage>
     )
   }
 
@@ -501,8 +502,12 @@ export default function SettingsPage() {
   const ModalPreviewIcon = modalConfig ? getIconComponent(modalConfig.icon) : LayoutGrid
 
   return (
-    <div className="p-8 max-w-6xl">
-      <h1 className="text-2xl font-black tracking-tight text-gray-900 mb-6">Impostazioni</h1>
+    <AppPage
+      title="Impostazioni"
+      subtitle="Account, sicurezza e personalizzazione"
+      icon={<User size={22} />}
+      maxWidth="4xl"
+    >
 
       <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
@@ -866,6 +871,6 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppPage>
   )
 }

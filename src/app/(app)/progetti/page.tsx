@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import AppPage from "@/components/ui/AppPage";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 import AppCard from "@/components/ui/AppCard";
 import AppButton from "@/components/ui/AppButton";
 import {
@@ -1247,6 +1248,22 @@ export default function OperationalProjectsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useRealtimeTable({
+    supabase,
+    table: "documenti_operativi",
+    onChange: () => {
+      void loadData();
+    },
+  });
+
+  useRealtimeTable({
+    supabase,
+    table: "clienti_flusso_progetto",
+    onChange: () => {
+      void loadData();
+    },
+  });
 
   useEffect(() => {
     if (!isEsselungaFilter) {

@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import AppPage from "@/components/ui/AppPage";
+import AppCard from "@/components/ui/AppCard";
 import {
   Building2,
   Search,
@@ -56,6 +59,14 @@ export default function ClientiPage() {
   useEffect(() => {
     loadClienti();
   }, []);
+
+  useRealtimeTable({
+    supabase,
+    table: "clienti",
+    onChange: () => {
+      void loadClienti();
+    },
+  });
 
   useEffect(() => {
     setFilteredClienti(
@@ -143,21 +154,14 @@ export default function ClientiPage() {
 }
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] px-4 pt-6 pb-24">
-      <div className="max-w-[2600px] mx-auto space-y-6">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-            Gestione
-          </p>
-
-          <h1 className="mt-1 text-3xl font-bold text-gray-900">Clienti</h1>
-
-          <p className="mt-2 text-gray-500">
-            Elenco dei clienti presenti nel sistema.
-          </p>
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4">
+    <AppPage
+      title="Clienti"
+      subtitle="Elenco dei clienti presenti nel sistema"
+      icon={<Building2 size={22} />}
+      maxWidth="full"
+    >
+      <div className="space-y-6 pb-16">
+        <AppCard padded={false} className="p-4">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
 
@@ -166,12 +170,12 @@ export default function ClientiPage() {
               placeholder="Cerca cliente..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0150a0]/20"
+              className="w-full rounded-xl border border-transparent bg-slate-50 pl-10 pr-4 py-2.5 text-sm outline-none transition-all focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-[#0150a0]/20"
             />
           </div>
-        </div>
+        </AppCard>
 
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <AppCard padded={false} className="overflow-hidden">
           <div className="border-b border-gray-200 px-6 py-4">
             <h2 className="font-semibold text-gray-900">
               {filteredClienti.length} clienti
@@ -241,7 +245,7 @@ export default function ClientiPage() {
               ))}
             </div>
           )}
-        </div>
+        </AppCard>
       </div>
 
       {selectedCliente && (
@@ -320,6 +324,6 @@ export default function ClientiPage() {
           </div>
         </div>
       )}
-    </div>
+    </AppPage>
   );
 }

@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --brand: #0150a0;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -11,10 +12,100 @@
     --foreground: #ededed;
   }
 }
+
 body {
   font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .font-title {
   font-family: var(--font-outfit);
+}
+
+/* Selezione testo con colore brand */
+::selection {
+  background: rgba(1, 80, 160, 0.15);
+}
+
+/* Scrollbar moderna e sottile (globale) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Variante compatta usata da board e liste (.custom-scrollbar) */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Focus visibile e accessibile per navigazione da tastiera */
+:focus-visible {
+  outline: 2px solid rgba(1, 80, 160, 0.45);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Micro-animazioni di entrata (usate con le classi animate-in delle pagine) */
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-app-fade-in {
+  animation: app-fade-in 0.25s ease-out both;
+}
+
+/* Riduci il movimento per chi lo preferisce */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

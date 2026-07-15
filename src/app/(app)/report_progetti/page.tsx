@@ -55,9 +55,9 @@ type SavedChart = {
 };
 
 const UI = {
-  bg: "#f6f8fb",
+  bg: "#FBFBFB",
   card: "#ffffff",
-  border: "#e6eaf0",
+  border: "#e2e8f0",
   text: "#1f2937",
   subtext: "#6b7280",
   primary: "#0150a0",

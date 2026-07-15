@@ -1,9 +1,11 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { 
+import {
   ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle, Info, X
 } from 'lucide-react'
+import AppPage from '@/components/ui/AppPage'
+import AppCard from '@/components/ui/AppCard'
 
 export default function GoogleOnlyCalendar() {
   const [enabled, setEnabled] = useState(false)
@@ -111,42 +113,48 @@ export default function GoogleOnlyCalendar() {
     }, { prod: 0, coll: 0 });
   }, [days, currentDate, getReleasesForDate, viewMode]);
 
-  if (!enabled) return <div className="min-h-screen bg-[#FBFBFB] p-8 font-black italic opacity-20 text-black uppercase">Caricamento...</div>
+  if (!enabled) {
+    return (
+      <AppPage title="Rilasci Change" icon={<CalendarIcon size={22} />} maxWidth="full">
+        <AppCard className="flex min-h-[400px] items-center justify-center">
+          <span className="animate-pulse text-sm font-black uppercase tracking-widest text-slate-300">
+            Caricamento...
+          </span>
+        </AppCard>
+      </AppPage>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-[#FBFBFB] p-4 md:p-8 text-black font-sans">
-      <div className="max-w-[1800px] mx-auto">
-        
-        {/* HEADER */}
-        <div className="mb-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-          <div>
-            <h1 className="text-xl font-black tracking-tighter flex flex-wrap items-center gap-3 italic underline decoration-blue-500/20 uppercase">
-              <CalendarIcon className="text-blue-600" size={36} /> 
-              Rilasci Change - {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
-            </h1>
-            <div className="flex flex-wrap items-center gap-3 mt-4">
-              <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-full border border-red-100">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="text-[10px] font-black text-red-600 uppercase">PROD: {stats.prod}</span>
-              </div>
-              <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
-                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                <span className="text-[10px] font-black text-purple-600 uppercase">COLLAUDO: {stats.coll}</span>
-              </div>
-            </div>
+    <AppPage
+      title="Rilasci Change"
+      subtitle={currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+      icon={<CalendarIcon size={22} />}
+      maxWidth="full"
+      actions={
+        <>
+          <div className="flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-3 py-1.5">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500"></span>
+            <span className="text-[10px] font-black uppercase text-red-600">PROD: {stats.prod}</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5">
+            <span className="h-2 w-2 rounded-full bg-purple-500"></span>
+            <span className="text-[10px] font-black uppercase text-purple-600">COLLAUDO: {stats.coll}</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm">
-              <button onClick={() => setViewMode('week')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'week' ? 'bg-black text-white' : 'text-gray-400'}`}>Settimana</button>
-              <button onClick={() => setViewMode('month')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'month' ? 'bg-black text-white' : 'text-gray-400'}`}>Mese</button>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => { const n = new Date(currentDate); viewMode === 'week' ? n.setDate(n.getDate()-7) : n.setMonth(n.getMonth()-1); setCurrentDate(n); }} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 shadow-sm"><ChevronLeft size={18}/></button>
-              <button onClick={() => { const n = new Date(currentDate); viewMode === 'week' ? n.setDate(n.getDate()+7) : n.setMonth(n.getMonth()+1); setCurrentDate(n); }} className="p-3 bg-white border border-gray-100 rounded-2xl hover:bg-gray-50 shadow-sm"><ChevronRight size={18}/></button>
-            </div>
+          <div className="flex rounded-xl bg-slate-100 p-1">
+            <button onClick={() => setViewMode('week')} className={`rounded-lg px-5 py-2.5 text-[10px] font-black uppercase transition-all ${viewMode === 'week' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Settimana</button>
+            <button onClick={() => setViewMode('month')} className={`rounded-lg px-5 py-2.5 text-[10px] font-black uppercase transition-all ${viewMode === 'month' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Mese</button>
           </div>
-        </div>
+
+          <div className="flex gap-2">
+            <button aria-label="Periodo precedente" onClick={() => { const n = new Date(currentDate); viewMode === 'week' ? n.setDate(n.getDate()-7) : n.setMonth(n.getMonth()-1); setCurrentDate(n); }} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:bg-slate-50"><ChevronLeft size={18}/></button>
+            <button aria-label="Periodo successivo" onClick={() => { const n = new Date(currentDate); viewMode === 'week' ? n.setDate(n.getDate()+7) : n.setMonth(n.getMonth()+1); setCurrentDate(n); }} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:bg-slate-50"><ChevronRight size={18}/></button>
+          </div>
+        </>
+      }
+    >
+      <div>
 
         {/* CALENDARIO */}
         <div className="grid grid-cols-1 gap-8">
@@ -253,6 +261,6 @@ export default function GoogleOnlyCalendar() {
           </div>
         )}
       </div>
-    </div>
+    </AppPage>
   )
 }

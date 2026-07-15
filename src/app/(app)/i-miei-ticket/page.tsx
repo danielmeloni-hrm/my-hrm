@@ -2,8 +2,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
-import { 
-  ArrowLeft, Building2, ChevronRight, Layers, ListTodo, PlayCircle, CheckCircle2, 
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
+import { sendTicketChangeNotification } from '@/lib/ticket-notifications';
+import AppPage from '@/components/ui/AppPage';
+import AppCard from '@/components/ui/AppCard';
+import {
+  ArrowLeft, Building2, ChevronRight, Layers, ListTodo, PlayCircle, CheckCircle2,
   Search, Loader2, Settings2, Eye, EyeOff, MoveUp, MoveDown, 
   Calendar, Clock, AlertCircle, User, ArrowUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
@@ -119,10 +123,44 @@ export default function MieiTicketPage() {
   fetchTickets();
 }, [supabase, filterAssignee]);
 
+  useRealtimeTable({
+    supabase,
+    table: 'ticket',
+    onChange: async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      let query = supabase
+        .from('ticket')
+        .select(`*, clienti:cliente_id (nome), profili:assignee (nome)`);
+
+      if (filterAssignee === 'me') {
+        if (!user) return;
+        query = query.eq('assignee', user.id);
+      } else if (filterAssignee !== 'all') {
+        query = query.eq('assignee', filterAssignee);
+      }
+
+      const { data, error } = await query;
+      if (!error) setTickets(data || []);
+    },
+  });
+
   const handleUpdate = async (id: string, field: string, value: any) => {
     setUpdatingId(`${id}-${field}`);
     const { error } = await supabase.from('ticket').update({ [field]: value }).eq('id', id);
-    if (!error) setTickets(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+    if (!error) {
+      setTickets(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+
+      // Notifica realtime agli assegnatari (ticket pre-modifica + patch)
+      const previousTicket = tickets.find(t => t.id === id);
+      void sendTicketChangeNotification(
+        supabase,
+        { ...(previousTicket ?? {}), id },
+        { [field]: value }
+      );
+    }
     setUpdatingId(null);
   };
 
@@ -162,23 +200,25 @@ export default function MieiTicketPage() {
     return diff > 15;
   };  
 
-  if (loading) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse uppercase tracking-widest">Sincronizzazione...</div>;
+  if (loading) {
+    return (
+      <AppPage title="I Miei Ticket" subtitle="Personal dashboard" maxWidth="full">
+        <AppCard className="flex min-h-[300px] items-center justify-center">
+          <span className="animate-pulse text-sm font-black uppercase tracking-widest text-slate-300">
+            Sincronizzazione...
+          </span>
+        </AppCard>
+      </AppPage>
+    );
+  }
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen pb-24 text-slate-900 font-sans">
-      
-      {/* HEADER & FILTRI */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="p-2 bg-white rounded-xl border border-slate-200 text-slate-400 hover:text-blue-600 transition shadow-sm">
-            <ArrowLeft size={18} strokeWidth={3} />
-          </Link>
-          <div>
-            <h1 className="text-xl font-black uppercase tracking-tight leading-none">I Miei Ticket</h1>
-            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest italic">Personal Dashboard</span>
-          </div>
-        </div>
-
+    <AppPage
+      title="I Miei Ticket"
+      subtitle="Personal dashboard — aggiornamento realtime attivo"
+      maxWidth="full"
+      icon={<User size={22} />}
+      actions={
         <div className="flex flex-wrap items-center gap-2">
           {/* ASSIGNEE FILTER (UUID BASED) */}
           <div className="relative">
@@ -223,8 +263,8 @@ export default function MieiTicketPage() {
             <Settings2 size={14} /> Personalizza
           </button>
         </div>
-      </div>
-
+      }
+    >
       {showConfig && (
         <div className="mb-6 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm animate-in fade-in slide-in-from-top-2">
           <span className="text-[10px] font-black uppercase text-slate-400 block mb-3">Ordine e Visibilità Colonne:</span>
@@ -334,6 +374,6 @@ export default function MieiTicketPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </AppPage>
   );
 }

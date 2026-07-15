@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
+import { sendTicketChangeNotification } from '@/lib/ticket-notifications';
 import {
   ArrowLeft,
   ChevronRight,
@@ -392,12 +394,51 @@ export default function StoricoTicketPage() {
     init();
   }, [supabase]);
 
+  useRealtimeTable({
+    supabase,
+    table: 'ticket',
+    onChange: async () => {
+      const [tRes, tagHoursMap] = await Promise.all([
+        supabase
+          .from('ticket')
+          .select('*, clienti:cliente_id(id, nome), profili:assignee(id, nome_completo)')
+          .order('ultimo_ping', { ascending: false })
+          .eq('tipologia_ticket', 'Attività'),
+        fetchTagHoursMap(),
+      ]);
+
+      if (tRes.error || !tRes.data) return;
+
+      const ticketsWithHours: TicketRow[] = (tRes.data as TicketRow[]).map((ticket) => ({
+        ...ticket,
+        numero_ore: ticket.n_tag ? tagHoursMap[ticket.n_tag] || 0 : 0,
+      }));
+
+      setTickets(
+        ticketsWithHours.filter(
+          (t) =>
+            !String(t.n_tag || '')
+              .toUpperCase()
+              .startsWith('INC')
+        )
+      );
+    },
+  });
+
   const handleUpdate = async (id: string, field: string, value: any) => {
     const updatePayload: Record<string, any> = { [field]: value };
 
     const { error } = await supabase.from('ticket').update(updatePayload).eq('id', id);
 
     if (!error) {
+      // Notifica realtime agli assegnatari (ticket pre-modifica + patch)
+      const previousTicket = tickets.find((t) => t.id === id);
+      void sendTicketChangeNotification(
+        supabase,
+        { ...(previousTicket ?? {}), id },
+        updatePayload
+      );
+
   const [{ data }, tagHoursMap] = await Promise.all([
     supabase
       .from('ticket')

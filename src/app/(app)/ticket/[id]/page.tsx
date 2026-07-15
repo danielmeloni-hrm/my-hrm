@@ -7,6 +7,7 @@ import { useTicket } from '../../hooks/useTicket'
 import MailThread from '@/components/ticket/MailThread'
 import ReleasePipeline from '@/components/ticket/ReleasePipeline'
 import { SectionLabel, PrimaryTextarea } from '@/components/ui/ticket-ui'
+import AppPage from '@/components/ui/AppPage'
 import {
   ArrowLeft,
   MessageSquare,
@@ -639,15 +640,17 @@ const removeSubSubTask = async (
 
   if (loading || !ticketData) {
     return (
-      <div className="p-10 text-xs font-black text-gray-400 animate-pulse text-center uppercase tracking-widest">
-        Inizializzazione...
-      </div>
+      <AppPage maxWidth="full">
+        <div className="p-10 text-xs font-black text-gray-400 animate-pulse text-center uppercase tracking-widest">
+          Inizializzazione...
+        </div>
+      </AppPage>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] px-4 py-8 lg:px-12 lg:py-12">
-      <div className="max-w-[1600px] mx-auto pb-20">
+    <AppPage maxWidth="full">
+      <div className="pb-20">
         <div className="flex flex-col gap-4 mb-8 xl:flex-row xl:items-center xl:justify-between">
           <button
             onClick={() => router.back()}
@@ -1780,6 +1783,6 @@ const removeSubSubTask = async (
           </div>
         )}
       </div>
-    </div>
+    </AppPage>
   )
 }

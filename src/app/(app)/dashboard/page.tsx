@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import {
   Activity,
@@ -14,6 +14,7 @@ import {
 import {
   DndContext,
   DragEndEvent,
+  DragOverEvent,
   DragStartEvent,
   PointerSensor,
   useSensor,
@@ -32,6 +33,8 @@ import TicketDetailModal from "@/components/ticket/TicketDetailModal";
 import AppPage from "@/components/ui/AppPage";
 import AppCard from "@/components/ui/AppCard";
 import AppButton from "@/components/ui/AppButton";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { sendTicketChangeNotification } from "@/lib/ticket-notifications";
 
 const supabase = createClient();
 
@@ -327,40 +330,69 @@ export default function SprintBoardRefactor() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel("board-live")
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "ticket" },
-        (payload) => {
-          const updatedPatch: Partial<Ticket> = {
-            ...(payload.new as Partial<Ticket>),
-            columnId:
-              statusToColumnId[(payload.new as any).stato] || "non-iniziato",
-          };
+  useRealtimeTable({
+    supabase,
+    table: "ticket",
+    onChange: async (payload) => {
+      if (payload.eventType === "UPDATE") {
+        const updatedPatch: Partial<Ticket> = {
+          ...(payload.new as Partial<Ticket>),
+          columnId:
+            statusToColumnId[(payload.new as any).stato] || "non-iniziato",
+        };
 
-          setTickets((current) =>
-            current.map((t) =>
-              t.id === payload.new.id
-                ? ({ ...t, ...updatedPatch } as Ticket)
-                : t
-            )
-          );
+        setTickets((current) =>
+          current.map((t) =>
+            t.id === (payload.new as any).id
+              ? ({ ...t, ...updatedPatch } as Ticket)
+              : t
+          )
+        );
 
-          setSelectedTicket((current) =>
-            current?.id === payload.new.id
-              ? ({ ...current, ...updatedPatch } as Ticket)
-              : current
-          );
-        }
-      )
-      .subscribe();
+        setSelectedTicket((current) =>
+          current?.id === (payload.new as any).id
+            ? ({ ...current, ...updatedPatch } as Ticket)
+            : current
+        );
+        return;
+      }
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      if (payload.eventType === "INSERT") {
+        // Il payload non include le join: ricarico il singolo ticket
+        const { data, error } = await supabase
+          .from("ticket")
+          .select(
+            "*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)"
+          )
+          .eq("id", (payload.new as any).id)
+          .maybeSingle();
+
+        if (error || !data) return;
+
+        setTickets((current) => {
+          if (current.some((t) => t.id === data.id)) return current;
+          return [
+            ...current,
+            {
+              ...data,
+              columnId: statusToColumnId[data.stato] || "non-iniziato",
+            } as Ticket,
+          ];
+        });
+        return;
+      }
+
+      if (payload.eventType === "DELETE") {
+        const deletedId = (payload.old as any)?.id;
+        if (!deletedId) return;
+
+        setTickets((current) => current.filter((t) => t.id !== deletedId));
+        setSelectedTicket((current) =>
+          current?.id === deletedId ? null : current
+        );
+      }
+    },
+  });
 
   const saveKanbanColumns = async (
     nextVisibleColumns: Record<string, boolean>
@@ -392,7 +424,7 @@ export default function SprintBoardRefactor() {
 
     const { columnId, ...supabasePatch } = patch;
 
-    if (Object.keys(supabasePatch).length === 0) return;
+    if (Object.keys(supabasePatch).length === 0) return true;
 
     const { error } = await supabase
       .from("ticket")
@@ -401,7 +433,18 @@ export default function SprintBoardRefactor() {
 
     if (error) {
       console.error("Errore salvataggio:", error.message);
+      return false;
     }
+
+    // Notifica realtime agli assegnatari (ticket pre-modifica + patch)
+    const previousTicket = tickets.find((t) => t.id === id);
+    void sendTicketChangeNotification(
+      supabase,
+      { ...(previousTicket ?? {}), id },
+      supabasePatch
+    );
+
+    return true;
   };
 
   const sensors = useSensors(
@@ -409,30 +452,96 @@ export default function SprintBoardRefactor() {
     useSensor(KeyboardSensor)
   );
 
-  const handleDragStart = (event: DragStartEvent) => {
-    const activeId = String(event.active.id);
-    setActiveTicket(tickets.find((t) => t.id === activeId) || null);
+  // Ticket originale a inizio drag, per ripristino su annullamento/errore
+  const dragOriginRef = useRef<Ticket | null>(null);
+
+  // Risolve l'id di drop (colonna o ticket) nell'id colonna
+  const resolveColumnId = (overId: string): string | null => {
+    if (columnIdToStatus[overId]) return overId;
+    const overTicket = tickets.find((t) => t.id === overId);
+    return overTicket ? overTicket.columnId : null;
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
+  const handleDragStart = (event: DragStartEvent) => {
+    const activeId = String(event.active.id);
+    const ticket = tickets.find((t) => t.id === activeId) || null;
+    setActiveTicket(ticket);
+    dragOriginRef.current = ticket ? { ...ticket } : null;
+  };
 
-    setActiveTicket(null);
+  // Sposta la card tra colonne in tempo reale durante il drag (solo stato locale)
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
 
     if (!over) return;
 
     const activeId = String(active.id);
-    let targetColId = String(over.id);
+    const targetColId = resolveColumnId(String(over.id));
 
-    const overTicket = tickets.find((t) => t.id === targetColId);
+    if (!targetColId) return;
 
-    if (overTicket) targetColId = overTicket.columnId;
+    setTickets((prev) => {
+      const dragged = prev.find((t) => t.id === activeId);
+      if (!dragged || dragged.columnId === targetColId) return prev;
+      return prev.map((t) =>
+        t.id === activeId ? { ...t, columnId: targetColId } : t
+      );
+    });
+  };
 
-    const draggedTicket = tickets.find((t) => t.id === activeId);
+  const restoreDraggedTicket = () => {
+    const origin = dragOriginRef.current;
+    dragOriginRef.current = null;
 
-    if (!draggedTicket || draggedTicket.columnId === targetColId) return;
+    if (!origin) return;
+
+    setTickets((prev) =>
+      prev.map((t) =>
+        t.id === origin.id
+          ? {
+              ...t,
+              columnId: origin.columnId,
+              stato: origin.stato,
+              in_lavorazione_ora: origin.in_lavorazione_ora,
+            }
+          : t
+      )
+    );
+  };
+
+  const handleDragCancel = () => {
+    setActiveTicket(null);
+    restoreDraggedTicket();
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    const origin = dragOriginRef.current;
+
+    setActiveTicket(null);
+
+    if (!over || !origin) {
+      restoreDraggedTicket();
+      return;
+    }
+
+    const activeId = String(active.id);
+    const targetColId = resolveColumnId(String(over.id));
+
+    // Drop non valido o nessun cambio colonna: ripristina l'origine
+    if (!targetColId || targetColId === origin.columnId) {
+      restoreDraggedTicket();
+      return;
+    }
 
     const newStatus = columnIdToStatus[targetColId];
+
+    if (!newStatus) {
+      restoreDraggedTicket();
+      return;
+    }
+
+    dragOriginRef.current = null;
 
     const updatePayload: Partial<Ticket> = {
       stato: newStatus,
@@ -441,7 +550,23 @@ export default function SprintBoardRefactor() {
       columnId: targetColId,
     };
 
-    await handleUpdateTicket(activeId, updatePayload);
+    const ok = await handleUpdateTicket(activeId, updatePayload);
+
+    // Errore di salvataggio: torna allo stato originale
+    if (!ok) {
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === activeId
+            ? {
+                ...t,
+                columnId: origin.columnId,
+                stato: origin.stato,
+                in_lavorazione_ora: origin.in_lavorazione_ora,
+              }
+            : t
+        )
+      );
+    }
   };
 
   const clientiList = useMemo(() => {
@@ -655,6 +780,8 @@ export default function SprintBoardRefactor() {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
         <div className="flex gap-6 overflow-x-auto pb-10 custom-scrollbar">

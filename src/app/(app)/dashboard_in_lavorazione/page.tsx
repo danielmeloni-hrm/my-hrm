@@ -14,6 +14,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AppPage from "@/components/ui/AppPage";
 import AppCard from "@/components/ui/AppCard";
 import AppButton from "@/components/ui/AppButton";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { sendTicketChangeNotification } from "@/lib/ticket-notifications";
 
 type Profile = {
   id: string;
@@ -148,26 +150,13 @@ export default function TicketsDashboardByAssignee() {
     fetchAll();
   }, [fetchAll]);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`ticket-live-${filterSprint}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "ticket",
-        },
-        async () => {
-          await refreshTicketsOnly();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, filterSprint, refreshTicketsOnly]);
+  useRealtimeTable({
+    supabase,
+    table: "ticket",
+    onChange: () => {
+      void refreshTicketsOnly();
+    },
+  });
 
   const filteredTickets = useMemo(() => {
     const s = searchTerm.trim().toLowerCase();
@@ -406,6 +395,22 @@ export default function TicketsDashboardByAssignee() {
       if (failed?.error) {
         console.error("Errore durante l'update:", failed.error);
         refreshTicketsOnly();
+      } else {
+        // Notifica realtime agli assegnatari del ticket spostato
+        // (moved = stato pre-modifica, per riconoscere il vecchio assegnatario)
+        const changedPatch: Record<string, any> = {};
+
+        (["assignee", "in_lavorazione_ora", "sprint", "ricorsivo"] as const).forEach(
+          (key) => {
+            if (moved[key] !== movedUpdated[key]) {
+              changedPatch[key] = movedUpdated[key];
+            }
+          }
+        );
+
+        if (Object.keys(changedPatch).length > 0) {
+          void sendTicketChangeNotification(supabase, moved, changedPatch);
+        }
       }
     } catch (err) {
       console.error("Errore inatteso durante l'update:", err);
