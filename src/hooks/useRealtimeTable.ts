@@ -61,7 +61,6 @@ export function useRealtimeTable({
     const channel = supabase
       .channel(channelName)
       .on(
-        // @ts-expect-error - overload postgres_changes con event dinamico
         "postgres_changes",
         { event, schema: "public", table, ...(filter ? { filter } : {}) },
         (payload: RealtimePostgresChangesPayload<Record<string, any>>) => {
