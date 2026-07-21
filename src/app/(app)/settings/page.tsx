@@ -322,6 +322,17 @@ export default function SettingsPage() {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>('left')
   const [sidebarColor, setSidebarColor] = useState<string>('')
+
+  /** Aggiorna lo stato e mostra subito il colore sulla sidebar reale. */
+  const applicaColoreSidebar = (colore: string) => {
+    setSidebarColor(colore)
+
+    window.dispatchEvent(
+      new CustomEvent('sidebar-color-preview', {
+        detail: isHexColor(colore) ? colore : null,
+      })
+    )
+  }
   const [itemsConfig, setItemsConfig] = useState<SidebarItemsConfig>({})
 
   const [iconModalPath, setIconModalPath] = useState<string | null>(null)
@@ -669,6 +680,9 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500">
                 I titoli si adattano da soli; i riquadri delle icone restano bianchi.
               </p>
+              <p className="mt-1 text-[11px] font-bold text-amber-600">
+                L&apos;anteprima è immediata: premi Salva sidebar per renderla definitiva.
+              </p>
             </div>
 
             <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-400">
@@ -676,7 +690,7 @@ export default function SettingsPage() {
               <input
                 type="color"
                 value={isHexColor(sidebarColor) ? sidebarColor : '#0150a0'}
-                onChange={(e) => setSidebarColor(e.target.value)}
+                onChange={(e) => applicaColoreSidebar(e.target.value)}
                 className="h-8 w-10 cursor-pointer rounded-lg border border-gray-200 bg-white p-1"
                 aria-label="Scegli un colore personalizzato"
               />
@@ -691,7 +705,7 @@ export default function SettingsPage() {
                 <button
                   key={preset.label}
                   type="button"
-                  onClick={() => setSidebarColor(preset.value)}
+                  onClick={() => applicaColoreSidebar(preset.value)}
                   title={preset.label}
                   className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-black transition ${
                     attivo

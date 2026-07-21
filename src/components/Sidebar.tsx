@@ -363,10 +363,19 @@ export default function Sidebar() {
 
     loadSidebar()
 
+    // Anteprima dal vivo: le impostazioni inviano il colore mentre lo scegli,
+    // senza aspettare il salvataggio.
+    const onPreview = (event: Event) => {
+      const detail = (event as CustomEvent<string | null>).detail
+      setSidebarColor(isHexColor(detail) ? detail : null)
+    }
+
     window.addEventListener('sidebar-updated', loadSidebar)
+    window.addEventListener('sidebar-color-preview', onPreview)
 
     return () => {
       window.removeEventListener('sidebar-updated', loadSidebar)
+      window.removeEventListener('sidebar-color-preview', onPreview)
     }
   }, [menuItems])
 
