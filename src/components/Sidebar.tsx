@@ -578,7 +578,12 @@ export default function Sidebar() {
         <X size={16} />
       </button>
 
-      <Link href="/" className="p-6 flex items-center gap-3 overflow-hidden group cursor-pointer">
+      <Link
+        href="/home"
+        className={`flex items-center gap-3 overflow-hidden group cursor-pointer ${
+          isCollapsed ? 'justify-center px-3 py-6' : 'p-6'
+        }`}
+      >
         <div className="min-w-[32px] h-8 flex items-center justify-center shrink-0">
           <Image
             src="/brand/hrmgroup_logo.jpg"
@@ -616,7 +621,11 @@ export default function Sidebar() {
         {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto overflow-x-hidden">
+      <nav
+        className={`flex-1 space-y-2 mt-4 overflow-y-auto overflow-x-hidden ${
+          isCollapsed ? 'px-3' : 'px-4'
+        }`}
+      >
         {filteredMenu.map((item, index) => {
           const isExternal = item.path.startsWith('http')
           const isActive = !isExternal && pathname === item.path
@@ -660,9 +669,13 @@ export default function Sidebar() {
 
           // Con sfondo personalizzato i colori arrivano dalla palette,
           // altrimenti restano quelli predefiniti.
+          const allineamento = isCollapsed
+            ? 'justify-center gap-0'
+            : 'gap-3'
+
           const className = palette.background
-            ? 'flex items-center gap-3 p-2 rounded-xl transition-all group'
-            : `flex items-center gap-3 p-2 rounded-xl transition-all group ${
+            ? `flex items-center ${allineamento} p-2 rounded-xl transition-all group`
+            : `flex items-center ${allineamento} p-2 rounded-xl transition-all group ${
                 isActive
                   ? 'bg-blue-50 shadow-sm shadow-blue-100/50'
                   : 'text-gray-400 hover:bg-gray-50 hover:text-gray-900'
@@ -713,9 +726,8 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {!isCollapsed && (
-        <div className="pt-3 px-3">
-          <div className="grid grid-cols-2 gap-2">
+      <div className={isCollapsed ? 'pt-3 px-3' : 'pt-3 px-3'}>
+          <div className={`grid gap-2 ${isCollapsed ? 'grid-cols-1' : 'grid-cols-2'}`}>
             <a
               href="https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=acddf36f2beef2d0bad7f0b16e91bfd1^assignment_group=4ea500b11bee0914efde5421604bcb5d"
               target="_blank"
@@ -750,13 +762,18 @@ export default function Sidebar() {
               </div>
             </a>
           </div>
-        </div>
-      )}
+      </div>
 
-      <div className="p-4 border-t border-gray-50 space-y-2">
+      <div
+        className={`border-t border-gray-50 space-y-2 py-4 ${
+          isCollapsed ? 'px-3' : 'px-4'
+        }`}
+      >
         <Link
           href="/settings"
-          className="w-full flex items-center gap-3 p-2 text-gray-400 hover:text-gray-900 transition-all overflow-hidden rounded-xl hover:bg-gray-50 group"
+          className={`w-full flex items-center p-2 text-gray-400 hover:text-gray-900 transition-all overflow-hidden rounded-xl hover:bg-gray-50 group ${
+            isCollapsed ? 'justify-center' : 'gap-3'
+          }`}
         >
           <div className="shrink-0 h-8 w-8 rounded-lg flex items-center justify-center group-hover:bg-white">
             <Settings size={18} strokeWidth={2.1} />
@@ -769,7 +786,9 @@ export default function Sidebar() {
 
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all overflow-hidden group"
+          className={`w-full flex items-center p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all overflow-hidden group ${
+            isCollapsed ? 'justify-center' : 'gap-3'
+          }`}
         >
           <div className="shrink-0 h-8 w-8 rounded-lg flex items-center justify-center group-hover:bg-white">
             <LogOut size={18} strokeWidth={2.1} />

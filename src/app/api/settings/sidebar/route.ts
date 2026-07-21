@@ -21,6 +21,16 @@ type SidebarRequestBody = {
   sidebar_color?: unknown
 }
 
+/** true quando l'errore riguarda una colonna non ancora creata a database. */
+function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  if (!error) return false
+
+  return (
+    error.code === '42703' ||
+    (error.message ?? '').toLowerCase().includes('sidebar_color')
+  )
+}
+
 /** Accetta solo colori esadecimali, es. #0150a0. */
 function isValidHexColor(value: unknown): value is string {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
@@ -80,7 +90,25 @@ export async function GET() {
       .from('user_preferences')
       .select('sidebar_visible_paths, sidebar_items_config, sidebar_color')
       .eq('user_id', userId)
-      .maybeSingle(),
+      .maybeSingle()
+      .then(async (result) => {
+        // Se la colonna sidebar_color non è ancora stata creata, la query
+        // fallirebbe del tutto: riproviamo senza, per non perdere il resto.
+        if (result.error && isMissingColumnError(result.error)) {
+          const fallback = await supabase
+            .from('user_preferences')
+            .select('sidebar_visible_paths, sidebar_items_config')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          return {
+            ...fallback,
+            data: fallback.data ? { ...fallback.data, sidebar_color: null } : null,
+          }
+        }
+
+        return result
+      }),
 
     supabase
       .from('profili')
@@ -188,10 +216,40 @@ export async function POST(request: NextRequest) {
   ])
 
   if (preferencesResult.error) {
-    return NextResponse.json(
-      { ok: false, message: preferencesResult.error.message },
-      { status: 500 }
+    if (!isMissingColumnError(preferencesResult.error)) {
+      return NextResponse.json(
+        { ok: false, message: preferencesResult.error.message },
+        { status: 500 }
+      )
+    }
+
+    // Colonna assente: salviamo comunque il resto e avvisiamo l'utente.
+    const senzaColore = await supabase.from('user_preferences').upsert(
+      {
+        user_id: userId,
+        sidebar_visible_paths,
+        sidebar_items_config,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
     )
+
+    if (senzaColore.error) {
+      return NextResponse.json(
+        { ok: false, message: senzaColore.error.message },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({
+      ok: true,
+      sidebar_visible_paths,
+      sidebar_position,
+      sidebar_items_config,
+      sidebar_color: null,
+      warning:
+        "Colore non salvato: manca la colonna sidebar_color in user_preferences. Esegui supabase/home_dashboard.sql.",
+    })
   }
 
   if (profiloResult.error) {

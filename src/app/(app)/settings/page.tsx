@@ -516,14 +516,22 @@ export default function SettingsPage() {
         }),
       })
 
+      const esito = await res.json().catch(() => null)
+
       if (!res.ok) {
-        setSaveMsg('Errore durante il salvataggio della sidebar.')
+        setSaveMsg(
+          esito?.message || 'Errore durante il salvataggio della sidebar.'
+        )
         setSaving(false)
         return
       }
 
       window.dispatchEvent(new Event('sidebar-updated'))
-      setSaveMsg('Impostazioni sidebar aggiornate con successo.')
+
+      // Il server segnala se qualcosa non è stato salvato (es. colonna mancante).
+      setSaveMsg(
+        esito?.warning || 'Impostazioni sidebar aggiornate con successo.'
+      )
     } catch {
       setSaveMsg('Errore durante il salvataggio della sidebar.')
     } finally {
