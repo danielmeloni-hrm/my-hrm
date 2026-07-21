@@ -43,8 +43,8 @@ export default function ReleasePipeline({ ticketData, onUpdate }: PipelineProps)
       dateField: 'rilascio_in_collaudo',
       icon: Bell,
       activeClass: 'border-violet-200 bg-violet-50',
-      iconClass: 'bg-violet-600 text-white',
-      badgeClass: 'bg-violet-600 text-white border-violet-600',
+      iconClass: 'bg-violet-600 text-[#ffffff]',
+      badgeClass: 'bg-violet-600 text-[#ffffff] border-violet-600',
     },
     {
       label: 'Produzione',
@@ -52,8 +52,8 @@ export default function ReleasePipeline({ ticketData, onUpdate }: PipelineProps)
       dateField: 'rilascio_in_produzione',
       icon: Rocket,
       activeClass: 'border-emerald-200 bg-emerald-50',
-      iconClass: 'bg-emerald-600 text-white',
-      badgeClass: 'bg-emerald-600 text-white border-emerald-600',
+      iconClass: 'bg-emerald-600 text-[#ffffff]',
+      badgeClass: 'bg-emerald-600 text-[#ffffff] border-emerald-600',
     },
   ]
 
@@ -104,7 +104,7 @@ export default function ReleasePipeline({ ticketData, onUpdate }: PipelineProps)
           {/* Stato collaudo */}
           <div className="rounded-l border border-[#0150a0]/10 bg-gradient-to-br from-[#f5f9ff] to-white p-5">
             <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-l bg-[#0150a0] text-white shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-l bg-[#0150a0] text-[#ffffff] shadow-sm">
                 <ClipboardCheck size={18} />
               </div>
 

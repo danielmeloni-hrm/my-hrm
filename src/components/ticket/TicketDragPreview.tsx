@@ -75,7 +75,7 @@ export default function TicketDragPreview({
           <div
             className={`w-12 h-7 text-[10px] font-black text-center rounded-lg border flex items-center justify-center ${
               (ticket.percentuale_avanzamento || 0) > 0
-                ? "border-emerald-500 bg-emerald-500 text-white"
+                ? "border-emerald-500 bg-emerald-500 text-[#ffffff]"
                 : "border-gray-200 bg-gray-50 text-gray-400"
             }`}
           >

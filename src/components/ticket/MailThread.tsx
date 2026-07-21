@@ -522,7 +522,7 @@ export default function MailThread({
                   }
                   className={`absolute top-1/2 right-2 -translate-y-1/2 p-2.5 rounded-lg disabled:opacity-50 ${
                     isOverdue ? 'bg-red-600' : 'bg-blue-600'
-                  } text-white`}
+                  } text-[#ffffff]`}
                   title="Collega thread al ticket"
                 >
                   <Send size={14} />
@@ -585,7 +585,7 @@ export default function MailThread({
                     saving ||
                     loadingThreads
                   }
-                  className="absolute bottom-3 right-3 p-2.5 rounded-lg disabled:opacity-50 bg-yellow-500 hover:bg-yellow-600 text-white"
+                  className="absolute bottom-3 right-3 p-2.5 rounded-lg disabled:opacity-50 bg-yellow-500 hover:bg-yellow-600 text-[#ffffff]"
                 >
                   <Send size={14} />
                 </button>

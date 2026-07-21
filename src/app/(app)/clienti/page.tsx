@@ -10,9 +10,12 @@ import {
   Search,
   MoreVertical,
   Workflow,
+  UserPlus,
   X,
   Save,
 } from "lucide-react";
+import AbilitazioneUtentiModal from "@/components/clienti/AbilitazioneUtentiModal";
+import ModalPortal from "@/components/ui/ModalPortal";
 
 const supabase = createClient();
 
@@ -53,6 +56,9 @@ export default function ClientiPage() {
   );
 
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
+  const [clienteAbilitazione, setClienteAbilitazione] = useState<Cliente | null>(
+    null
+  );
   const [selectedSteps, setSelectedSteps] = useState<string[]>([]);
   const [savingSteps, setSavingSteps] = useState(false);
 
@@ -216,6 +222,17 @@ export default function ClientiPage() {
                           <Workflow className="h-4 w-4 text-[#0150a0]" />
                           Flusso Progetto
                         </button>
+
+                        <button
+                          onClick={() => {
+                            setClienteAbilitazione(cliente);
+                            setOpenMenuClienteId(null);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                        >
+                          <UserPlus className="h-4 w-4 text-[#0150a0]" />
+                          Abilitazione Utenti
+                        </button>
                       </div>
                     )}
                   </div>
@@ -249,9 +266,10 @@ export default function ClientiPage() {
       </div>
 
       {selectedCliente && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+        <ModalPortal>
+          <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/40 p-4">
+          <div className="mx-auto my-4 flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
                   Flusso Progetto
@@ -269,7 +287,7 @@ export default function ClientiPage() {
               </button>
             </div>
 
-            <div className="max-h-[60vh] space-y-3 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-6">
               {PROJECT_STEPS.map((step) => {
                 const active = selectedSteps.includes(step.key);
 
@@ -293,7 +311,7 @@ export default function ClientiPage() {
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-bold ${
                         active
-                          ? "bg-[#0150a0] text-white"
+                          ? "bg-[#0150a0] text-[#ffffff]"
                           : "bg-gray-100 text-gray-500"
                       }`}
                     >
@@ -304,7 +322,7 @@ export default function ClientiPage() {
               })}
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+            <div className="flex shrink-0 justify-end gap-3 border-t border-gray-200 px-6 py-4">
               <button
                 onClick={() => setSelectedCliente(null)}
                 className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
@@ -315,14 +333,23 @@ export default function ClientiPage() {
               <button
                 onClick={saveFlussoProgetto}
                 disabled={savingSteps}
-                className="flex items-center gap-2 rounded-xl bg-[#0150a0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#014080] disabled:opacity-60"
+                className="flex items-center gap-2 rounded-xl bg-[#0150a0] px-4 py-2 text-sm font-semibold text-[#ffffff] hover:bg-[#014080] disabled:opacity-60"
               >
                 <Save className="h-4 w-4" />
                 {savingSteps ? "Salvataggio..." : "Salva flusso"}
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {clienteAbilitazione && (
+        <AbilitazioneUtentiModal
+          clienteId={clienteAbilitazione.id}
+          clienteNome={clienteAbilitazione.nome}
+          onClose={() => setClienteAbilitazione(null)}
+        />
       )}
     </AppPage>
   );

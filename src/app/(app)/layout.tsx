@@ -12,7 +12,8 @@ export default function AppLayout({
     <div className={`flex h-screen overflow-hidden ${theme.colors.appBg}`}>
       <Sidebar />
 
-      <main className={theme.layout.main}>
+      {/* pt-14 su mobile: lascia spazio alla barra superiore fissa */}
+      <main className={`${theme.layout.main} pt-14 md:pt-0`}>
         {children}
         <AiChatWidget />
         <TicketChangeToaster />

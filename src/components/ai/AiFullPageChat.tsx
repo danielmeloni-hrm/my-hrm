@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Bot,
   Check,
   Loader2,
@@ -27,6 +28,29 @@ type Message = {
   content: string;
 };
 
+type PendingActionChange = {
+  campo: string;
+  valore: string;
+};
+
+type PendingAction = {
+  action: {
+    action: "update_ticket" | "close_ticket" | "add_ticket_note" | "create_ticket";
+    ticketId: string | null;
+    ticketLabel: string | null;
+    summary: string;
+    changes: PendingActionChange[];
+  };
+  signature: string;
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  update_ticket: "Aggiornamento ticket",
+  close_ticket: "Chiusura ticket",
+  add_ticket_note: "Nota su ticket",
+  create_ticket: "Creazione ticket",
+};
+
 export default function AiFullPageChat() {
   const supabase = createClient();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -37,6 +61,8 @@ export default function AiFullPageChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [executingAction, setExecutingAction] = useState(false);
 
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -71,6 +97,7 @@ export default function AiFullPageChat() {
     setMessages(data.messages || []);
     setConversationId(id);
     setInput("");
+    setPendingAction(null);
   }
 
   async function newChat() {
@@ -101,6 +128,7 @@ export default function AiFullPageChat() {
     setConversationId(data.conversation.id);
     setMessages([]);
     setInput("");
+    setPendingAction(null);
     setEditingConversationId(null);
     setEditingTitle("");
 
@@ -166,6 +194,10 @@ export default function AiFullPageChat() {
     const userMessage = input.trim();
     if (!userMessage || sendingRef.current) return;
 
+    // La proposta aperta viene inviata al server come contesto: il messaggio
+    // successivo può correggerla ("scusa, era il collaudo").
+    const previousAction = pendingAction;
+
     sendingRef.current = true;
     setLoading(true);
     setInput("");
@@ -185,6 +217,7 @@ export default function AiFullPageChat() {
         body: JSON.stringify({
           message: userMessage,
           conversationId,
+          pendingAction: previousAction,
         }),
       });
 
@@ -201,6 +234,9 @@ export default function AiFullPageChat() {
           content: data.answer || data.details || data.error || "Errore AI",
         },
       ]);
+
+      // null => la proposta precedente non è più valida e va tolta.
+      setPendingAction((data.pendingAction as PendingAction) ?? null);
 
       try {
         await loadConversations();
@@ -222,6 +258,56 @@ export default function AiFullPageChat() {
     }
   }
 
+  async function resolveAction(confirmed: boolean) {
+    if (!pendingAction || executingAction) return;
+
+    setExecutingAction(true);
+
+    try {
+      const token = await getToken();
+
+      const res = await fetch("/api/ai/action", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          pendingAction,
+          conversationId,
+          confirmed,
+        }),
+      });
+
+      const data = await res.json();
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            data.answer ||
+            data.error ||
+            "Non sono riuscito a completare l'operazione.",
+        },
+      ]);
+
+      setPendingAction(null);
+    } catch (error) {
+      console.error("Errore esecuzione azione AI:", error);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Si è verificato un errore durante l'esecuzione dell'azione.",
+        },
+      ]);
+    } finally {
+      setExecutingAction(false);
+    }
+  }
+
   useEffect(() => {
     loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -229,7 +315,7 @@ export default function AiFullPageChat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, pendingAction]);
 
   return (
     <div className="flex h-[calc(100vh-120px)] overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm">
@@ -238,7 +324,7 @@ export default function AiFullPageChat() {
           type="button"
           onClick={() => newChat()}
           disabled={loading}
-          className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#00529F] px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-[#003F7A] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#00529F] px-4 py-3 text-sm font-black text-[#ffffff] shadow-sm transition hover:bg-[#003F7A] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus size={17} />
           Nuova chat
@@ -264,7 +350,7 @@ export default function AiFullPageChat() {
                 key={conv.id}
                 className={`group rounded-2xl border px-3 py-3 transition ${
                   isActive
-                    ? "border-[#00529F] bg-[#00529F] text-white shadow-sm"
+                    ? "border-[#00529F] bg-[#00529F] text-[#ffffff] shadow-sm"
                     : "border-gray-100 bg-white text-gray-700 hover:border-blue-100 hover:bg-blue-50/40"
                 }`}
               >
@@ -293,7 +379,7 @@ export default function AiFullPageChat() {
                       type="button"
                       onClick={() => renameConversation(conv.id)}
                       disabled={renaming || !editingTitle.trim()}
-                      className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-600 text-white disabled:opacity-50"
+                      className="flex h-8 w-8 items-center justify-center rounded-xl bg-green-600 text-[#ffffff] disabled:opacity-50"
                       title="Salva nome"
                     >
                       {renaming ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
@@ -335,7 +421,7 @@ export default function AiFullPageChat() {
                       disabled={loading}
                       className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         isActive
-                          ? "bg-white/15 text-white hover:bg-white/25"
+                          ? "bg-white/15 text-[#ffffff] hover:bg-white/25"
                           : "bg-gray-50 text-gray-400 opacity-100 hover:bg-gray-100 hover:text-[#00529F] md:opacity-0 md:group-hover:opacity-100"
                       }`}
                       title="Rinomina conversazione"
@@ -354,7 +440,7 @@ export default function AiFullPageChat() {
         <header className="border-b border-gray-100 bg-white px-6 py-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#00529F] text-white shadow-sm">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#00529F] text-[#ffffff] shadow-sm">
                 <Bot size={24} />
               </div>
 
@@ -391,7 +477,7 @@ export default function AiFullPageChat() {
               <div className="overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-blue-50/50 px-6 py-5">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00529F] text-white">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00529F] text-[#ffffff]">
                       <Sparkles size={22} />
                     </div>
                     <div>
@@ -429,7 +515,7 @@ export default function AiFullPageChat() {
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "assistant" && (
-                  <div className="mr-3 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#00529F] text-white">
+                  <div className="mr-3 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#00529F] text-[#ffffff]">
                     <Bot size={18} />
                   </div>
                 )}
@@ -437,7 +523,7 @@ export default function AiFullPageChat() {
                 <div
                   className={`max-w-[82%] rounded-[24px] px-5 py-4 text-sm leading-relaxed shadow-sm ${
                     msg.role === "user"
-                      ? "rounded-br-md bg-[#00529F] text-white"
+                      ? "rounded-br-md bg-[#00529F] text-[#ffffff]"
                       : "rounded-bl-md border border-gray-100 bg-white text-gray-800"
                   }`}
                 >
@@ -462,9 +548,77 @@ export default function AiFullPageChat() {
               </div>
             ))}
 
+            {pendingAction && (
+              <div className="flex justify-start">
+                <div className="mr-3 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-[#ffffff]">
+                  <AlertTriangle size={18} />
+                </div>
+
+                <div className="w-full max-w-[82%] overflow-hidden rounded-[24px] rounded-bl-md border border-amber-200 bg-amber-50 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-100/70 px-5 py-3">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+                      {ACTION_LABELS[pendingAction.action.action] ?? "Azione"}
+                    </span>
+
+                    <span className="truncate text-[11px] font-bold text-amber-700">
+                      {pendingAction.action.ticketLabel}
+                    </span>
+                  </div>
+
+                  <div className="px-5 py-4">
+                    <p className="mb-3 text-sm font-bold text-amber-900">
+                      {pendingAction.action.summary}
+                    </p>
+
+                    <div className="space-y-1.5">
+                      {pendingAction.action.changes.map((change, index) => (
+                        <div
+                          key={`${change.campo}-${index}`}
+                          className="flex items-start justify-between gap-3 rounded-xl bg-white px-3 py-2 text-xs"
+                        >
+                          <span className="font-black text-gray-500">
+                            {change.campo}
+                          </span>
+                          <span className="text-right font-bold text-gray-900">
+                            {change.valore}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => resolveAction(true)}
+                        disabled={executingAction}
+                        className="flex items-center gap-2 rounded-2xl bg-green-600 px-4 py-2.5 text-xs font-black text-[#ffffff] shadow-sm transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {executingAction ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <Check size={15} />
+                        )}
+                        Conferma
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => resolveAction(false)}
+                        disabled={executingAction}
+                        className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <X size={15} />
+                        Annulla
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {loading && (
               <div className="flex justify-start">
-                <div className="mr-3 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#00529F] text-white">
+                <div className="mr-3 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#00529F] text-[#ffffff]">
                   <Bot size={18} />
                 </div>
 
@@ -500,7 +654,7 @@ export default function AiFullPageChat() {
               type="button"
               onClick={sendMessage}
               disabled={loading || !input.trim()}
-              className="flex h-[52px] items-center gap-2 rounded-2xl bg-[#00529F] px-6 text-sm font-black text-white shadow-sm transition hover:bg-[#003F7A] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-[52px] items-center gap-2 rounded-2xl bg-[#00529F] px-6 text-sm font-black text-[#ffffff] shadow-sm transition hover:bg-[#003F7A] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send size={17} />
               Invia

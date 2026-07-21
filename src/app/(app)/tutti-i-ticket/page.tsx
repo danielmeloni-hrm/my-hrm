@@ -952,8 +952,8 @@ export default function StoricoTicketPage() {
                           <select
                             className={`text-[9px] font-bold uppercase px-2 py-1 rounded-lg outline-none cursor-pointer border ${
                               t.stato === 'Attenzione Business'
-                                ? 'bg-amber-500 text-white border-amber-600'
-                                : 'bg-slate-900 text-white border-transparent'
+                                ? 'bg-amber-500 text-[#ffffff] border-amber-600'
+                                : 'bg-slate-900 text-[#ffffff] border-transparent'
                             }`}
                             value={t.stato || ''}
                             onChange={(e) => handleUpdate(t.id, 'stato', e.target.value)}
@@ -972,7 +972,7 @@ export default function StoricoTicketPage() {
                               href={getUrl(t.link_tag)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-block bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded text-[10px] font-mono font-bold hover:bg-blue-600 hover:text-white transition-colors"
+                              className="inline-block bg-blue-50 text-blue-600 border border-blue-100 px-2 py-1 rounded text-[10px] font-mono font-bold hover:bg-blue-600 hover:text-[#ffffff] transition-colors"
                             >
                               {t.n_tag || 'Link'}
                             </a>
@@ -1002,7 +1002,7 @@ export default function StoricoTicketPage() {
                                     }}
                                     className={`px-2 py-1 rounded-md border text-[9px] font-bold uppercase transition-colors ${
                                       selected
-                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        ? 'bg-blue-600 text-[#ffffff] border-blue-600'
                                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                                     }`}
                                   >

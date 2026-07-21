@@ -1,203 +1,180 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import { 
-  BellRing, Rocket, ChevronRight, 
-  AlertCircle, Calendar, ArrowRight,
-  Clock, CheckCircle2, Activity, Zap
-} from 'lucide-react'
-import Link from 'next/link'
 import AppPage from '@/components/ui/AppPage'
+import HomeDashboard from '@/components/home/HomeDashboard'
+import type { HomeData } from '@/components/home/widgets'
 import { useRealtimeTable } from '@/hooks/useRealtimeTable'
 
+/**
+ * `ticket` ha più chiavi esterne verso `profili` (assignee, utente_id): in quel
+ * caso PostgREST rifiuta l'embed ambiguo. Proviamo con le relazioni e, se
+ * fallisce, ricadiamo su una select semplice risolvendo i clienti a mano.
+ */
+const TICKET_SELECT_WITH_RELATIONS = '*, clienti(nome)'
+
 export default function HomePage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
+
   const [tickets, setTickets] = useState<any[]>([])
+  const [profili, setProfili] = useState<any[]>([])
+  const [userId, setUserId] = useState<string | null>(null)
+  const [nomeUtente, setNomeUtente] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [userProfile, setUserProfile] = useState<{nome: string} | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
 
-  // ... dentro l'useEffect, sostituisci la funzione fetchData con questa:
+  const fetchTickets = useCallback(async () => {
+    const conRelazioni = await supabase
+      .from('ticket')
+      .select(TICKET_SELECT_WITH_RELATIONS)
+      .order('creato_at', { ascending: false })
 
-useEffect(() => {
-  async function fetchData() {
-    try {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        setLoading(false);
-        return;
+    if (!conRelazioni.error) {
+      setErrore(null)
+      setTickets(conRelazioni.data ?? [])
+      return
+    }
+
+    console.warn(
+      'Embed clienti non disponibile, uso il fallback:',
+      conRelazioni.error.message
+    )
+
+    const [ticketResult, clientiResult] = await Promise.all([
+      supabase.from('ticket').select('*').order('creato_at', { ascending: false }),
+      supabase.from('clienti').select('*'),
+    ])
+
+    if (ticketResult.error) {
+      console.error('Errore caricamento ticket home:', ticketResult.error)
+      setErrore(ticketResult.error.message)
+      return
+    }
+
+    if (clientiResult.error) {
+      console.warn('Errore caricamento clienti:', clientiResult.error.message)
+    }
+
+    const nomePerCliente = new Map(
+      (clientiResult.data ?? []).map((cliente: any) => [
+        cliente.id,
+        cliente.nome ?? cliente.ragione_sociale ?? cliente.nome_cliente ?? null,
+      ])
+    )
+
+    setErrore(null)
+    setTickets(
+      (ticketResult.data ?? []).map((ticket: any) => ({
+        ...ticket,
+        clienti: ticket.cliente_id
+          ? { nome: nomePerCliente.get(ticket.cliente_id) ?? null }
+          : null,
+      }))
+    )
+  }, [supabase])
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true)
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (user) {
+        setUserId(user.id)
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profili')
+          .select('nome, nome_completo, email')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (profileError) {
+          console.error('Errore caricamento profilo:', profileError)
+        }
+
+        setNomeUtente(
+          profile?.nome ||
+            profile?.nome_completo?.split(' ')[0] ||
+            profile?.email?.split('@')[0] ||
+            user.email?.split('@')[0] ||
+            null
+        )
       }
 
-      // Eseguiamo le chiamate
-      const { data: tData, error: tErr } = await supabase
-        .from('ticket')
-        .select('*, clienti(nome)') // Prova prima solo con clienti
-        .eq('assignee', user.id);
+      const [{ data: profiliData, error: profiliError }] = await Promise.all([
+        supabase.from('profili').select('id, nome, nome_completo, email, ruolo'),
+        fetchTickets(),
+      ])
 
-      if (tErr) throw tErr; // Forza il salto al catch per vedere l'errore reale
-      setTickets(tData || []);
+      if (profiliError) {
+        console.error('Errore caricamento profili:', profiliError)
+      }
 
-    } catch (err: any) {
-      // Qui vedrai il messaggio di errore reale nel log
-      console.error("Errore Dettagliato:", err.message || err.details || err);
-    } finally {
-      // Questa riga sblocca SEMPRE la UI, indipendentemente dall'errore
-      setLoading(false);
+      setProfili(profiliData ?? [])
+      setLoading(false)
     }
-  }
-  fetchData();
-}, []);
+
+    fetchData()
+  }, [supabase, fetchTickets])
 
   useRealtimeTable({
     supabase,
     table: 'ticket',
-    onChange: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: tData, error: tErr } = await supabase
-        .from('ticket')
-        .select('*, clienti(nome)')
-        .eq('assignee', user.id);
-
-      if (!tErr) setTickets(tData || []);
-    },
-  });
-
-  // Dipendenze vuote per eseguire solo al mount
-
-  // --- LOGICA FILTRI (Invariata) ---
-  const oggi = new Date()
-  const unaSettimanaFa = new Date(oggi.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const quindiciGiorniFa = new Date(oggi.getTime() - 15 * 24 * 60 * 60 * 1000)
-
-  const rilasciSettimana = tickets.filter(t => {
-    const dColl = t.rilascio_in_collaudo ? new Date(t.rilascio_in_collaudo) : null
-    const dProd = t.rilascio_in_produzione ? new Date(t.rilascio_in_produzione) : null
-    return (dColl && dColl >= unaSettimanaFa) || (dProd && dProd >= unaSettimanaFa)
+    onChange: fetchTickets,
   })
 
-  const pingAlerts = tickets.filter(t => {
-    if (t.stato === 'Completato' || t.stato === 'Completato - In attesa di chiusura'||t.sprint === 'Backlog'||t.sprint === null||t.tipo_di_attivita === 'Incident Resolution') return false
-    if (!t.ultimo_ping) return true
-    return new Date(t.ultimo_ping) < quindiciGiorniFa
-  })
-
-  if (loading) return (
-    <AppPage maxWidth="7xl">
-      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">Loading Control Center...</span>
-      </div>
-    </AppPage>
+  const data: HomeData = useMemo(
+    () => ({ tickets, profili, userId }),
+    [tickets, profili, userId]
   )
 
-  return (
-    <AppPage maxWidth="7xl">
-      <div>
+  const oggi = new Date()
 
-        {/* WELCOME HEADER */}
-        <div className="flex items-end justify-between mb-12">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">System Live</span>
+  if (loading) {
+    return (
+      <AppPage maxWidth="full">
+        <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
+            Loading Control Center...
+          </span>
+        </div>
+      </AppPage>
+    )
+  }
+
+  return (
+    <AppPage maxWidth="full">
+      <div className="w-full">
+        <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-blue-600" />
+              <span className="text-[9px] font-black uppercase tracking-[0.3em] text-gray-400 sm:text-[10px]">
+                System Live
+              </span>
             </div>
-            <h1 className="text-4xl font-black tracking-tighter text-gray-900">
-              Bentornato {userProfile?.nome || 'Utente'}
+
+            <h1 className="truncate text-2xl font-black tracking-tighter text-gray-900 sm:text-3xl lg:text-4xl">
+              Benvenuto {nomeUtente || 'Utente'}
             </h1>
           </div>
-          <div className="text-right">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-              {new Intl.DateTimeFormat('it-IT', { dateStyle: 'full' }).format(oggi)}
-            </p>
+
+          <p className="shrink-0 text-[9px] font-black uppercase tracking-widest text-gray-400 sm:text-[10px]">
+            {new Intl.DateTimeFormat('it-IT', { dateStyle: 'full' }).format(oggi)}
+          </p>
+        </div>
+
+        {errore && (
+          <div className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">
+            Non sono riuscito a caricare i ticket: {errore}
           </div>
-        </div>
+        )}
 
-        {/* TOP GRID: CRITICAL ALERTS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-          
-          {/* SEZIONE PING ALERTS */}
-          <section className="bg-white border-2 border-red-50 rounded-[32px] p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-red-500 text-white rounded-2xl shadow-lg shadow-red-100">
-                  <BellRing size={24} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black uppercase tracking-tight text-gray-800">Alert Ping</h2>
-                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-tighter italic">Nessun contatto da oltre 15gg</p>
-                </div>
-              </div>
-              <div className="text-4xl font-black text-red-500 tracking-tighter">{pingAlerts.length}</div>
-            </div>
-
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              {pingAlerts.length > 0 ? pingAlerts.map(t => (
-                <Link href={`/ticket/${t.id}`} key={t.id} className="flex items-center justify-between p-4 bg-red-50/30 hover:bg-red-50 rounded-2xl border border-red-50 transition-all group">
-                  <div className="flex flex-col gap-1 overflow-hidden mr-4">
-                    <span className="text-[9px] font-black text-red-400 uppercase tracking-tighter">Cliente: {t.clienti?.nome}</span>
-                    <span className="text-[13px] font-bold text-gray-800 truncate">{t.titolo}</span>
-                  </div>
-                  <div className="flex flex-col items-end shrink-0 gap-2">
-                    <span className="text-[10px] font-black bg-white px-3 py-1 rounded-full border border-red-100 text-red-600 shadow-sm">
-                      {t.ultimo_ping ? `Ultimo: ${new Date(t.ultimo_ping).toLocaleDateString()}` : 'MAI PINGATO'}
-                    </span>
-                    <ArrowRight size={16} className="text-red-300 group-hover:translate-x-1 transition-transform" />
-                  </div>
-                </Link>
-              )) : (
-                <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <CheckCircle2 size={40} className="text-green-500 mb-2 opacity-20" />
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tutti i clienti sono seguiti</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* SEZIONE RILASCI SETTIMANA */}
-          <section className="bg-white border border-gray-100 rounded-[32px] p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100">
-                  <Rocket size={24} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black uppercase tracking-tight text-gray-800">Rilasci Settimanali</h2>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Output degli ultimi 7 giorni</p>
-                </div>
-              </div>
-              <div className="text-4xl font-black text-blue-600 tracking-tighter">{rilasciSettimana.length}</div>
-            </div>
-
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              {rilasciSettimana.length > 0 ? rilasciSettimana.map(t => (
-                <Link href={`/ticket/${t.id}`} key={t.id} className="flex items-center justify-between p-4 border border-gray-100 hover:border-blue-200 hover:bg-blue-50/10 rounded-2xl transition-all group">
-                  <div className="flex flex-col gap-1 overflow-hidden mr-4">
-                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t.clienti?.nome}</span>
-                    <span className="text-[13px] font-bold text-gray-800 truncate">{t.titolo}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {t.rilascio_in_produzione && (
-                        <div className="px-2 py-1 bg-green-100 text-green-700 text-[9px] font-black rounded-lg">PROD</div>
-                    )}
-                    {t.rilascio_in_collaudo && (
-                        <div className="px-2 py-1 bg-purple-100 text-purple-700 text-[9px] font-black rounded-lg">COLL</div>
-                    )}
-                  </div>
-                </Link>
-              )) : (
-                <div className="flex flex-col items-center justify-center py-10 text-center text-gray-300">
-                   <Clock size={40} className="mb-2 opacity-10" />
-                   <p className="text-xs font-bold uppercase tracking-widest">In attesa di rilasci...</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-        </div>
-
+        <HomeDashboard data={data} />
       </div>
     </AppPage>
   )

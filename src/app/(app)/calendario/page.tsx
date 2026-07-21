@@ -417,7 +417,7 @@ export default function ReleaseCalendar() {
                 onClick={() => setViewMode(mode as 'week' | 'month')}
                 className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
                   viewMode === mode
-                    ? 'bg-black text-white'
+                    ? 'bg-black text-[#ffffff]'
                     : 'text-gray-400 hover:text-black'
                 }`}
               >
@@ -878,7 +878,7 @@ export default function ReleaseCalendar() {
 
                     <Link
                       href={`/ticket/${t.id}`}
-                      className="p-2.5 bg-white rounded-full shadow-sm border border-white/60 hover:bg-black hover:text-white transition-all"
+                      className="p-2.5 bg-white rounded-full shadow-sm border border-white/60 hover:bg-black hover:text-[#ffffff] transition-all"
                     >
                       <ChevronRight size={16} />
                     </Link>

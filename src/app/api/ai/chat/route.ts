@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, FunctionCallingConfigMode } from "@google/genai";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  ACTION_NAMES,
+  TICKET_ACTION_DECLARATIONS,
+  buildPendingAction,
+  detectsWriteIntent,
+  signAction,
+  verifyAction,
+} from "@/lib/ai-ticket-actions";
+import type { AiPendingAction } from "@/lib/ai-ticket-actions";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -116,7 +125,7 @@ function getStoredEmailText(email: StoredEmail, fallbackRow?: any) {
   );
 }
 
-function getIntent(message: string) {
+function getIntent(message: string, hasPendingAction = false) {
   const text = normalizeText(message);
   const codes = extractCodes(message);
 
@@ -179,6 +188,8 @@ function getIntent(message: string) {
     text.includes("cosa e successo") ||
     text.includes("cosa sai dirmi");
 
+  const asksAction = detectsWriteIntent(message, hasPendingAction);
+
   const isGeneric =
     !asksMail && !asksTicket && !asksClienti && !asksDocumenti && !asksPeople;
 
@@ -189,6 +200,7 @@ function getIntent(message: string) {
     asksDocumenti,
     asksPeople,
     asksOverview,
+    asksAction,
     isGeneric,
     searchText: extractSearchText(message),
     codes,
@@ -396,6 +408,232 @@ function findProfiloForTicket(ticket: any, profili: any[]) {
   );
 }
 
+/**
+ * Il contesto completo può diventare enorme (mail con body integrali) e far
+ * fallire la chiamata al modello. Se supera la soglia, riduciamo i testi email.
+ */
+const MAX_CONTEXT_CHARS = 350_000;
+
+function serializeContext(context: any) {
+  let json = JSON.stringify(context, null, 2);
+
+  if (json.length <= MAX_CONTEXT_CHARS) return json;
+
+  const compact = {
+    ...context,
+    mailThreads: (context.mailThreads ?? []).slice(0, 60).map((thread: any) => ({
+      ...thread,
+      emails: (thread.emails ?? []).slice(-20).map((email: any) => ({
+        ...email,
+        text: String(email.text ?? "").slice(0, 1500),
+        body_text: undefined,
+        preview: undefined,
+      })),
+    })),
+  };
+
+  json = JSON.stringify(compact, null, 2);
+
+  if (json.length <= MAX_CONTEXT_CHARS) return json;
+
+  return json.slice(0, MAX_CONTEXT_CHARS);
+}
+
+/* ------------------------------------------------------------------ */
+/* Rilevamento azione (function calling)                               */
+/* ------------------------------------------------------------------ */
+
+type DetectActionInput = {
+  message: string;
+  oldMessages: { role: string; content: string }[];
+  userId: string;
+  tickets: any[];
+  clienti: any[];
+  profili: any[];
+  previousAction?: AiPendingAction | null;
+};
+
+async function detectTicketAction(input: DetectActionInput): Promise<{
+  answer: string;
+  pendingAction: any | null;
+} | null> {
+  const {
+    message,
+    oldMessages,
+    userId,
+    tickets,
+    clienti,
+    profili,
+    previousAction,
+  } = input;
+
+  // Contesto minimo: serve solo a far scegliere il ticket giusto.
+  const ticketIndex = tickets.slice(0, 400).map((ticket: any) => ({
+    n_tag: ticket.n_tag,
+    titolo: ticket.titolo,
+    stato: ticket.stato,
+    priorita: ticket.priorita,
+    sprint: ticket.sprint,
+    assignee: ticket.assignee,
+  }));
+
+  const personeIndex = profili.slice(0, 300).map((profilo: any) => ({
+    nome: profilo.nome_completo || profilo.nome,
+    email: profilo.email,
+  }));
+
+  const clientiIndex = clienti
+    .slice(0, 300)
+    .map(
+      (cliente: any) =>
+        cliente.ragione_sociale || cliente.nome || cliente.nome_cliente
+    )
+    .filter(Boolean);
+
+  const proposalBlock = previousAction
+    ? `
+PROPOSTA PRECEDENTE ANCORA APERTA (non ancora confermata dall'utente):
+${JSON.stringify({
+  azione: previousAction.action,
+  ticket: previousAction.ticketLabel,
+  ticket_ref: previousAction.ticketLabel?.split(" — ")[0] ?? null,
+  modifiche: previousAction.payload,
+})}
+
+Il messaggio dell'utente può correggerla, completarla o annullarla:
+- "scusa, è stato rilasciato in collaudo" => stessa azione e stesso ticket, ma
+  il campo corretto è rilascio_in_collaudo invece di rilascio_in_produzione.
+- "no, il 13" => stessa proposta con la data corretta.
+- "anche la priorità alta" => stessa proposta più il campo aggiuntivo.
+In questi casi richiama la funzione con TUTTI i campi corretti e definitivi,
+riusando lo stesso ticket_ref della proposta precedente.
+`
+    : "";
+
+  const prompt = `
+Sei il modulo "azioni" dell'assistente MyHRM.
+
+Il tuo unico compito è capire se l'utente vuole MODIFICARE dei dati
+(aggiornare campi di un ticket, chiudere un ticket, aggiungere una nota allo
+storico, creare un nuovo ticket).
+
+Regole:
+- Se l'utente sta solo chiedendo informazioni o facendo una domanda, NON
+  chiamare nessuna funzione e rispondi con il testo esatto: NESSUNA_AZIONE
+- Se l'utente chiede una modifica, chiama esattamente una funzione.
+- Considera richiesta di modifica anche le frasi dichiarative che comunicano un
+  fatto avvenuto su un ticket, non solo gli ordini diretti. Esempi:
+  · "il TAG123 è stato rilasciato il 12/06/2026" => update_ticket con
+    rilascio_in_produzione = 2026-06-12
+  · "TAG123 è stato rilasciato in collaudo il 12/06/2026" => update_ticket con
+    rilascio_in_collaudo = 2026-06-12 e rilascio_collaudo_eseguito = true
+  · "TAG123 è andato in produzione" => rilascio_produzione_eseguito = true
+  · "ho finito il TAG123" => close_ticket
+  · "sto lavorando su TAG123" => update_ticket con stato "In lavorazione"
+- Distingui collaudo e produzione: "collaudo"/"test"/"UAT" => campi
+  rilascio_in_collaudo / rilascio_collaudo_eseguito / stato_collaudo;
+  "produzione"/"prod"/"live" => rilascio_in_produzione /
+  rilascio_produzione_eseguito.
+- Le date vanno passate in formato YYYY-MM-DD. Le date scritte dall'utente sono
+  in formato italiano giorno/mese/anno: "12/06/2026" significa 2026-06-12.
+- Usa i valori esatti degli enum disponibili.
+- In "ticket_ref" metti il n_tag se l'utente lo ha indicato, altrimenti il titolo.
+- Non inventare ticket, clienti o persone che non sono negli elenchi.
+${proposalBlock}
+Ultimi messaggi della conversazione:
+${JSON.stringify(oldMessages.slice(-6))}
+
+RICHIESTA UTENTE:
+${message}
+
+TICKET DISPONIBILI:
+${JSON.stringify(ticketIndex)}
+
+PERSONE DISPONIBILI:
+${JSON.stringify(personeIndex)}
+
+CLIENTI DISPONIBILI:
+${JSON.stringify(clientiIndex)}
+`;
+
+  let functionCall: { name?: string; args?: Record<string, any> } | null = null;
+  let detectionFailed = true;
+
+  for (const model of ["gemini-2.5-flash", "gemini-2.5-flash-lite"]) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          tools: [{ functionDeclarations: TICKET_ACTION_DECLARATIONS as any }],
+          toolConfig: {
+            functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+          },
+        },
+      });
+
+      functionCall = response.functionCalls?.[0] ?? null;
+      detectionFailed = false;
+      break;
+    } catch (error) {
+      console.error(`Errore rilevamento azione AI (${model}):`, error);
+    }
+  }
+
+  if (detectionFailed) {
+    return {
+      answer:
+        "⚠️ Il servizio AI è momentaneamente occupato e non sono riuscito a interpretare la richiesta. Riprova tra qualche secondo.",
+      pendingAction: null,
+    };
+  }
+
+  if (!functionCall?.name || !ACTION_NAMES.has(functionCall.name)) {
+    // L'utente ha risposto alla proposta senza modificarla: la teniamo viva.
+    if (previousAction) {
+      const text = message.trim().toLowerCase();
+
+      if (
+        /^(no|nope|annulla|lascia stare|non importa|niente|fermati)\b/.test(text)
+      ) {
+        return {
+          answer: "Ok, ho annullato la proposta. Non ho modificato nulla.",
+          pendingAction: null,
+        };
+      }
+
+      if (/^(si|sì|ok|va bene|procedi|conferma|confermo|vai|esegui)\b/.test(text)) {
+        return {
+          answer:
+            "Perfetto. Per applicare la modifica premi **Conferma** qui sotto.",
+          pendingAction: signAction(previousAction),
+        };
+      }
+    }
+
+    return null;
+  }
+
+  const resolution = buildPendingAction(
+    functionCall.name,
+    (functionCall.args ?? {}) as Record<string, any>,
+    { userId, tickets, clienti, profili }
+  );
+
+  if (!resolution.ok) {
+    return { answer: resolution.error, pendingAction: null };
+  }
+
+  const dettaglio = resolution.action.changes
+    .map((change) => `- **${change.campo}**: ${change.valore}`)
+    .join("\n");
+
+  return {
+    answer: `${resolution.action.summary}\n\n${dettaglio}\n\nConfermi l'operazione?`,
+    pendingAction: signAction(resolution.action),
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const user = await getUser(req);
@@ -404,7 +642,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
     }
 
-    const { message, conversationId } = await req.json();
+    const {
+      message,
+      conversationId,
+      pendingAction: clientPendingAction,
+    } = await req.json();
 
     if (!message) {
       return NextResponse.json(
@@ -413,7 +655,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const intent = getIntent(message);
+    // Proposta ancora aperta lato client: la accettiamo solo se la firma è valida,
+    // così il messaggio successivo può correggerla o completarla.
+    let previousAction: AiPendingAction | null = null;
+
+    if (clientPendingAction) {
+      const verification = verifyAction(clientPendingAction, user.id);
+      if (verification.ok) previousAction = verification.action;
+    }
+
+    const intent = getIntent(message, Boolean(previousAction));
     let activeConversationId = conversationId;
 
     if (!activeConversationId) {
@@ -453,7 +704,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     const profiliPromise =
-      intent.asksPeople || intent.asksTicket || intent.isGeneric
+      intent.asksPeople || intent.asksTicket || intent.isGeneric || intent.asksAction
         ? supabaseAdmin
             .from("profili")
             .select(
@@ -472,7 +723,7 @@ export async function POST(req: Request) {
           });
 
     const ticketsPromise =
-      intent.asksTicket || intent.isGeneric || intent.asksMail
+      intent.asksTicket || intent.isGeneric || intent.asksMail || intent.asksAction
         ? supabaseAdmin
             .from("ticket")
             .select("*")
@@ -481,7 +732,11 @@ export async function POST(req: Request) {
         : Promise.resolve({ data: [], error: null });
 
     const clientiPromise =
-      intent.asksClienti || intent.isGeneric || intent.asksMail || intent.asksTicket
+      intent.asksClienti ||
+      intent.isGeneric ||
+      intent.asksMail ||
+      intent.asksTicket ||
+      intent.asksAction
         ? supabaseAdmin
             .from("clienti")
             .select("*")
@@ -577,6 +832,46 @@ export async function POST(req: Request) {
     const documenti = documentiResult.data ?? [];
     const mailThreadsRaw = mailThreadsResult.data ?? [];
     const mailThreads = buildMailThreadContext(mailThreadsRaw);
+
+    /* ---------------------------------------------------------------- */
+    /* Rilevamento azioni di scrittura sui ticket                        */
+    /* ---------------------------------------------------------------- */
+
+    if (intent.asksAction) {
+      const actionResult = await detectTicketAction({
+        message,
+        oldMessages,
+        userId: user.id,
+        tickets,
+        clienti,
+        profili,
+        previousAction,
+      });
+
+      if (actionResult) {
+        await Promise.all([
+          supabaseAdmin.from("ai_messages").insert({
+            conversation_id: activeConversationId,
+            role: "assistant",
+            content: actionResult.answer,
+          }),
+
+          supabaseAdmin
+            .from("ai_conversations")
+            .update({
+              updated_at: new Date().toISOString(),
+              title: message.slice(0, 40),
+            })
+            .eq("id", activeConversationId),
+        ]);
+
+        return NextResponse.json({
+          answer: actionResult.answer,
+          pendingAction: actionResult.pendingAction,
+          conversationId: activeConversationId,
+        });
+      }
+    }
 
     const authUsers = (authUsersResult.data.users ?? []).map((authUser: any) => ({
       id: authUser.id,
@@ -801,6 +1096,11 @@ Regole:
 - Usa solo i dati presenti nel contesto.
 - Se i dati non sono sufficienti, dillo chiaramente.
 - Non inventare dati.
+- Puoi anche eseguire azioni sui ticket (aggiornare campi, chiudere un ticket,
+  aggiungere una nota allo storico, creare un ticket). Ogni azione viene sempre
+  proposta all'utente e applicata solo dopo la sua conferma esplicita.
+- Se l'utente chiede se puoi modificare qualcosa, confermalo e invitalo a
+  formulare la richiesta (es. "chiudi TAG123", "metti TAG45 in lavorazione").
 
 Utente loggato:
 - Nel contesto trovi "loggedUser".
@@ -849,7 +1149,7 @@ DOMANDA UTENTE:
 ${message}
 
 CONTESTO DISPONIBILE:
-${JSON.stringify(context, null, 2)}
+${serializeContext(context)}
 `;
 
     let answer = "";

@@ -218,7 +218,7 @@ export default function EditChange({ params: paramsPromise }: { params: Promise<
               type="submit"
               disabled={saving}
               className={cn(
-                'px-5 py-2 rounded-xl text-xs font-black uppercase text-white transition shadow-sm',
+                'px-5 py-2 rounded-xl text-xs font-black uppercase text-[#ffffff] transition shadow-sm',
                 saving ? 'bg-slate-400' : 'hover:opacity-95'
               )}
               style={{ background: BRAND }}
@@ -289,7 +289,7 @@ export default function EditChange({ params: paramsPromise }: { params: Promise<
                           onClick={() => toggleApp(app)}
                           className={cn(
                             'px-3 py-1.5 rounded-full text-[10px] font-black uppercase border transition',
-                            active ? 'text-white' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                            active ? 'text-[#ffffff]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
                           )}
                           style={active ? { background: BRAND, borderColor: `${BRAND}55` } : {}}
                         >
@@ -423,7 +423,7 @@ export default function EditChange({ params: paramsPromise }: { params: Promise<
                   form="edit-change-form"
                   type="submit"
                   disabled={saving}
-                  className={cn('flex-1 px-4 py-2 rounded-xl text-xs font-black uppercase text-white transition', saving ? 'bg-slate-400' : '')}
+                  className={cn('flex-1 px-4 py-2 rounded-xl text-xs font-black uppercase text-[#ffffff] transition', saving ? 'bg-slate-400' : '')}
                   style={!saving ? { background: BRAND } : {}}
                 >
                   {saving ? '...' : 'Salva'}
@@ -529,7 +529,7 @@ function TicketSquare({
       onClick={onClick}
       className={cn(
         "w-10 h-10 rounded-xl border-2 flex items-center justify-center font-black text-sm transition-all",
-        active ? `${palette.bg} border-transparent text-white shadow-sm` : `bg-white ${palette.border} text-slate-300 hover:${palette.soft}`
+        active ? `${palette.bg} border-transparent text-[#ffffff] shadow-sm` : `bg-white ${palette.border} text-slate-300 hover:${palette.soft}`
       )}
     >
       {label}

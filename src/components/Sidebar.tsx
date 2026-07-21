@@ -25,7 +25,12 @@ import {
   FolderKanban,
   ClipboardList,Mail,
   Bot,
+  Menu,
+  X,
+  Users,
 } from 'lucide-react'
+
+import { getSidebarPalette, isHexColor } from '@/lib/sidebar-color'
 
 type IconType = 'lucide' | 'emoji'
 
@@ -52,6 +57,7 @@ type SidebarSettingsResponse = {
   sidebar_visible_paths?: string[]
   sidebar_position?: SidebarPosition
   sidebar_items_config?: Partial<Record<string, Partial<SidebarItemConfig>>>
+  sidebar_color?: string | null
 }
 
 function ServiceTag() {
@@ -82,12 +88,30 @@ function ServiceINC() {
 
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [visiblePaths, setVisiblePaths] = useState<string[] | null>(null)
   const [position, setPosition] = useState<SidebarPosition>('left')
   const [itemsConfig, setItemsConfig] = useState<SidebarItemsConfig>({})
+  const [sidebarColor, setSidebarColor] = useState<string | null>(null)
 
   const pathname = usePathname()
   const router = useRouter()
+
+  // Su mobile il menu è un pannello sovrapposto: si chiude cambiando pagina.
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
+
+  // Blocca lo scorrimento della pagina mentre il pannello è aperto.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    document.body.style.overflow = mobileOpen ? 'hidden' : ''
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen])
 
   const iconMap: Record<string, LucideIcon> = useMemo(
     () => ({
@@ -106,12 +130,20 @@ export default function Sidebar() {
       FolderKanban,
       ClipboardList, Mail,
     Bot,
+    Users,
     }),
     []
   )
 
   const menuItems: MenuItem[] = useMemo(
     () => [
+      {
+        name: 'Home',
+        path: '/home',
+        defaultIcon: 'Home',
+        defaultEmoji: '🏠',
+        defaultColor: '#0150a0',
+      },
       {
         name: 'Nuova Attività',
         path: '/new_ticket',
@@ -219,6 +251,13 @@ export default function Sidebar() {
       },
 //      {name: 'Assistente AI',         path: '/ai',         defaultIcon: 'Bot', defaultEmoji: '🤖',         defaultColor: '#00529F',      },
       {
+        name: 'Risorse',
+        path: '/risorse',
+        defaultIcon: 'Users',
+        defaultEmoji: '🧑‍💻',
+        defaultColor: '#7c3aed',
+      },
+      {
         name: 'Clienti',
         path: '/clienti',
         defaultIcon: 'Users',
@@ -283,6 +322,9 @@ export default function Sidebar() {
     return iconMap[iconKey] ?? LayoutGrid
   }
 
+  // Colori derivati dallo sfondo scelto: testo e superfici si adattano da soli.
+  const palette = getSidebarPalette(sidebarColor)
+
   useEffect(() => {
     const loadSidebar = async () => {
       const defaultConfig = buildDefaultItemsConfig()
@@ -310,6 +352,7 @@ export default function Sidebar() {
           setPosition('left')
         }
 
+        setSidebarColor(isHexColor(j?.sidebar_color) ? j.sidebar_color : null)
         setItemsConfig(normalizeItemsConfig(j?.sidebar_items_config, defaultConfig))
       } catch {
         setVisiblePaths(null)
@@ -328,7 +371,17 @@ export default function Sidebar() {
   }, [menuItems])
 
   const filteredMenu = useMemo(() => {
-    return visiblePaths ? menuItems.filter((m) => visiblePaths.includes(m.path)) : menuItems
+    // Le voci nuove (aggiunte dopo il salvataggio delle preferenze utente)
+    // sono visibili di default finché l'utente non risalva le impostazioni
+    const NEW_DEFAULT_VISIBLE_PATHS = ['/flussi_operativi', '/home', '/risorse']
+
+    return visiblePaths
+      ? menuItems.filter(
+          (m) =>
+            visiblePaths.includes(m.path) ||
+            NEW_DEFAULT_VISIBLE_PATHS.includes(m.path)
+        )
+      : menuItems
   }, [menuItems, visiblePaths])
 
   const handleLogout = async () => {
@@ -391,7 +444,7 @@ export default function Sidebar() {
                     {renderMenuIcon(config, 19, 2.1, 'text-xl leading-none')}
                   </div>
 
-                  <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+                  <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                     {item.name}
                   </div>
                 </>
@@ -421,7 +474,7 @@ export default function Sidebar() {
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               <ServiceTag />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Apri Sprint
               </div>
             </a>
@@ -433,7 +486,7 @@ export default function Sidebar() {
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               <ServiceINC />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Apri Opex
               </div>
             </a>
@@ -443,7 +496,7 @@ export default function Sidebar() {
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               <Settings size={20} strokeWidth={2.1} />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Impostazioni
               </div>
             </Link>
@@ -453,7 +506,7 @@ export default function Sidebar() {
               className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-red-500 hover:bg-red-50"
             >
               <LogOut size={20} strokeWidth={2.1} />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-white opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
                 Logout
               </div>
             </button>
@@ -467,11 +520,64 @@ export default function Sidebar() {
   const isRight = position === 'right'
 
   return (
+    <>
+      {/* Barra superiore: solo su mobile, apre il pannello di navigazione */}
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-gray-100 bg-white px-4 md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-100 bg-white text-gray-600 shadow-sm"
+          aria-label="Apri il menu"
+        >
+          <Menu size={18} />
+        </button>
+
+        <Link href="/home" className="flex items-center gap-2">
+          <Image
+            src="/brand/hrmgroup_logo.jpg"
+            alt="HRM"
+            width={26}
+            height={26}
+            className="object-contain"
+          />
+          <span className="font-black tracking-tighter text-base text-gray-900">
+            my<span className="text-[var(--brand)]">HRM</span>
+          </span>
+        </Link>
+      </div>
+
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
     <aside
-      className={`relative flex flex-col h-screen bg-white border-gray-100 transition-all duration-300 shadow-sm z-50 ${
-        isCollapsed ? 'w-[70px]' : 'w-[260px]'
-      } ${isRight ? 'border-l order-last' : 'border-r'}`}
+      style={{
+        backgroundColor: palette.background,
+        borderColor: palette.bordo,
+        color: palette.testo,
+      }}
+      className={`fixed inset-y-0 z-50 flex h-screen flex-col bg-white border-gray-100 shadow-sm transition-transform duration-300 md:relative md:translate-x-0 md:transition-all ${
+        isCollapsed ? 'md:w-[70px]' : 'md:w-[260px]'
+      } w-[260px] ${isRight ? 'right-0 border-l md:order-last' : 'left-0 border-r'} ${
+        mobileOpen
+          ? 'translate-x-0'
+          : isRight
+            ? 'translate-x-full'
+            : '-translate-x-full'
+      }`}
     >
+      <button
+        type="button"
+        onClick={() => setMobileOpen(false)}
+        className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-xl bg-gray-50 text-gray-500 md:hidden"
+        aria-label="Chiudi il menu"
+      >
+        <X size={16} />
+      </button>
+
       <Link href="/" className="p-6 flex items-center gap-3 overflow-hidden group cursor-pointer">
         <div className="min-w-[32px] h-8 flex items-center justify-center shrink-0">
           <Image
@@ -485,15 +591,24 @@ export default function Sidebar() {
         </div>
 
         {!isCollapsed && (
-          <span className="font-black tracking-tighter text-lg text-gray-900 whitespace-nowrap">
-            my<span className="text-[#0150a0]">HRM</span>
+          <span
+            className="font-black tracking-tighter text-lg text-gray-900 whitespace-nowrap"
+            style={{ color: palette.testoForte }}
+          >
+            my
+            <span
+              className="text-[var(--brand)]"
+              style={{ color: palette.scuro ? '#93c5fd' : undefined }}
+            >
+              HRM
+            </span>
           </span>
         )}
       </Link>
 
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className={`absolute top-16 bg-white border border-gray-100 rounded-full p-1 shadow-md hover:text-[#0150a0] transition-colors z-50 ${
+        className={`absolute top-16 hidden bg-white border border-gray-100 rounded-full p-1 shadow-md hover:text-[var(--brand)] transition-colors z-50 md:block ${
           isRight ? '-left-3' : '-right-3'
         }`}
         aria-label="Toggle sidebar"
@@ -511,10 +626,12 @@ export default function Sidebar() {
             <>
               <div
                 className={`shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
-                  isActive ? 'bg-white' : 'group-hover:bg-white'
+                  isActive || palette.background ? 'bg-white' : 'group-hover:bg-white'
                 }`}
                 style={{
                   color: config.iconType === 'emoji' ? undefined : config.color,
+                  // Con sfondo personalizzato il riquadro icona resta sempre bianco.
+                  backgroundColor: palette.background ? '#ffffff' : undefined,
                 }}
               >
                 {renderMenuIcon(config, 18, 2.1, 'text-lg leading-none')}
@@ -524,7 +641,15 @@ export default function Sidebar() {
                 <div className="flex items-center justify-between w-full min-w-0">
                   <span
                     className="text-[13px] font-bold tracking-tight whitespace-nowrap"
-                    style={{ color: isActive ? config.color : undefined }}
+                    style={{
+                      color: palette.background
+                        ? isActive
+                          ? palette.testoForte
+                          : palette.testo
+                        : isActive
+                          ? config.color
+                          : undefined,
+                    }}
                   >
                     {item.name}
                   </span>
@@ -533,11 +658,32 @@ export default function Sidebar() {
             </>
           )
 
-          const className = `flex items-center gap-3 p-2 rounded-xl transition-all group ${
-            isActive
-              ? 'bg-blue-50 shadow-sm shadow-blue-100/50'
-              : 'text-gray-400 hover:bg-gray-50 hover:text-gray-900'
-          }`
+          // Con sfondo personalizzato i colori arrivano dalla palette,
+          // altrimenti restano quelli predefiniti.
+          const className = palette.background
+            ? 'flex items-center gap-3 p-2 rounded-xl transition-all group'
+            : `flex items-center gap-3 p-2 rounded-xl transition-all group ${
+                isActive
+                  ? 'bg-blue-50 shadow-sm shadow-blue-100/50'
+                  : 'text-gray-400 hover:bg-gray-50 hover:text-gray-900'
+              }`
+
+          const style = palette.background
+            ? {
+                backgroundColor: isActive ? palette.attivoBg : 'transparent',
+                color: isActive ? palette.testoForte : palette.testo,
+              }
+            : undefined
+
+          const onEnter = (event: React.MouseEvent<HTMLElement>) => {
+            if (!palette.background || isActive) return
+            event.currentTarget.style.backgroundColor = palette.hoverBg ?? ''
+          }
+
+          const onLeave = (event: React.MouseEvent<HTMLElement>) => {
+            if (!palette.background || isActive) return
+            event.currentTarget.style.backgroundColor = 'transparent'
+          }
 
           return isExternal ? (
             <a
@@ -546,11 +692,21 @@ export default function Sidebar() {
               target="_blank"
               rel="noopener noreferrer"
               className={className}
+              style={style}
+              onMouseEnter={onEnter}
+              onMouseLeave={onLeave}
             >
               {content}
             </a>
           ) : (
-            <Link key={item.path} href={item.path} className={className}>
+            <Link
+              key={item.path}
+              href={item.path}
+              className={className}
+              style={style}
+              onMouseEnter={onEnter}
+              onMouseLeave={onLeave}
+            >
               {content}
             </Link>
           )
@@ -623,6 +779,7 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
     
   )
 }

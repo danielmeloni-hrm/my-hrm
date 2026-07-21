@@ -18,6 +18,12 @@ type SidebarRequestBody = {
   sidebar_visible_paths?: unknown
   sidebar_position?: unknown
   sidebar_items_config?: unknown
+  sidebar_color?: unknown
+}
+
+/** Accetta solo colori esadecimali, es. #0150a0. */
+function isValidHexColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
 }
 
 function isValidSidebarPosition(value: unknown): value is SidebarPosition {
@@ -72,7 +78,7 @@ export async function GET() {
   ] = await Promise.all([
     supabase
       .from('user_preferences')
-      .select('sidebar_visible_paths, sidebar_items_config')
+      .select('sidebar_visible_paths, sidebar_items_config, sidebar_color')
       .eq('user_id', userId)
       .maybeSingle(),
 
@@ -100,6 +106,9 @@ export async function GET() {
     sidebar_items_config: isValidSidebarItemsConfig(preferencesData?.sidebar_items_config)
       ? preferencesData.sidebar_items_config
       : {},
+    sidebar_color: isValidHexColor(preferencesData?.sidebar_color)
+      ? preferencesData.sidebar_color
+      : null,
   })
 }
 
@@ -121,11 +130,16 @@ export async function POST(request: NextRequest) {
     ? body.sidebar_items_config
     : {}
 
+  const sidebar_color: string | null = isValidHexColor(body.sidebar_color)
+    ? body.sidebar_color
+    : null
+
   const response = NextResponse.json({
     ok: true,
     sidebar_visible_paths,
     sidebar_position,
     sidebar_items_config,
+    sidebar_color,
   })
 
   const supabase = createServerClient(
@@ -159,6 +173,7 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         sidebar_visible_paths,
         sidebar_items_config,
+        sidebar_color,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }

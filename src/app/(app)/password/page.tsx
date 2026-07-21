@@ -500,7 +500,7 @@ export default function PasswordVaultPage() {
                 setEditingId(null);
                 setSaveError(null);
               }}
-              className="h-11 w-11 rounded-[10px] text-white flex items-center justify-center shadow-sm"
+              className="h-11 w-11 rounded-[10px] text-[#ffffff] flex items-center justify-center shadow-sm"
               style={{ background: BRAND }}
               title="Aggiungi password"
             >
@@ -627,7 +627,7 @@ export default function PasswordVaultPage() {
                           type="button"
                           onClick={handleCreate}
                           disabled={saving}
-                          className="h-10 w-10 rounded-[10px] bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50"
+                          className="h-10 w-10 rounded-[10px] bg-emerald-500 hover:bg-emerald-600 text-[#ffffff] flex items-center justify-center disabled:opacity-50"
                           title="Salva"
                         >
                           <Save size={16} />
@@ -724,7 +724,7 @@ export default function PasswordVaultPage() {
                                 type="button"
                                 onClick={handleUpdate}
                                 disabled={saving}
-                                className="h-10 w-10 rounded-[10px] bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50"
+                                className="h-10 w-10 rounded-[10px] bg-emerald-500 hover:bg-emerald-600 text-[#ffffff] flex items-center justify-center disabled:opacity-50"
                                 title="Salva modifiche"
                               >
                                 <Save size={16} />
@@ -765,7 +765,7 @@ export default function PasswordVaultPage() {
                                 href={record.link}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 hover:text-white transition-colors"
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 hover:text-[#ffffff] transition-colors"
                                 style={{ boxShadow: '0 1px 0 rgba(0,0,0,0.02)' }}
                                 onMouseEnter={(e) => {
                                   e.currentTarget.style.background = BRAND;
@@ -909,7 +909,7 @@ export default function PasswordVaultPage() {
                                 type="button"
                                 onClick={() => startEdit(record)}
                                 disabled={!canEditRecord(record)}
-                                className="h-10 w-10 rounded-[10px] text-white flex items-center justify-center disabled:opacity-40"
+                                className="h-10 w-10 rounded-[10px] text-[#ffffff] flex items-center justify-center disabled:opacity-40"
                                 style={{ background: BRAND }}
                                 title="Modifica"
                               >
@@ -920,7 +920,7 @@ export default function PasswordVaultPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(record)}
-                                  className="h-10 w-10 rounded-[10px] bg-red-500 hover:bg-red-600 text-white flex items-center justify-center"
+                                  className="h-10 w-10 rounded-[10px] bg-red-500 hover:bg-red-600 text-[#ffffff] flex items-center justify-center"
                                   title="Elimina"
                                 >
                                   <Trash2 size={15} />

@@ -136,7 +136,7 @@ const handleLogin = async (e: React.FormEvent) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#0150a0] text-white py-3 rounded-xl font-bold hover:bg-[#013d7a] transition flex items-center justify-center gap-2 disabled:opacity-60"
+            className="w-full bg-[#0150a0] text-[#ffffff] py-3 rounded-xl font-bold hover:bg-[#013d7a] transition flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {loading ? 'Accesso in corso...' : 'Entra'} <ArrowRight size={18} />
           </button>

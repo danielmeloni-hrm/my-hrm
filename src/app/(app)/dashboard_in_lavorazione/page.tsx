@@ -769,7 +769,7 @@ function TicketCard({
           {ticket.percentuale_avanzamento !== undefined &&
             ticket.percentuale_avanzamento !== null && (
               <span
-                className="flex items-center justify-center min-w-[24px] h-5 px-1.5 text-[9px] font-black text-white bg-emerald-500 rounded-full shadow-sm"
+                className="flex items-center justify-center min-w-[24px] h-5 px-1.5 text-[9px] font-black text-[#ffffff] bg-emerald-500 rounded-full shadow-sm"
                 title="Avanzamento"
               >
                 {ticket.percentuale_avanzamento}%
@@ -779,7 +779,7 @@ function TicketCard({
           {ticket.numero_priorita !== undefined &&
             ticket.numero_priorita !== null && (
               <span
-                className="flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm"
+                className="flex items-center justify-center w-5 h-5 text-[10px] font-bold text-[#ffffff] bg-red-500 rounded-full shadow-sm"
                 title="Priorità"
               >
                 {ticket.numero_priorita}

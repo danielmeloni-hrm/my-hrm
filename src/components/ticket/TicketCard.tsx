@@ -202,14 +202,14 @@ export default function TicketCard({
           className="absolute inset-x-2 top-2 z-50 animate-in fade-in zoom-in duration-300"
           onClick={(e) => { e.stopPropagation(); setShowConflictPopup(false); }}
         >
-          <div className="bg-yellow-500 text-white p-3 rounded-lg shadow-2xl border border-yellow-600 relative overflow-hidden">
+          <div className="bg-yellow-500 text-[#ffffff] p-3 rounded-lg shadow-2xl border border-yellow-600 relative overflow-hidden">
             <div className="absolute right-[-10px] bottom-[-10px] opacity-10 pointer-events-none">
               <AlertTriangle size={60} />
             </div>
 
             <div className="flex items-start justify-between mb-1">
               <div className="flex items-center gap-2">
-                <Activity size={14} className="animate-pulse text-white" />
+                <Activity size={14} className="animate-pulse text-[#ffffff]" />
                 <h4 className="text-[10px] font-black uppercase tracking-tighter">Aggiornamento Live</h4>
               </div>
               <X size={14} className="cursor-pointer hover:bg-black/10 rounded" />
@@ -283,11 +283,11 @@ export default function TicketCard({
               onBlur={(e) => handleBlur(ticket.id, { percentuale_avanzamento: parseInt(e.target.value) || 0 })}
               onChange={(e) => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, percentuale_avanzamento: parseInt(e.target.value) || 0 } : t))}
               className={`w-11 h-7 text-[10px] font-black text-center rounded-lg border outline-none ${
-                (ticket.percentuale_avanzamento || 0) > 0 ? "border-emerald-500 bg-emerald-500 text-white" : "border-gray-200 bg-gray-50 text-gray-400"
+                (ticket.percentuale_avanzamento || 0) > 0 ? "border-emerald-500 bg-emerald-500 text-[#ffffff]" : "border-gray-200 bg-gray-50 text-gray-400"
               }`}
             />
             {(ticket.percentuale_avanzamento || 0) > 0 && (
-              <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-black text-white/70 pointer-events-none">%</span>
+              <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-black text-[#ffffff]/70 pointer-events-none">%</span>
             )}
           </div>
         </div>
@@ -344,7 +344,7 @@ export default function TicketCard({
 
           <button
             onClick={(e) => { e.stopPropagation(); setSelectedTicket({ ...ticket }); }}
-            className="p-1.5 bg-gray-900 text-white rounded-lg hover:bg-[#0150a0] transition-all"
+            className="p-1.5 bg-gray-900 text-[#ffffff] rounded-lg hover:bg-[#0150a0] transition-all"
           >
             <ChevronRight size={10} />
           </button>

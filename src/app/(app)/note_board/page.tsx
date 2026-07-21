@@ -584,7 +584,7 @@ export default function SublimeLikeEditorPage() {
       if (note.user_id === userId) return "text-sky-300";
       if (note.share_mode === "shared_edit") return "text-green-300";
       if (note.share_mode === "shared_view") return "text-yellow-300";
-      return "text-white/45";
+      return "text-[#ffffff]/45";
     },
     [userId],
   );
@@ -2628,7 +2628,7 @@ export default function SublimeLikeEditorPage() {
 
   if (loading) {
     return (
-      <div className="h-screen w-full bg-[#1e1e1e] text-white flex items-center justify-center font-mono">
+      <div className="h-screen w-full bg-[#1e1e1e] text-[#ffffff] flex items-center justify-center font-mono">
         Caricamento...
       </div>
     );
@@ -2636,7 +2636,7 @@ export default function SublimeLikeEditorPage() {
 
   if (authError && !userId) {
     return (
-      <div className="h-screen w-full bg-[#1e1e1e] text-white flex items-center justify-center font-mono">
+      <div className="h-screen w-full bg-[#1e1e1e] text-[#ffffff] flex items-center justify-center font-mono">
         {authError}
       </div>
     );
@@ -2645,7 +2645,7 @@ export default function SublimeLikeEditorPage() {
   return (
     <div className="h-screen w-full bg-[#1e1e1e] text-[#d4d4d4] font-mono flex overflow-hidden">
       <aside className="w-[320px] bg-[#252526] border-r border-white/10 flex flex-col shrink-0">
-        <div className="h-12 px-3 border-b border-white/10 flex items-center justify-between gap-2 text-sm font-bold tracking-wide text-white">
+        <div className="h-12 px-3 border-b border-white/10 flex items-center justify-between gap-2 text-sm font-bold tracking-wide text-[#ffffff]">
           <div className="flex items-center gap-2">
             <FileText size={16} />
             NOTES
@@ -2654,7 +2654,7 @@ export default function SublimeLikeEditorPage() {
           <button
             type="button"
             onClick={handleCleanSharedTabs}
-            className="h-7 px-2 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] text-[10px] font-bold uppercase tracking-wide text-white/80"
+            className="h-7 px-2 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] text-[10px] font-bold uppercase tracking-wide text-[#ffffff]/80"
             title="Sposta tutte le tab condivise nella cartella TAB CONDIVISE"
           >
             Pulisci
@@ -2663,18 +2663,18 @@ export default function SublimeLikeEditorPage() {
 
         <div className="p-2 border-b border-white/10">
           <div className="flex items-center gap-2 bg-[#1e1e1e] border border-white/10 rounded px-2 h-9">
-            <Search size={14} className="text-white/60" />
+            <Search size={14} className="text-[#ffffff]/60" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cerca note o gruppi..."
-              className="bg-transparent outline-none w-full text-sm text-white placeholder:text-white/40"
+              className="bg-transparent outline-none w-full text-sm text-[#ffffff] placeholder:text-[#ffffff]/40"
             />
           </div>
         </div>
 
         <div className="p-2 border-b border-white/10 space-y-2">
-          <div className="text-[10px] uppercase tracking-wider text-white/40">
+          <div className="text-[10px] uppercase tracking-wider text-[#ffffff]/40">
             Nuovo gruppo
           </div>
           <input
@@ -2687,7 +2687,7 @@ export default function SublimeLikeEditorPage() {
               }
             }}
             placeholder="Scrivi nome gruppo e premi Invio"
-            className="w-full h-9 rounded bg-[#1e1e1e] border border-white/10 px-2 text-sm text-white outline-none placeholder:text-white/30"
+            className="w-full h-9 rounded bg-[#1e1e1e] border border-white/10 px-2 text-sm text-[#ffffff] outline-none placeholder:text-[#ffffff]/30"
           />
         </div>
 
@@ -2695,7 +2695,7 @@ export default function SublimeLikeEditorPage() {
           <button
             type="button"
             onClick={() => handleCreateNote("text")}
-            className="flex-1 h-9 rounded bg-[#0e639c] hover:bg-[#1177bb] text-white text-sm flex items-center justify-center gap-2"
+            className="flex-1 h-9 rounded bg-[#0e639c] hover:bg-[#1177bb] text-[#ffffff] text-sm flex items-center justify-center gap-2"
           >
             <Plus size={14} />
             Testo
@@ -2704,7 +2704,7 @@ export default function SublimeLikeEditorPage() {
           <button
             type="button"
             onClick={() => handleCreateNote("todo")}
-            className="flex-1 h-9 rounded bg-[#5a3ea7] hover:bg-[#6d4fc4] text-white text-sm flex items-center justify-center gap-2"
+            className="flex-1 h-9 rounded bg-[#5a3ea7] hover:bg-[#6d4fc4] text-[#ffffff] text-sm flex items-center justify-center gap-2"
           >
             <CheckSquare size={14} />
             To do
@@ -2713,7 +2713,7 @@ export default function SublimeLikeEditorPage() {
           <button
             type="button"
             onClick={() => handleCreateNote("taskmanager")}
-            className="flex-1 h-9 rounded bg-[#7a5c00] hover:bg-[#947000] text-white text-sm flex items-center justify-center gap-2"
+            className="flex-1 h-9 rounded bg-[#7a5c00] hover:bg-[#947000] text-[#ffffff] text-sm flex items-center justify-center gap-2"
           >
             <FileText size={14} />
             Task
@@ -2723,7 +2723,7 @@ export default function SublimeLikeEditorPage() {
             type="button"
             onClick={handleDeleteNote}
             disabled={!activeNote || notes.length <= 1 || !isOwnerOfActiveNote}
-            className="w-10 h-9 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] disabled:opacity-40 text-white flex items-center justify-center"
+            className="w-10 h-9 rounded bg-[#3c3c3c] hover:bg-[#4a4a4a] disabled:opacity-40 text-[#ffffff] flex items-center justify-center"
             title="Elimina nota"
           >
             <Trash2 size={14} />
@@ -2765,7 +2765,7 @@ export default function SublimeLikeEditorPage() {
                       {({ attributes, listeners }) => (
                         <>
                           <div
-                            className="w-full px-3 py-2 text-left text-[11px] uppercase tracking-wider text-white/70 flex items-center justify-between gap-2"
+                            className="w-full px-3 py-2 text-left text-[11px] uppercase tracking-wider text-[#ffffff]/70 flex items-center justify-between gap-2"
                             style={{
                               background: `linear-gradient(90deg, ${group.color}55, #2a2a2a 72%)`,
                             }}
@@ -2773,7 +2773,7 @@ export default function SublimeLikeEditorPage() {
                             <div className="flex items-center gap-2 min-w-0">
                               <button
                                 type="button"
-                                className="cursor-grab active:cursor-grabbing text-white/45 hover:text-white/80"
+                                className="cursor-grab active:cursor-grabbing text-[#ffffff]/45 hover:text-[#ffffff]/80"
                                 title="Sposta cartella"
                                 {...attributes}
                                 {...listeners}
@@ -2788,7 +2788,7 @@ export default function SublimeLikeEditorPage() {
                               >
                                 <FolderOpen size={13} className="shrink-0" />
                                 <span className="truncate">{groupName}</span>
-                                <span className="text-white/35 normal-case">
+                                <span className="text-[#ffffff]/35 normal-case">
                                   ({groupItems.length})
                                 </span>
                               </button>
@@ -2801,7 +2801,7 @@ export default function SublimeLikeEditorPage() {
                                   e.stopPropagation();
                                   openGroupEditor(group);
                                 }}
-                                className="rounded p-1 text-white/65 hover:bg-white/10 hover:text-white"
+                                className="rounded p-1 text-[#ffffff]/65 hover:bg-white/10 hover:text-[#ffffff]"
                                 title="Modifica nome e colore cartella"
                               >
                                 <Pencil size={14} />
@@ -2810,7 +2810,7 @@ export default function SublimeLikeEditorPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleGroupCollapse(groupName)}
-                                className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white"
+                                className="rounded p-1 text-[#ffffff]/70 hover:bg-white/10 hover:text-[#ffffff]"
                               >
                                 {isCollapsed ? (
                                   <ChevronRight size={14} />
@@ -2845,14 +2845,14 @@ export default function SublimeLikeEditorPage() {
                                         isDragging
                                           ? "border-sky-300/60 bg-[#2d2d2d] shadow-lg shadow-black/30 ring-1 ring-sky-300/40"
                                           : isActive
-                                            ? "border-yellow-400/30 bg-[#1e1e1e] ring-1 ring-yellow-400/50 text-white"
+                                            ? "border-yellow-400/30 bg-[#1e1e1e] ring-1 ring-yellow-400/50 text-[#ffffff]"
                                             : "border-white/5 bg-[#252526]/70 text-[#cccccc] hover:border-white/15 hover:bg-white/5"
                                       }`}
                                     >
                                       <div className="flex items-start justify-between gap-2">
                                         <button
                                           type="button"
-                                          className="mt-0.5 flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded border border-white/10 bg-white/5 text-white/55 transition hover:border-sky-300/40 hover:bg-sky-300/10 hover:text-sky-200 active:cursor-grabbing"
+                                          className="mt-0.5 flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded border border-white/10 bg-white/5 text-[#ffffff]/55 transition hover:border-sky-300/40 hover:bg-sky-300/10 hover:text-sky-200 active:cursor-grabbing"
                                           title="Sposta tab"
                                           {...attributes}
                                           {...listeners}
@@ -2888,7 +2888,7 @@ export default function SublimeLikeEditorPage() {
                                                 className={`shrink-0 rounded p-0.5 transition ${
                                                   note.is_pinned
                                                     ? "text-yellow-300 hover:text-yellow-200"
-                                                    : "text-white/50 hover:text-yellow-300"
+                                                    : "text-[#ffffff]/50 hover:text-yellow-300"
                                                 }`}
                                                 title={
                                                   note.is_pinned
@@ -2928,7 +2928,7 @@ export default function SublimeLikeEditorPage() {
                                             )}
                                           </div>
 
-                                          <div className="mt-1 text-[10px] text-white/45 truncate">
+                                          <div className="mt-1 text-[10px] text-[#ffffff]/45 truncate">
                                             {new Date(
                                               note.updated_at,
                                             ).toLocaleString()}
@@ -2959,7 +2959,7 @@ export default function SublimeLikeEditorPage() {
                                                 : note.share_mode ===
                                                     "shared_edit"
                                                   ? "bg-green-600/20 text-green-300 hover:bg-green-600/30"
-                                                  : "bg-white/10 text-white/60 hover:bg-white/20"
+                                                  : "bg-white/10 text-[#ffffff]/60 hover:bg-white/20"
                                             } disabled:opacity-50`}
                                           >
                                             <Users size={14} />
@@ -2973,7 +2973,7 @@ export default function SublimeLikeEditorPage() {
                             })}
 
                           {!isCollapsed && groupItems.length === 0 && (
-                            <div className="mx-2 my-2 rounded border border-dashed border-white/10 px-3 py-3 text-xs text-white/35">
+                            <div className="mx-2 my-2 rounded border border-dashed border-white/10 px-3 py-3 text-xs text-[#ffffff]/35">
                               Gruppo vuoto: trascina qui una nota
                             </div>
                           )}
@@ -2985,7 +2985,7 @@ export default function SublimeLikeEditorPage() {
               </SortableContext>
 
               {noteGroups.length === 0 && (
-                <div className="px-3 py-4 text-xs text-white/40">
+                <div className="px-3 py-4 text-xs text-[#ffffff]/40">
                   Nessun gruppo trovato
                 </div>
               )}
@@ -2993,7 +2993,7 @@ export default function SublimeLikeEditorPage() {
 
             <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
               {draggedNote ? (
-                <div className="mx-2 w-[288px] rounded-md border border-sky-300/60 bg-[#2d2d2d] px-2.5 py-2 text-white shadow-2xl shadow-black/50 ring-1 ring-sky-300/40">
+                <div className="mx-2 w-[288px] rounded-md border border-sky-300/60 bg-[#2d2d2d] px-2.5 py-2 text-[#ffffff] shadow-2xl shadow-black/50 ring-1 ring-sky-300/40">
                   <div className="flex items-start gap-2">
                     <div className="mt-0.5 flex h-9 w-7 shrink-0 items-center justify-center rounded border border-sky-300/40 bg-sky-300/10 text-sky-200">
                       <GripVertical size={14} />
@@ -3008,7 +3008,7 @@ export default function SublimeLikeEditorPage() {
                         <div className="truncate text-sm">{draggedNote.file_name}</div>
                         {draggedNote.is_pinned && <Pin size={11} className="shrink-0 text-yellow-300" />}
                       </div>
-                      <div className="mt-1 truncate text-[10px] text-white/45">
+                      <div className="mt-1 truncate text-[10px] text-[#ffffff]/45">
                         {new Date(draggedNote.updated_at).toLocaleString()}
                       </div>
                     </div>
@@ -3022,13 +3022,13 @@ export default function SublimeLikeEditorPage() {
 
       {editingGroup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#252526] shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-white/10 bg-[#252526] shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <div>
-                <div className="text-sm font-bold text-white">
+                <div className="text-sm font-bold text-[#ffffff]">
                   Modifica cartella
                 </div>
-                <div className="text-[11px] text-white/45">
+                <div className="text-[11px] text-[#ffffff]/45">
                   Rinomina la cartella o scegli un colore
                 </div>
               </div>
@@ -3036,7 +3036,7 @@ export default function SublimeLikeEditorPage() {
               <button
                 type="button"
                 onClick={closeGroupEditor}
-                className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white"
+                className="rounded p-1 text-[#ffffff]/60 hover:bg-white/10 hover:text-[#ffffff]"
                 title="Chiudi"
               >
                 <X size={16} />
@@ -3045,7 +3045,7 @@ export default function SublimeLikeEditorPage() {
 
             <div className="space-y-5 px-4 py-4">
               <div className="space-y-2">
-                <label className="text-[11px] uppercase tracking-wider text-white/45">
+                <label className="text-[11px] uppercase tracking-wider text-[#ffffff]/45">
                   Nome cartella
                 </label>
                 <input
@@ -3060,13 +3060,13 @@ export default function SublimeLikeEditorPage() {
                       saveGroupEditor();
                     }
                   }}
-                  className="h-10 w-full rounded bg-[#1e1e1e] border border-white/10 px-3 text-sm text-white outline-none focus:border-white/30"
+                  className="h-10 w-full rounded bg-[#1e1e1e] border border-white/10 px-3 text-sm text-[#ffffff] outline-none focus:border-white/30"
                   autoFocus
                 />
               </div>
 
               <div className="space-y-3">
-                <label className="text-[11px] uppercase tracking-wider text-white/45">
+                <label className="text-[11px] uppercase tracking-wider text-[#ffffff]/45">
                   Colore cartella
                 </label>
 
@@ -3082,7 +3082,7 @@ export default function SublimeLikeEditorPage() {
                     className="h-10 w-16 cursor-pointer rounded border border-white/10 bg-transparent p-1"
                     title="Selettore colore"
                   />
-                  <span className="text-xs text-white/45">
+                  <span className="text-xs text-[#ffffff]/45">
                     {editingGroupColor}
                   </span>
                 </div>
@@ -3116,14 +3116,14 @@ export default function SublimeLikeEditorPage() {
               <button
                 type="button"
                 onClick={closeGroupEditor}
-                className="h-9 rounded bg-white/10 px-3 text-sm text-white/75 hover:bg-white/15 hover:text-white"
+                className="h-9 rounded bg-white/10 px-3 text-sm text-[#ffffff]/75 hover:bg-white/15 hover:text-[#ffffff]"
               >
                 Annulla
               </button>
               <button
                 type="button"
                 onClick={saveGroupEditor}
-                className="h-9 rounded bg-[#0e639c] px-4 text-sm font-bold text-white hover:bg-[#1177bb]"
+                className="h-9 rounded bg-[#0e639c] px-4 text-sm font-bold text-[#ffffff] hover:bg-[#1177bb]"
               >
                 Salva
               </button>
@@ -3155,14 +3155,14 @@ export default function SublimeLikeEditorPage() {
                 const trimmed = e.target.value.trim() || "untitled";
                 persistNote(activeNote.id, { file_name: trimmed });
               }}
-              className={`bg-transparent outline-none text-sm text-white font-semibold min-w-0 max-w-[420px] border rounded px-2 py-1 ${
+              className={`bg-transparent outline-none text-sm text-[#ffffff] font-semibold min-w-0 max-w-[420px] border rounded px-2 py-1 ${
                 isOwnerOfActiveNote
                   ? "border-transparent focus:border-white/20"
                   : "border-transparent opacity-60 cursor-not-allowed"
               }`}
             />
 
-            <span className="text-xs text-white/40 truncate">
+            <span className="text-xs text-[#ffffff]/40 truncate">
               Gruppo: {activeNote?.group_name || "Generale"}
             </span>
 
@@ -3170,14 +3170,14 @@ export default function SublimeLikeEditorPage() {
               value={activeNote?.note_type || "text"}
               onChange={(e) => changeNoteType(e.target.value as NoteType)}
               disabled={!isOwnerOfActiveNote}
-              className="bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white outline-none"
+              className="bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-[#ffffff] outline-none"
             >
               <option value="text">Nota testuale</option>
               <option value="todo">To do</option>
               <option value="taskmanager">TaskManager</option>
             </select>
 
-            <span className="text-xs text-white/40 truncate">
+            <span className="text-xs text-[#ffffff]/40 truncate">
               {activeNote?.updated_at
                 ? `Ultima modifica: ${new Date(activeNote.updated_at).toLocaleString()}`
                 : ""}
@@ -3191,7 +3191,7 @@ export default function SublimeLikeEditorPage() {
               disabled={
                 !activeNote || !canEditActiveNote || saveStatus === "saving"
               }
-              className={`h-9 px-4 rounded text-white text-sm font-bold transition ${
+              className={`h-9 px-4 rounded text-[#ffffff] text-sm font-bold transition ${
                 hasUnsavedChanges
                   ? "bg-yellow-500 hover:bg-yellow-400 text-black"
                   : "bg-green-600 hover:bg-green-500"
@@ -3208,7 +3208,7 @@ export default function SublimeLikeEditorPage() {
                 <button
                   type="button"
                   onClick={handleScanTaskManager}
-                  className="h-9 px-3 rounded bg-[#8b6b00] hover:bg-[#a07c00] text-white text-sm"
+                  className="h-9 px-3 rounded bg-[#8b6b00] hover:bg-[#a07c00] text-[#ffffff] text-sm"
                 >
                   Scansiona testo
                 </button>
@@ -3221,7 +3221,7 @@ export default function SublimeLikeEditorPage() {
                     !isOwnerOfActiveNote ||
                     updateStatus === "updating"
                   }
-                  className={`h-9 px-3 rounded text-white text-sm transition ${
+                  className={`h-9 px-3 rounded text-[#ffffff] text-sm transition ${
                     updateStatus === "done"
                       ? "bg-green-600"
                       : updateStatus === "error"
@@ -3252,7 +3252,7 @@ export default function SublimeLikeEditorPage() {
                   type="button"
                   onClick={addTodoItem}
                   disabled={!canEditActiveNote}
-                  className="h-9 px-3 rounded bg-[#5a3ea7] hover:bg-[#6d4fc4] text-white text-sm flex items-center gap-2"
+                  className="h-9 px-3 rounded bg-[#5a3ea7] hover:bg-[#6d4fc4] text-[#ffffff] text-sm flex items-center gap-2"
                 >
                   <Plus size={14} />
                   Aggiungi attività
@@ -3269,7 +3269,7 @@ export default function SublimeLikeEditorPage() {
                       type="button"
                       onClick={() => toggleTodoItem(item.id)}
                       disabled={!canEditActiveNote}
-                      className="text-white/80 hover:text-white shrink-0"
+                      className="text-[#ffffff]/80 hover:text-[#ffffff] shrink-0"
                     >
                       {item.done ? (
                         <CheckSquare size={18} className="text-green-400" />
@@ -3286,7 +3286,7 @@ export default function SublimeLikeEditorPage() {
                       placeholder="Scrivi attività..."
                       disabled={!canEditActiveNote}
                       className={`flex-1 bg-transparent outline-none text-sm ${
-                        item.done ? "line-through text-white/40" : "text-white"
+                        item.done ? "line-through text-[#ffffff]/40" : "text-[#ffffff]"
                       }`}
                     />
 
@@ -3294,7 +3294,7 @@ export default function SublimeLikeEditorPage() {
                       type="button"
                       onClick={() => deleteTodoItem(item.id)}
                       disabled={!canEditActiveNote}
-                      className="text-white/60 hover:text-red-400 shrink-0"
+                      className="text-[#ffffff]/60 hover:text-red-400 shrink-0"
                     >
                       <Trash2 size={15} />
                     </button>
@@ -3302,7 +3302,7 @@ export default function SublimeLikeEditorPage() {
                 ))}
 
                 {(activeNote.todo_items || []).length === 0 && (
-                  <div className="text-sm text-white/40">
+                  <div className="text-sm text-[#ffffff]/40">
                     Nessuna attività presente
                   </div>
                 )}
@@ -3356,7 +3356,7 @@ Altra nota`}
                     <button
                       type="button"
                       onClick={() => setShowScanPanel((prev) => !prev)}
-                      className="h-28 w-8 rounded-l-md border border-r-0 border-white/10 bg-[#2a2a2a] hover:bg-[#333] text-white/70 hover:text-white text-[10px] tracking-wide uppercase flex items-center justify-center"
+                      className="h-28 w-8 rounded-l-md border border-r-0 border-white/10 bg-[#2a2a2a] hover:bg-[#333] text-[#ffffff]/70 hover:text-[#ffffff] text-[10px] tracking-wide uppercase flex items-center justify-center"
                       title={
                         showScanPanel
                           ? "Nascondi risultato scansione"
@@ -3378,10 +3378,10 @@ Altra nota`}
                   >
                     <div className="h-full overflow-auto p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs font-bold uppercase tracking-wider text-white/50">
+                        <div className="text-xs font-bold uppercase tracking-wider text-[#ffffff]/50">
                           Risultato scansione
                         </div>
-                        <div className="text-[10px] uppercase text-white/40">
+                        <div className="text-[10px] uppercase text-[#ffffff]/40">
                           {scanStatus === "scanning"
                             ? "Scansione..."
                             : scanStatus === "done"
@@ -3393,7 +3393,7 @@ Altra nota`}
                       </div>
 
                       {taskMatches.length === 0 ? (
-                        <div className="text-sm text-white/40">
+                        <div className="text-sm text-[#ffffff]/40">
                           Nessuna scansione eseguita
                         </div>
                       ) : (
@@ -3409,7 +3409,7 @@ Altra nota`}
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3 mb-2">
-                              <div className="text-xs text-white/50">
+                              <div className="text-xs text-[#ffffff]/50">
                                 Riga {match.lineIndex + 1}
                               </div>
 
@@ -3436,7 +3436,7 @@ Altra nota`}
                                       fixingClienteKey ===
                                       `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
                                     }
-                                    className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-bold"
+                                    className="h-8 px-3 rounded bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-[#ffffff] text-xs font-bold"
                                   >
                                     {fixingClienteKey ===
                                     `${match.lineIndex}-${match.queryValue || match.matchedTicket?.id}`
@@ -3454,8 +3454,8 @@ Altra nota`}
                                     disabled={!canCreateTicketFromMatch(match)}
                                     className={`h-7 w-7 rounded flex items-center justify-center text-sm font-bold transition ${
                                       canCreateTicketFromMatch(match)
-                                        ? "bg-green-600 hover:bg-green-500 text-white"
-                                        : "bg-white/10 text-white/40 cursor-not-allowed"
+                                        ? "bg-green-600 hover:bg-green-500 text-[#ffffff]"
+                                        : "bg-white/10 text-[#ffffff]/40 cursor-not-allowed"
                                     }`}
                                   >
                                     +
@@ -3478,7 +3478,7 @@ Altra nota`}
                               </div>
                             )}
 
-                            <div className="space-y-1 text-sm text-white">
+                            <div className="space-y-1 text-sm text-[#ffffff]">
                               <div>
                                 <strong>Cliente:</strong>{" "}
                                 {match.clientName || "-"}
@@ -3505,7 +3505,7 @@ Altra nota`}
                               </div>
                             </div>
 
-                            <div className="mt-3 text-xs text-white/80 space-y-1">
+                            <div className="mt-3 text-xs text-[#ffffff]/80 space-y-1">
                               <div>
                                 <strong>Percentuale:</strong>{" "}
                                 {match.percentuale_avanzamento ?? "-"}
@@ -3521,7 +3521,7 @@ Altra nota`}
                             </div>
 
                             {match.note && (
-                              <div className="mt-2 text-xs text-white/70 whitespace-pre-wrap">
+                              <div className="mt-2 text-xs text-[#ffffff]/70 whitespace-pre-wrap">
                                 <strong>Note:</strong> {match.note}
                               </div>
                             )}
@@ -3576,7 +3576,7 @@ Altra nota`}
                       left: 16,
                     }}
                   >
-                    <div className="border-b border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-white/40">
+                    <div className="border-b border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#ffffff]/40">
                       Menziona utente
                     </div>
 
@@ -3591,8 +3591,8 @@ Altra nota`}
                         onMouseEnter={() => setMentionIndex(i)}
                         className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
                           i === mentionIndex
-                            ? "bg-[#0e639c] text-white"
-                            : "text-white/80 hover:bg-white/10"
+                            ? "bg-[#0e639c] text-[#ffffff]"
+                            : "text-[#ffffff]/80 hover:bg-white/10"
                         }`}
                       >
                         <AtSign size={13} className="shrink-0 opacity-60" />
@@ -3611,7 +3611,7 @@ Altra nota`}
         </div>
 
         <div
-          className={`h-8 px-4 flex items-center justify-between text-[11px] uppercase tracking-wide text-white ${
+          className={`h-8 px-4 flex items-center justify-between text-[11px] uppercase tracking-wide text-[#ffffff] ${
             saveStatus === "saving"
               ? "bg-amber-600"
               : saveStatus === "error"

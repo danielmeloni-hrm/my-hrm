@@ -11,6 +11,24 @@ type Message = {
   content: string;
 };
 
+type PendingAction = {
+  action: {
+    action: "update_ticket" | "close_ticket" | "add_ticket_note" | "create_ticket";
+    ticketId: string | null;
+    ticketLabel: string | null;
+    summary: string;
+    changes: { campo: string; valore: string }[];
+  };
+  signature: string;
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  update_ticket: "Aggiornamento ticket",
+  close_ticket: "Chiusura ticket",
+  add_ticket_note: "Nota su ticket",
+  create_ticket: "Creazione ticket",
+};
+
 export default function AiChatWidget() {
   const supabase = createClient();
 
@@ -19,6 +37,8 @@ export default function AiChatWidget() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [executingAction, setExecutingAction] = useState(false);
 
   async function getToken() {
     const { data } = await supabase.auth.getSession();
@@ -29,6 +49,8 @@ export default function AiChatWidget() {
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
+    const previousAction = pendingAction;
+
     setInput("");
     setLoading(true);
 
@@ -46,6 +68,7 @@ export default function AiChatWidget() {
         body: JSON.stringify({
           message: userMessage,
           conversationId,
+          pendingAction: previousAction,
         }),
       });
 
@@ -69,6 +92,8 @@ export default function AiChatWidget() {
                     : JSON.stringify(data.answer || data.details || data.error || data, null, 2),
         },
       ]);
+
+      setPendingAction((data.pendingAction as PendingAction) ?? null);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -82,20 +107,64 @@ export default function AiChatWidget() {
     }
   }
 
+  async function resolveAction(confirmed: boolean) {
+    if (!pendingAction || executingAction) return;
+
+    setExecutingAction(true);
+
+    try {
+      const token = await getToken();
+
+      const res = await fetch("/api/ai/action", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pendingAction, conversationId, confirmed }),
+      });
+
+      const data = await res.json();
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            data.answer ||
+            data.error ||
+            "Non sono riuscito a completare l'operazione.",
+        },
+      ]);
+
+      setPendingAction(null);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Si è verificato un errore durante l'esecuzione dell'azione.",
+        },
+      ]);
+    } finally {
+      setExecutingAction(false);
+    }
+  }
+
   return (
     <>
       <button
         onClick={() => setOpen(!open)}
         className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#00529F] shadow-xl transition hover:scale-105"
       >
-        <Bot className="h-8 w-8 text-white" />
+        <Bot className="h-8 w-8 text-[#ffffff]" />
       </button>
 
       {open && (
         <div className="fixed bottom-24 right-6 z-50 flex h-[560px] w-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
           <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#00529F]">
-              <Bot className="h-7 w-7 text-white" />
+              <Bot className="h-7 w-7 text-[#ffffff]" />
             </div>
 
             <div className="flex-1">
@@ -138,7 +207,7 @@ export default function AiChatWidget() {
                 <div
                   className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     msg.role === "user"
-                      ? "rounded-br-md bg-[#00529F] text-white"
+                      ? "rounded-br-md bg-[#00529F] text-[#ffffff]"
                       : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
                   }`}
                 >
@@ -154,6 +223,61 @@ export default function AiChatWidget() {
                 </div>
               </div>
             ))}
+
+            {pendingAction && (
+              <div className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50">
+                <div className="flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-100/70 px-4 py-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                    {ACTION_LABELS[pendingAction.action.action] ?? "Azione"}
+                  </span>
+                  <span className="truncate text-[10px] font-bold text-amber-700">
+                    {pendingAction.action.ticketLabel}
+                  </span>
+                </div>
+
+                <div className="px-4 py-3">
+                  <p className="mb-2 text-sm font-bold text-amber-900">
+                    {pendingAction.action.summary}
+                  </p>
+
+                  <div className="space-y-1">
+                    {pendingAction.action.changes.map((change, index) => (
+                      <div
+                        key={`${change.campo}-${index}`}
+                        className="flex items-start justify-between gap-2 rounded-xl bg-white px-3 py-1.5 text-[11px]"
+                      >
+                        <span className="font-black text-slate-500">
+                          {change.campo}
+                        </span>
+                        <span className="text-right font-bold text-slate-900">
+                          {change.valore}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => resolveAction(true)}
+                      disabled={executingAction}
+                      className="rounded-xl bg-green-600 px-3 py-2 text-xs font-black text-[#ffffff] hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {executingAction ? "Eseguo..." : "Conferma"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => resolveAction(false)}
+                      disabled={executingAction}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {loading && (
               <div className="flex justify-start">
@@ -182,7 +306,7 @@ export default function AiChatWidget() {
               <button
                 onClick={sendMessage}
                 disabled={loading || !input.trim()}
-                className="h-11 rounded-2xl bg-[#00529F] px-5 text-sm font-medium text-white hover:bg-[#003F7A] disabled:opacity-50"
+                className="h-11 rounded-2xl bg-[#00529F] px-5 text-sm font-medium text-[#ffffff] hover:bg-[#003F7A] disabled:opacity-50"
               >
                 Invia
               </button>

@@ -457,7 +457,7 @@ export default function ChangesDashboard() {
                                 type="button"
                                 key={app}
                                 onClick={() => toggleApplicativo(chg, app)}
-                                className="rounded bg-slate-800 px-1.5 py-0.5 text-[7px] font-black uppercase text-white transition-colors hover:bg-red-500"
+                                className="rounded bg-slate-800 px-1.5 py-0.5 text-[7px] font-black uppercase text-[#ffffff] transition-colors hover:bg-red-500"
                               >
                                 {app}
                               </button>
@@ -587,7 +587,7 @@ export default function ChangesDashboard() {
                                 onClick={() => updateField(chg.id, field, !active)}
                                 className={`flex h-6 w-6 items-center justify-center rounded-md border-2 transition-all ${
                                   active
-                                    ? `${colors} border-transparent text-white`
+                                    ? `${colors} border-transparent text-[#ffffff]`
                                     : "border-slate-200 bg-transparent text-slate-300"
                                 }`}
                               >

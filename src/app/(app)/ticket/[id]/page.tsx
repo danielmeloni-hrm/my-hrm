@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   MessageSquare,
   Activity,
+  CheckCircle2,
   Layers,
   Star,
   User,
@@ -166,6 +167,34 @@ export default function TicketDettaglioPage() {
   const router = useRouter()
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
+
+  /**
+   * Stati che chiudono l'attività.
+   * Il confronto è sul prefisso: copre sia "Completato" sia le varianti
+   * tipo "Completato - In attesa di chiusura TAG" senza doverle elencare.
+   */
+  const isStatoCompletato = (stato: unknown) =>
+    String(stato ?? '')
+      .trim()
+      .toLowerCase()
+      .startsWith('completato')
+
+  const isTicketCompletato = isStatoCompletato(ticketData?.stato)
+
+  /**
+   * Al passaggio a completato proponiamo la data di oggi se non c'è già,
+   * così il campo non resta vuoto per dimenticanza.
+   */
+  const handleStatoChange = async (nuovoStato: string) => {
+    await handleUpdate('stato', nuovoStato)
+
+    if (isStatoCompletato(nuovoStato) && !ticketData?.data_chiusura_attivita) {
+      await handleUpdate(
+        'data_chiusura_attivita',
+        new Date().toISOString().slice(0, 10)
+      )
+    }
+  }
 
   useEffect(() => {
     const fetchTagHours = async () => {
@@ -855,7 +884,7 @@ const removeSubSubTask = async (
               <span className={ui.label}>Stato</span>
               <select
                 value={ticketData.stato || ''}
-                onChange={(e) => handleUpdate('stato', e.target.value)}
+                onChange={(e) => handleStatoChange(e.target.value)}
                 className={ui.select}
               >
                 <option value="">Seleziona stato</option>
@@ -866,6 +895,27 @@ const removeSubSubTask = async (
                 ))}
               </select>
             </div>
+
+            {/* La data di chiusura compare solo a ticket completato */}
+            {isTicketCompletato && (
+              <div className={ui.metaBlock}>
+                <span className={`${ui.label} flex items-center gap-1 text-emerald-600`}>
+                  <CheckCircle2 size={10} /> Data chiusura
+                </span>
+                <input
+                  type="date"
+                  value={
+                    ticketData.data_chiusura_attivita
+                      ? String(ticketData.data_chiusura_attivita).slice(0, 10)
+                      : ''
+                  }
+                  onChange={(e) =>
+                    handleUpdate('data_chiusura_attivita', e.target.value)
+                  }
+                  className={`${ui.field} border-emerald-200 bg-emerald-50/60`}
+                />
+              </div>
+            )}
 
             <div className={ui.metaBlock}>
               <span className={ui.label}>Tool</span>
@@ -1074,7 +1124,7 @@ const removeSubSubTask = async (
       onClick={() => setIsCall(!isCall)}
       className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
         isCall
-          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          ? 'bg-[#0150a0] text-[#ffffff] border-[#0150a0]'
           : 'bg-white text-gray-400 border-gray-200'
       }`}
     >
@@ -1086,7 +1136,7 @@ const removeSubSubTask = async (
       onClick={() => setIsVrbl(!isVrbl)}
       className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
         isVrbl
-          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          ? 'bg-[#0150a0] text-[#ffffff] border-[#0150a0]'
           : 'bg-white text-gray-400 border-gray-200'
       }`}
     >
@@ -1097,7 +1147,7 @@ const removeSubSubTask = async (
       onClick={() => setIsPing(!isPing)}
       className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
         isPing
-          ? 'bg-[#0150a0] text-white border-[#0150a0]'
+          ? 'bg-[#0150a0] text-[#ffffff] border-[#0150a0]'
           : 'bg-white text-gray-400 border-gray-200'
       }`}
     >
@@ -1110,7 +1160,7 @@ const removeSubSubTask = async (
   {/* BUTTON */}
   <button
     onClick={addLogNote}
-    className="w-full px-4 py-2 rounded-md bg-[#0150a0] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
+    className="w-full px-4 py-2 rounded-md bg-[#0150a0] text-[#ffffff] text-[10px] font-black uppercase tracking-widest hover:bg-[#013f82] transition-all shadow-sm"
   >
     Aggiungi
   </button>
@@ -1334,7 +1384,7 @@ const removeSubSubTask = async (
       <div className="flex justify-end">
         <button
           onClick={addTask}
-          className="bg-[#0150a0] text-white px-4 py-2 rounded-xl text-xs font-bold"
+          className="bg-[#0150a0] text-[#ffffff] px-4 py-2 rounded-xl text-xs font-bold"
         >
           + Task
         </button>
@@ -1395,7 +1445,7 @@ const removeSubSubTask = async (
 
             {showFileModal && (
               <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-                <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+                <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto bg-white rounded-2xl shadow-2xl p-8 space-y-6">
                   <div className="flex justify-between items-center">
                     <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
                       Aggiungi Documenti
@@ -1474,7 +1524,7 @@ const removeSubSubTask = async (
                     <button
                       type="button"
                       onClick={saveNewFiles}
-                      className="px-8 py-3 bg-[#0150a0] text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#013f82] shadow-lg shadow-blue-900/20"
+                      className="px-8 py-3 bg-[#0150a0] text-[#ffffff] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#013f82] shadow-lg shadow-blue-900/20"
                     >
                       Salva Documenti
                     </button>
@@ -1554,7 +1604,7 @@ const removeSubSubTask = async (
                               onClick={() => toggleApplicativo(app)}
                               className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-all ${
                                 active
-                                  ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                                  ? 'bg-[#0150a0] text-[#ffffff] border-[#0150a0] shadow-sm'
                                   : 'bg-[#e6eef8] text-[#0150a0] border-[#d3e0f3] hover:bg-[#d9e7f7]'
                               }`}
                             >
@@ -1670,7 +1720,7 @@ const removeSubSubTask = async (
                         }
                         className={`inline-flex items-center gap-2 px-4 py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
                           ticketData.pin_ore_in_header
-                            ? 'bg-[#0150a0] text-white border-[#0150a0] shadow-sm'
+                            ? 'bg-[#0150a0] text-[#ffffff] border-[#0150a0] shadow-sm'
                             : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                         }`}
                       >
@@ -1695,7 +1745,7 @@ const removeSubSubTask = async (
 
         {showTagEditor && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-            <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-6 space-y-5">
+            <div className="max-h-[90vh] w-full max-w-md overflow-y-auto bg-white rounded-2xl shadow-xl border border-gray-200 p-6 space-y-5">
               <h3 className="text-sm font-black uppercase tracking-widest text-[#0150a0]">
                 Modifica Ticket
               </h3>
@@ -1774,7 +1824,7 @@ const removeSubSubTask = async (
                     await handleUpdate('ticket_collegato_link', tempTicketCollegatoLink)
                     setShowTagEditor(false)
                   }}
-                  className="px-4 py-2 rounded-lg bg-[#0150a0] text-white text-xs font-black uppercase tracking-widest hover:bg-[#013f82]"
+                  className="px-4 py-2 rounded-lg bg-[#0150a0] text-[#ffffff] text-xs font-black uppercase tracking-widest hover:bg-[#013f82]"
                 >
                   Salva
                 </button>

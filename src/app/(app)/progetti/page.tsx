@@ -579,7 +579,7 @@ function StepIconsSummary({
               className="
                 pointer-events-none absolute -top-9 left-1/2 z-50 hidden -translate-x-1/2
                 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px]
-                font-bold text-white shadow-lg group-hover:block
+                font-bold text-[#ffffff] shadow-lg group-hover:block
               "
             >
               {isDoubleIcon
@@ -802,7 +802,7 @@ function ProjectModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <AppCard
         padded={false}
-        className="flex w-full max-w-6xl max-h-[calc(90vh-100px)] flex-col overflow-hidden shadow-2xl"
+        className="flex w-full w-full max-h-[calc(90vh-100px)] flex-col overflow-hidden shadow-2xl"
       >
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
@@ -1845,7 +1845,7 @@ export default function OperationalProjectsPage() {
                       href={r.document_link}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:text-white"
+                      className="flex items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:text-[#ffffff]"
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = BRAND;
                       }}
@@ -1971,7 +1971,7 @@ export default function OperationalProjectsPage() {
                         href={record.document_link}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 transition-colors hover:text-white"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 transition-colors hover:text-[#ffffff]"
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = BRAND;
                           e.currentTarget.style.borderColor = BRAND;

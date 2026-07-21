@@ -29,7 +29,44 @@ import {
   ClipboardList,
    Mail,
   Bot,
+  Palette,
+  Sun,
+  Moon,
+  MonitorSmartphone,
+  Users,
 } from 'lucide-react'
+import { useTheme, type ThemeMode } from '@/components/ThemeProvider'
+import {
+  SIDEBAR_COLOR_PRESETS,
+  getSidebarPalette,
+  isHexColor,
+} from '@/lib/sidebar-color'
+
+const THEME_OPTIONS: {
+  value: ThemeMode
+  label: string
+  description: string
+  icon: LucideIcon
+}[] = [
+  {
+    value: 'light',
+    label: 'Chiaro',
+    description: 'Sfondi chiari, sempre',
+    icon: Sun,
+  },
+  {
+    value: 'dark',
+    label: 'Scuro',
+    description: 'Riposante di sera',
+    icon: Moon,
+  },
+  {
+    value: 'system',
+    label: 'Automatico',
+    description: 'Segue il sistema',
+    icon: MonitorSmartphone,
+  },
+]
 
 type IconType = 'lucide' | 'emoji'
 
@@ -56,6 +93,7 @@ type SidebarSettingsResponse = {
   sidebar_visible_paths?: string[]
   sidebar_position?: SidebarPosition
   sidebar_items_config?: Partial<Record<string, Partial<SidebarItemConfig>>>
+  sidebar_color?: string | null
 }
 
 type AvailableIcon = {
@@ -66,6 +104,7 @@ type AvailableIcon = {
 
 export default function SettingsPage() {
   const supabase = createClient()
+  const { mode, resolved, setMode } = useTheme()
 
   const availableIcons: AvailableIcon[] = useMemo(
     () => [
@@ -85,6 +124,7 @@ export default function SettingsPage() {
       { key: 'ClipboardList', label: 'List', Icon: ClipboardList },
       { key: 'Mail', label: 'Email', Icon: Mail },
       { key: 'Bot', label: 'AI', Icon: Bot },
+      { key: 'Users', label: 'Utenti', Icon: Users },
     ],
     []
   )
@@ -144,11 +184,25 @@ export default function SettingsPage() {
   const allMenuItems: MenuItem[] = useMemo(
     () => [
       {
+        name: 'Home',
+        path: '/home',
+        defaultIcon: 'Home',
+        defaultEmoji: '🏠',
+        defaultColor: '#0150a0',
+      },
+      {
         name: 'Nuova Attività',
         path: '/new_ticket',
         defaultIcon: 'PlusCircle',
         defaultEmoji: '➕',
         defaultColor: '#0150a0',
+      },
+      {
+        name: 'Flussi Operativi',
+        path: '/flussi_operativi',
+        defaultIcon: 'ClipboardList',
+        defaultEmoji: '🔀',
+        defaultColor: '#0e7490',
       },
       {
         name: 'Attività in Lavorazione',
@@ -242,6 +296,13 @@ export default function SettingsPage() {
       },
       // {name: 'Assistente AI',         path: '/ai',         defaultIcon: 'Bot',defaultEmoji: '🤖',defaultColor: '#00529F',},
       {
+        name: 'Risorse',
+        path: '/risorse',
+        defaultIcon: 'Users',
+        defaultEmoji: '🧑‍💻',
+        defaultColor: '#7c3aed',
+      },
+      {
         name: 'Clienti',
         path: '/clienti',
         defaultIcon: 'Users',
@@ -260,6 +321,7 @@ export default function SettingsPage() {
 
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>('left')
+  const [sidebarColor, setSidebarColor] = useState<string>('')
   const [itemsConfig, setItemsConfig] = useState<SidebarItemsConfig>({})
 
   const [iconModalPath, setIconModalPath] = useState<string | null>(null)
@@ -404,6 +466,10 @@ export default function SettingsPage() {
             : allMenuItems.map((m) => m.path)
         )
 
+        setSidebarColor(
+          isHexColor(json?.sidebar_color) ? json.sidebar_color : ''
+        )
+
         setSidebarPosition(
           storedPosition === 'left' || storedPosition === 'right' || storedPosition === 'bottom'
             ? storedPosition
@@ -446,6 +512,7 @@ export default function SettingsPage() {
           sidebar_visible_paths: selectedPaths,
           sidebar_position: sidebarPosition,
           sidebar_items_config: itemsConfig,
+          sidebar_color: isHexColor(sidebarColor) ? sidebarColor : null,
         }),
       })
 
@@ -535,6 +602,133 @@ export default function SettingsPage() {
       </section>
 
       <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-2xl bg-gray-100">
+            <Palette className="text-gray-700" />
+          </div>
+          <div>
+            <h2 className="font-black text-gray-900">Aspetto</h2>
+            <p className="text-xs text-gray-500">
+              Scegli il tema dell&apos;interfaccia
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {THEME_OPTIONS.map((option) => {
+            const Icon = option.icon
+            const attivo = mode === option.value
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setMode(option.value)}
+                className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${
+                  attivo
+                    ? 'border-[#0150a0] bg-blue-50 ring-2 ring-[#0150a0]/20'
+                    : 'border-gray-100 bg-gray-50 hover:border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <Icon
+                  size={18}
+                  className={attivo ? 'text-[#0150a0]' : 'text-gray-400'}
+                />
+
+                <div className="min-w-0">
+                  <div className="text-sm font-black text-gray-900">
+                    {option.label}
+                  </div>
+                  <div className="text-[11px] font-medium text-gray-500">
+                    {option.description}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-gray-400">
+          Tema attivo: {resolved === 'dark' ? 'Scuro' : 'Chiaro'}
+        </p>
+
+        <div className="mt-6 border-t border-gray-100 pt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-black text-gray-900">
+                Colore della sidebar
+              </h3>
+              <p className="text-xs text-gray-500">
+                I titoli si adattano da soli; i riquadri delle icone restano bianchi.
+              </p>
+            </div>
+
+            <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-400">
+              Personalizzato
+              <input
+                type="color"
+                value={isHexColor(sidebarColor) ? sidebarColor : '#0150a0'}
+                onChange={(e) => setSidebarColor(e.target.value)}
+                className="h-8 w-10 cursor-pointer rounded-lg border border-gray-200 bg-white p-1"
+                aria-label="Scegli un colore personalizzato"
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {SIDEBAR_COLOR_PRESETS.map((preset) => {
+              const attivo = sidebarColor === preset.value
+
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => setSidebarColor(preset.value)}
+                  title={preset.label}
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-black transition ${
+                    attivo
+                      ? 'border-[#0150a0] bg-blue-50 text-gray-900 ring-2 ring-[#0150a0]/20'
+                      : 'border-gray-100 bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <span
+                    className="h-4 w-4 rounded-md border border-gray-200"
+                    style={{
+                      background: preset.value || 'linear-gradient(135deg,#fff 50%,#e2e8f0 50%)',
+                    }}
+                  />
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Anteprima: mostra come restano leggibili titoli e icone */}
+          <div
+            className="mt-4 flex items-center gap-3 rounded-2xl border border-gray-100 p-3"
+            style={{
+              backgroundColor:
+                getSidebarPalette(sidebarColor).background ?? undefined,
+            }}
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#0150a0] shadow-sm">
+              <Home size={16} />
+            </span>
+
+            <span
+              className="text-[13px] font-bold"
+              style={{
+                color:
+                  getSidebarPalette(sidebarColor).testoForte ?? undefined,
+              }}
+            >
+              Anteprima voce di menu
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white border border-gray-100 rounded-3xl p-6 mb-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-2xl bg-gray-100">
@@ -551,7 +745,7 @@ export default function SettingsPage() {
           <button
             onClick={saveSidebar}
             disabled={saving}
-            className="px-4 py-2 rounded-xl bg-[#0150a0] hover:bg-[#013d7a] text-white font-black text-xs flex items-center gap-2 disabled:opacity-60"
+            className="px-4 py-2 rounded-xl bg-[#0150a0] hover:bg-[#013d7a] text-[#ffffff] font-black text-xs flex items-center gap-2 disabled:opacity-60"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
             Salva
@@ -607,7 +801,7 @@ export default function SettingsPage() {
 
                     <div
                       className={`w-7 h-7 rounded-xl flex items-center justify-center ${
-                        active ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
+                        active ? 'bg-[#0150a0] text-[#ffffff]' : 'bg-gray-100 text-gray-400'
                       }`}
                     >
                       <Check size={16} />
@@ -677,7 +871,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => togglePath(item.path)}
                       className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
-                        checked ? 'bg-[#0150a0] text-white' : 'bg-gray-100 text-gray-400'
+                        checked ? 'bg-[#0150a0] text-[#ffffff]' : 'bg-gray-100 text-gray-400'
                       }`}
                     >
                       <Check size={16} />
@@ -714,7 +908,7 @@ export default function SettingsPage() {
           <button
             onClick={changePassword}
             disabled={pwdLoading || newPassword.length < 8}
-            className="px-4 py-3 rounded-2xl bg-[#0150a0] hover:bg-[#013d7a] text-white font-black text-xs disabled:opacity-60"
+            className="px-4 py-3 rounded-2xl bg-[#0150a0] hover:bg-[#013d7a] text-[#ffffff] font-black text-xs disabled:opacity-60"
           >
             {pwdLoading ? 'Aggiornamento...' : 'Aggiorna password'}
           </button>
@@ -725,7 +919,7 @@ export default function SettingsPage() {
 
       {iconModalPath && modalConfig && (
         <div className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-3xl bg-white border border-gray-100 shadow-2xl p-6">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white border border-gray-100 shadow-2xl p-6">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 <div
@@ -823,7 +1017,7 @@ export default function SettingsPage() {
                         }`}
                         style={{ backgroundColor: color }}
                       >
-                        {active && <Check size={16} className="text-white" />}
+                        {active && <Check size={16} className="text-[#ffffff]" />}
                       </button>
                     )
                   })}
@@ -863,7 +1057,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setIconModalPath(null)}
-                className="px-4 py-2 rounded-xl bg-[#0150a0] text-white font-black text-xs"
+                className="px-4 py-2 rounded-xl bg-[#0150a0] text-[#ffffff] font-black text-xs"
               >
                 Fatto
               </button>

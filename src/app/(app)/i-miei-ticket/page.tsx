@@ -252,14 +252,14 @@ export default function MieiTicketPage() {
               const area = MACROAREE[key];
               const isActive = selectedMacroarea === key;
               return (
-                <button key={key} onClick={() => setSelectedMacroarea(isActive ? null : key)} className={`px-3 py-1 rounded-lg transition-all flex items-center gap-2 ${isActive ? `bg-slate-900 text-white shadow-md` : 'text-slate-400 hover:bg-slate-50'}`}>
+                <button key={key} onClick={() => setSelectedMacroarea(isActive ? null : key)} className={`px-3 py-1 rounded-lg transition-all flex items-center gap-2 ${isActive ? `bg-slate-900 text-[#ffffff] shadow-md` : 'text-slate-400 hover:bg-slate-50'}`}>
                   {area.icon} <span className="text-[9px] font-black uppercase">{area.label}</span>
                 </button>
               );
             })}
           </div>
 
-          <button onClick={() => setShowConfig(!showConfig)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition shadow-sm text-[10px] font-black uppercase tracking-widest ${showConfig ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+          <button onClick={() => setShowConfig(!showConfig)} className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition shadow-sm text-[10px] font-black uppercase tracking-widest ${showConfig ? 'bg-blue-600 border-blue-600 text-[#ffffff]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
             <Settings2 size={14} /> Personalizza
           </button>
         </div>
@@ -365,7 +365,7 @@ export default function MieiTicketPage() {
                   </td>
                 ))}
                 <td className="px-6 py-4 text-right">
-                  <Link href={`/ticket/${t.id}`} className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-50 text-slate-300 hover:bg-blue-600 hover:text-white border border-slate-100 transition shadow-sm">
+                  <Link href={`/ticket/${t.id}`} className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-50 text-slate-300 hover:bg-blue-600 hover:text-[#ffffff] border border-slate-100 transition shadow-sm">
                     <ChevronRight size={14} strokeWidth={3} />
                   </Link>
                 </td>

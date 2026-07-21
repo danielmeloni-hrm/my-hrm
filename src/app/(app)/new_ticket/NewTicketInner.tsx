@@ -147,7 +147,7 @@ function TicketSquare({
       className={cn(
         "w-10 h-10 rounded-xl border-2 flex items-center justify-center font-black text-sm transition-all",
         active
-          ? `${palette.split(" ")[0]} border-transparent text-white shadow-md scale-105`
+          ? `${palette.split(" ")[0]} border-transparent text-[#ffffff] shadow-md scale-105`
           : `bg-white ${palette.split(" ")[1]} text-slate-300 ${palette.split(" ")[3]}`
       )}
     >
@@ -473,7 +473,7 @@ export default function CreateAttivitaOrChangePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-black text-slate-300 animate-pulse">
+      <div className="flex min-h-[60vh] items-center justify-center font-black text-slate-300 animate-pulse">
         CARICAMENTO...
       </div>
     );
@@ -484,8 +484,8 @@ export default function CreateAttivitaOrChangePage() {
     : cForm.applicativo.length === APPLICATIVI_LIST.length - 1;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 md:px-8 font-sans">
-      <div className="max-w-6xl mx-auto">
+    <div className="font-sans">
+      <div className="w-full">
         <div className="mb-10 flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
             <div
@@ -538,7 +538,7 @@ export default function CreateAttivitaOrChangePage() {
                 (!createdTicketId &&
                   (isTaskMode ? !aForm.titolo : !cForm.change_id))
               }
-              className="px-8 py-2.5 rounded-xl text-[10px] font-black uppercase text-white transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:grayscale"
+              className="px-8 py-2.5 rounded-xl text-[10px] font-black uppercase text-[#ffffff] transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:grayscale"
               style={{ background: createdTicketId ? "#16a34a" : BRAND }}
             >
               {saving
@@ -623,7 +623,7 @@ export default function CreateAttivitaOrChangePage() {
           type="button"
           onClick={createNewCliente}
           disabled={creatingCliente || !newClienteName.trim()}
-          className="px-4 py-3 rounded-2xl text-white text-xs font-black uppercase disabled:opacity-50"
+          className="px-4 py-3 rounded-2xl text-[#ffffff] text-xs font-black uppercase disabled:opacity-50"
           style={{ background: BRAND }}
         >
           {creatingCliente ? "Salvataggio..." : "Aggiungi"}
@@ -939,7 +939,7 @@ export default function CreateAttivitaOrChangePage() {
                                 className={cn(
                                   "py-2 rounded-xl text-[10px] font-bold border transition-all",
                                   active
-                                    ? "bg-slate-900 text-white border-transparent shadow-sm"
+                                    ? "bg-slate-900 text-[#ffffff] border-transparent shadow-sm"
                                     : "bg-white text-slate-400 border-slate-100"
                                 )}
                               >
@@ -1024,7 +1024,7 @@ export default function CreateAttivitaOrChangePage() {
                             className={cn(
                               "px-2 py-3 rounded-xl text-[9px] font-black uppercase border transition-all text-center",
                               active
-                                ? "text-white border-transparent shadow-md scale-[1.02]"
+                                ? "text-[#ffffff] border-transparent shadow-md scale-[1.02]"
                                 : "bg-white text-slate-400 border-slate-100"
                             )}
                             style={active ? { background: BRAND } : {}}

@@ -1,16 +1,267 @@
 @import "tailwindcss";
 
+/* Abilita la variante dark: basata sulla classe, non sul sistema. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/* Tema: le utility Tailwind puntano a variabili CSS, quindi il tema   */
+/* scuro si ottiene ridefinendo le variabili sotto .dark, senza        */
+/* toccare le classi scritte nelle pagine.                             */
+/* ------------------------------------------------------------------ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  --surface-1: #ffffff;
+  --surface-2: #f8fafc;
+  --page-bg: #fbfbfc;
   --brand: #0150a0;
+  --brand-soft: rgba(1, 80, 160, 0.12);
+
+  --background: var(--page-bg);
+  --foreground: #0f172a;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 32px -16px rgba(15, 23, 42, 0.14);
+  --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.06),
+    0 24px 48px -20px rgba(15, 23, 42, 0.22);
+
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.dark {
+  color-scheme: dark;
+
+  --surface-1: #14181f;
+  --surface-2: #1a1f28;
+  --page-bg: #0c0f14;
+  --brand: #4d9bff;
+  --brand-soft: rgba(77, 155, 255, 0.16);
+
+  --background: var(--page-bg);
+  --foreground: #e8edf4;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.6),
+    0 24px 48px -20px rgba(0, 0, 0, 0.8);
+
+  --scrollbar-thumb: #39414f;
+  --scrollbar-thumb-hover: #4d5768;
+
+  /* Superficie principale: le card scritte come bg-white restano coerenti. */
+  --color-white: var(--surface-1);
+
+  /* Scale neutre invertite: 50 = fondo piu scuro, 900 = testo piu chiaro. */
+  --color-slate-50: #171b22;
+  --color-slate-100: #1d222b;
+  --color-slate-200: #272d38;
+  --color-slate-300: #39414f;
+  --color-slate-400: #6d7787;
+  --color-slate-500: #8b95a5;
+  --color-slate-600: #a6b0be;
+  --color-slate-700: #c4ccd8;
+  --color-slate-800: #dde3ec;
+  --color-slate-900: #eef2f8;
+  --color-slate-950: #f8fafc;
+
+  --color-gray-50: #171b22;
+  --color-gray-100: #1d222b;
+  --color-gray-200: #272d38;
+  --color-gray-300: #39414f;
+  --color-gray-400: #6d7787;
+  --color-gray-500: #8b95a5;
+  --color-gray-600: #a6b0be;
+  --color-gray-700: #c4ccd8;
+  --color-gray-800: #dde3ec;
+  --color-gray-900: #eef2f8;
+  --color-gray-950: #f8fafc;
+
+  --color-zinc-50: #18191d;
+  --color-zinc-100: #1e2026;
+  --color-zinc-200: #2a2d34;
+  --color-zinc-300: #3c4048;
+  --color-zinc-400: #71757f;
+  --color-zinc-500: #8f939c;
+  --color-zinc-600: #abaeb6;
+  --color-zinc-700: #c8cad0;
+  --color-zinc-800: #e0e2e6;
+  --color-zinc-900: #f0f1f4;
+  --color-zinc-950: #fafafa;
+
+  --color-neutral-50: #18191b;
+  --color-neutral-100: #1e2023;
+  --color-neutral-200: #2a2c30;
+  --color-neutral-300: #3c3f44;
+  --color-neutral-400: #71757b;
+  --color-neutral-500: #8f9399;
+  --color-neutral-600: #ababb2;
+  --color-neutral-700: #c8cacd;
+  --color-neutral-800: #e0e1e4;
+  --color-neutral-900: #f0f1f2;
+  --color-neutral-950: #fafafa;
+
+  /* Accenti: le tinte chiare diventano velature scure,
+     i toni scuri si schiariscono per restare leggibili sul fondo scuro. */
+  --color-red-50: color-mix(in oklab, #ef4444 10%, var(--surface-1));
+  --color-red-100: color-mix(in oklab, #ef4444 16%, var(--surface-1));
+  --color-red-200: color-mix(in oklab, #ef4444 26%, var(--surface-1));
+  --color-red-300: color-mix(in oklab, #ef4444 42%, var(--surface-1));
+  --color-red-600: color-mix(in oklab, #ef4444 82%, #ffffff);
+  --color-red-700: color-mix(in oklab, #ef4444 62%, #ffffff);
+  --color-red-800: color-mix(in oklab, #ef4444 42%, #ffffff);
+  --color-red-900: color-mix(in oklab, #ef4444 28%, #ffffff);
+  --color-red-950: color-mix(in oklab, #ef4444 18%, #ffffff);
+  --color-blue-50: color-mix(in oklab, #3b82f6 10%, var(--surface-1));
+  --color-blue-100: color-mix(in oklab, #3b82f6 16%, var(--surface-1));
+  --color-blue-200: color-mix(in oklab, #3b82f6 26%, var(--surface-1));
+  --color-blue-300: color-mix(in oklab, #3b82f6 42%, var(--surface-1));
+  --color-blue-600: color-mix(in oklab, #3b82f6 82%, #ffffff);
+  --color-blue-700: color-mix(in oklab, #3b82f6 62%, #ffffff);
+  --color-blue-800: color-mix(in oklab, #3b82f6 42%, #ffffff);
+  --color-blue-900: color-mix(in oklab, #3b82f6 28%, #ffffff);
+  --color-blue-950: color-mix(in oklab, #3b82f6 18%, #ffffff);
+  --color-amber-50: color-mix(in oklab, #f59e0b 10%, var(--surface-1));
+  --color-amber-100: color-mix(in oklab, #f59e0b 16%, var(--surface-1));
+  --color-amber-200: color-mix(in oklab, #f59e0b 26%, var(--surface-1));
+  --color-amber-300: color-mix(in oklab, #f59e0b 42%, var(--surface-1));
+  --color-amber-600: color-mix(in oklab, #f59e0b 82%, #ffffff);
+  --color-amber-700: color-mix(in oklab, #f59e0b 62%, #ffffff);
+  --color-amber-800: color-mix(in oklab, #f59e0b 42%, #ffffff);
+  --color-amber-900: color-mix(in oklab, #f59e0b 28%, #ffffff);
+  --color-amber-950: color-mix(in oklab, #f59e0b 18%, #ffffff);
+  --color-emerald-50: color-mix(in oklab, #10b981 10%, var(--surface-1));
+  --color-emerald-100: color-mix(in oklab, #10b981 16%, var(--surface-1));
+  --color-emerald-200: color-mix(in oklab, #10b981 26%, var(--surface-1));
+  --color-emerald-300: color-mix(in oklab, #10b981 42%, var(--surface-1));
+  --color-emerald-600: color-mix(in oklab, #10b981 82%, #ffffff);
+  --color-emerald-700: color-mix(in oklab, #10b981 62%, #ffffff);
+  --color-emerald-800: color-mix(in oklab, #10b981 42%, #ffffff);
+  --color-emerald-900: color-mix(in oklab, #10b981 28%, #ffffff);
+  --color-emerald-950: color-mix(in oklab, #10b981 18%, #ffffff);
+  --color-green-50: color-mix(in oklab, #22c55e 10%, var(--surface-1));
+  --color-green-100: color-mix(in oklab, #22c55e 16%, var(--surface-1));
+  --color-green-200: color-mix(in oklab, #22c55e 26%, var(--surface-1));
+  --color-green-300: color-mix(in oklab, #22c55e 42%, var(--surface-1));
+  --color-green-600: color-mix(in oklab, #22c55e 82%, #ffffff);
+  --color-green-700: color-mix(in oklab, #22c55e 62%, #ffffff);
+  --color-green-800: color-mix(in oklab, #22c55e 42%, #ffffff);
+  --color-green-900: color-mix(in oklab, #22c55e 28%, #ffffff);
+  --color-green-950: color-mix(in oklab, #22c55e 18%, #ffffff);
+  --color-yellow-50: color-mix(in oklab, #eab308 10%, var(--surface-1));
+  --color-yellow-100: color-mix(in oklab, #eab308 16%, var(--surface-1));
+  --color-yellow-200: color-mix(in oklab, #eab308 26%, var(--surface-1));
+  --color-yellow-300: color-mix(in oklab, #eab308 42%, var(--surface-1));
+  --color-yellow-600: color-mix(in oklab, #eab308 82%, #ffffff);
+  --color-yellow-700: color-mix(in oklab, #eab308 62%, #ffffff);
+  --color-yellow-800: color-mix(in oklab, #eab308 42%, #ffffff);
+  --color-yellow-900: color-mix(in oklab, #eab308 28%, #ffffff);
+  --color-yellow-950: color-mix(in oklab, #eab308 18%, #ffffff);
+  --color-purple-50: color-mix(in oklab, #a855f7 10%, var(--surface-1));
+  --color-purple-100: color-mix(in oklab, #a855f7 16%, var(--surface-1));
+  --color-purple-200: color-mix(in oklab, #a855f7 26%, var(--surface-1));
+  --color-purple-300: color-mix(in oklab, #a855f7 42%, var(--surface-1));
+  --color-purple-600: color-mix(in oklab, #a855f7 82%, #ffffff);
+  --color-purple-700: color-mix(in oklab, #a855f7 62%, #ffffff);
+  --color-purple-800: color-mix(in oklab, #a855f7 42%, #ffffff);
+  --color-purple-900: color-mix(in oklab, #a855f7 28%, #ffffff);
+  --color-purple-950: color-mix(in oklab, #a855f7 18%, #ffffff);
+  --color-violet-50: color-mix(in oklab, #8b5cf6 10%, var(--surface-1));
+  --color-violet-100: color-mix(in oklab, #8b5cf6 16%, var(--surface-1));
+  --color-violet-200: color-mix(in oklab, #8b5cf6 26%, var(--surface-1));
+  --color-violet-300: color-mix(in oklab, #8b5cf6 42%, var(--surface-1));
+  --color-violet-600: color-mix(in oklab, #8b5cf6 82%, #ffffff);
+  --color-violet-700: color-mix(in oklab, #8b5cf6 62%, #ffffff);
+  --color-violet-800: color-mix(in oklab, #8b5cf6 42%, #ffffff);
+  --color-violet-900: color-mix(in oklab, #8b5cf6 28%, #ffffff);
+  --color-violet-950: color-mix(in oklab, #8b5cf6 18%, #ffffff);
+  --color-rose-50: color-mix(in oklab, #f43f5e 10%, var(--surface-1));
+  --color-rose-100: color-mix(in oklab, #f43f5e 16%, var(--surface-1));
+  --color-rose-200: color-mix(in oklab, #f43f5e 26%, var(--surface-1));
+  --color-rose-300: color-mix(in oklab, #f43f5e 42%, var(--surface-1));
+  --color-rose-600: color-mix(in oklab, #f43f5e 82%, #ffffff);
+  --color-rose-700: color-mix(in oklab, #f43f5e 62%, #ffffff);
+  --color-rose-800: color-mix(in oklab, #f43f5e 42%, #ffffff);
+  --color-rose-900: color-mix(in oklab, #f43f5e 28%, #ffffff);
+  --color-rose-950: color-mix(in oklab, #f43f5e 18%, #ffffff);
+  --color-orange-50: color-mix(in oklab, #f97316 10%, var(--surface-1));
+  --color-orange-100: color-mix(in oklab, #f97316 16%, var(--surface-1));
+  --color-orange-200: color-mix(in oklab, #f97316 26%, var(--surface-1));
+  --color-orange-300: color-mix(in oklab, #f97316 42%, var(--surface-1));
+  --color-orange-600: color-mix(in oklab, #f97316 82%, #ffffff);
+  --color-orange-700: color-mix(in oklab, #f97316 62%, #ffffff);
+  --color-orange-800: color-mix(in oklab, #f97316 42%, #ffffff);
+  --color-orange-900: color-mix(in oklab, #f97316 28%, #ffffff);
+  --color-orange-950: color-mix(in oklab, #f97316 18%, #ffffff);
+  --color-sky-50: color-mix(in oklab, #0ea5e9 10%, var(--surface-1));
+  --color-sky-100: color-mix(in oklab, #0ea5e9 16%, var(--surface-1));
+  --color-sky-200: color-mix(in oklab, #0ea5e9 26%, var(--surface-1));
+  --color-sky-300: color-mix(in oklab, #0ea5e9 42%, var(--surface-1));
+  --color-sky-600: color-mix(in oklab, #0ea5e9 82%, #ffffff);
+  --color-sky-700: color-mix(in oklab, #0ea5e9 62%, #ffffff);
+  --color-sky-800: color-mix(in oklab, #0ea5e9 42%, #ffffff);
+  --color-sky-900: color-mix(in oklab, #0ea5e9 28%, #ffffff);
+  --color-sky-950: color-mix(in oklab, #0ea5e9 18%, #ffffff);
+  --color-pink-50: color-mix(in oklab, #ec4899 10%, var(--surface-1));
+  --color-pink-100: color-mix(in oklab, #ec4899 16%, var(--surface-1));
+  --color-pink-200: color-mix(in oklab, #ec4899 26%, var(--surface-1));
+  --color-pink-300: color-mix(in oklab, #ec4899 42%, var(--surface-1));
+  --color-pink-600: color-mix(in oklab, #ec4899 82%, #ffffff);
+  --color-pink-700: color-mix(in oklab, #ec4899 62%, #ffffff);
+  --color-pink-800: color-mix(in oklab, #ec4899 42%, #ffffff);
+  --color-pink-900: color-mix(in oklab, #ec4899 28%, #ffffff);
+  --color-pink-950: color-mix(in oklab, #ec4899 18%, #ffffff);
+  --color-indigo-50: color-mix(in oklab, #6366f1 10%, var(--surface-1));
+  --color-indigo-100: color-mix(in oklab, #6366f1 16%, var(--surface-1));
+  --color-indigo-200: color-mix(in oklab, #6366f1 26%, var(--surface-1));
+  --color-indigo-300: color-mix(in oklab, #6366f1 42%, var(--surface-1));
+  --color-indigo-600: color-mix(in oklab, #6366f1 82%, #ffffff);
+  --color-indigo-700: color-mix(in oklab, #6366f1 62%, #ffffff);
+  --color-indigo-800: color-mix(in oklab, #6366f1 42%, #ffffff);
+  --color-indigo-900: color-mix(in oklab, #6366f1 28%, #ffffff);
+  --color-indigo-950: color-mix(in oklab, #6366f1 18%, #ffffff);
+  --color-cyan-50: color-mix(in oklab, #06b6d4 10%, var(--surface-1));
+  --color-cyan-100: color-mix(in oklab, #06b6d4 16%, var(--surface-1));
+  --color-cyan-200: color-mix(in oklab, #06b6d4 26%, var(--surface-1));
+  --color-cyan-300: color-mix(in oklab, #06b6d4 42%, var(--surface-1));
+  --color-cyan-600: color-mix(in oklab, #06b6d4 82%, #ffffff);
+  --color-cyan-700: color-mix(in oklab, #06b6d4 62%, #ffffff);
+  --color-cyan-800: color-mix(in oklab, #06b6d4 42%, #ffffff);
+  --color-cyan-900: color-mix(in oklab, #06b6d4 28%, #ffffff);
+  --color-cyan-950: color-mix(in oklab, #06b6d4 18%, #ffffff);
+  --color-teal-50: color-mix(in oklab, #14b8a6 10%, var(--surface-1));
+  --color-teal-100: color-mix(in oklab, #14b8a6 16%, var(--surface-1));
+  --color-teal-200: color-mix(in oklab, #14b8a6 26%, var(--surface-1));
+  --color-teal-300: color-mix(in oklab, #14b8a6 42%, var(--surface-1));
+  --color-teal-600: color-mix(in oklab, #14b8a6 82%, #ffffff);
+  --color-teal-700: color-mix(in oklab, #14b8a6 62%, #ffffff);
+  --color-teal-800: color-mix(in oklab, #14b8a6 42%, #ffffff);
+  --color-teal-900: color-mix(in oklab, #14b8a6 28%, #ffffff);
+  --color-teal-950: color-mix(in oklab, #14b8a6 18%, #ffffff);
+  --color-lime-50: color-mix(in oklab, #84cc16 10%, var(--surface-1));
+  --color-lime-100: color-mix(in oklab, #84cc16 16%, var(--surface-1));
+  --color-lime-200: color-mix(in oklab, #84cc16 26%, var(--surface-1));
+  --color-lime-300: color-mix(in oklab, #84cc16 42%, var(--surface-1));
+  --color-lime-600: color-mix(in oklab, #84cc16 82%, #ffffff);
+  --color-lime-700: color-mix(in oklab, #84cc16 62%, #ffffff);
+  --color-lime-800: color-mix(in oklab, #84cc16 42%, #ffffff);
+  --color-lime-900: color-mix(in oklab, #84cc16 28%, #ffffff);
+  --color-lime-950: color-mix(in oklab, #84cc16 18%, #ffffff);
+  --color-fuchsia-50: color-mix(in oklab, #d946ef 10%, var(--surface-1));
+  --color-fuchsia-100: color-mix(in oklab, #d946ef 16%, var(--surface-1));
+  --color-fuchsia-200: color-mix(in oklab, #d946ef 26%, var(--surface-1));
+  --color-fuchsia-300: color-mix(in oklab, #d946ef 42%, var(--surface-1));
+  --color-fuchsia-600: color-mix(in oklab, #d946ef 82%, #ffffff);
+  --color-fuchsia-700: color-mix(in oklab, #d946ef 62%, #ffffff);
+  --color-fuchsia-800: color-mix(in oklab, #d946ef 42%, #ffffff);
+  --color-fuchsia-900: color-mix(in oklab, #d946ef 28%, #ffffff);
+  --color-fuchsia-950: color-mix(in oklab, #d946ef 18%, #ffffff);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
 }
 
 body {
@@ -26,7 +277,7 @@ body {
 
 /* Selezione testo con colore brand */
 ::selection {
-  background: rgba(1, 80, 160, 0.15);
+  background: var(--brand-soft);
 }
 
 /* Scrollbar moderna e sottile (globale) */
@@ -40,20 +291,20 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--scrollbar-thumb);
   border: 3px solid transparent;
   border-radius: 8px;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* Variante compatta usata da board e liste (.custom-scrollbar) */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -66,37 +317,65 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--scrollbar-thumb);
   border: 2px solid transparent;
   border-radius: 8px;
   background-clip: content-box;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* Focus visibile e accessibile per navigazione da tastiera */
 :focus-visible {
-  outline: 2px solid rgba(1, 80, 160, 0.45);
+  outline: 2px solid color-mix(in oklab, var(--brand) 70%, transparent);
   outline-offset: 2px;
   border-radius: 6px;
 }
 
 /* Micro-animazioni di entrata (usate con le classi animate-in delle pagine) */
+/* Solo opacità: una transform residua renderebbe gli elementi position:fixed
+   discendenti (modali, pannelli) relativi alla pagina invece che allo schermo. */
 @keyframes app-fade-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 .animate-app-fade-in {
-  animation: app-fade-in 0.25s ease-out both;
+  animation: app-fade-in 0.25s ease-out backwards;
+}
+
+@keyframes app-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-app-slide-in-right {
+  /* backwards e non both: a fine animazione non resta una transform,
+     che altrimenti ancorerebbe i modali al contenitore invece che allo schermo. */
+  animation: app-slide-in-right 0.25s ease-out backwards;
+}
+
+/* Tratteggio in movimento: indica il verso delle frecce di salto */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+.animate-flow-dash {
+  animation: flow-dash 1.2s linear infinite;
 }
 
 /* Riduci il movimento per chi lo preferisce */
@@ -109,3 +388,140 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Rete di sicurezza: se le utility non risolvessero le variabili,
+   queste regole piu specifiche garantiscono comunque il tema scuro. */
+.dark .bg-white { background-color: var(--surface-1); }
+.dark .border-white { border-color: var(--surface-1); }
+.dark .bg-slate-50 { background-color: #171b22; }
+.dark .text-slate-50 { color: #171b22; }
+.dark .border-slate-50 { border-color: #171b22; }
+.dark .bg-slate-100 { background-color: #1d222b; }
+.dark .text-slate-100 { color: #1d222b; }
+.dark .border-slate-100 { border-color: #1d222b; }
+.dark .bg-slate-200 { background-color: #272d38; }
+.dark .text-slate-200 { color: #272d38; }
+.dark .border-slate-200 { border-color: #272d38; }
+.dark .bg-slate-300 { background-color: #39414f; }
+.dark .text-slate-300 { color: #39414f; }
+.dark .border-slate-300 { border-color: #39414f; }
+.dark .bg-slate-400 { background-color: #6d7787; }
+.dark .text-slate-400 { color: #6d7787; }
+.dark .border-slate-400 { border-color: #6d7787; }
+.dark .bg-slate-500 { background-color: #8b95a5; }
+.dark .text-slate-500 { color: #8b95a5; }
+.dark .border-slate-500 { border-color: #8b95a5; }
+.dark .bg-slate-600 { background-color: #a6b0be; }
+.dark .text-slate-600 { color: #a6b0be; }
+.dark .border-slate-600 { border-color: #a6b0be; }
+.dark .bg-slate-700 { background-color: #c4ccd8; }
+.dark .text-slate-700 { color: #c4ccd8; }
+.dark .border-slate-700 { border-color: #c4ccd8; }
+.dark .bg-slate-800 { background-color: #dde3ec; }
+.dark .text-slate-800 { color: #dde3ec; }
+.dark .border-slate-800 { border-color: #dde3ec; }
+.dark .bg-slate-900 { background-color: #eef2f8; }
+.dark .text-slate-900 { color: #eef2f8; }
+.dark .border-slate-900 { border-color: #eef2f8; }
+.dark .bg-slate-950 { background-color: #f8fafc; }
+.dark .text-slate-950 { color: #f8fafc; }
+.dark .border-slate-950 { border-color: #f8fafc; }
+.dark .bg-gray-50 { background-color: #171b22; }
+.dark .text-gray-50 { color: #171b22; }
+.dark .border-gray-50 { border-color: #171b22; }
+.dark .bg-gray-100 { background-color: #1d222b; }
+.dark .text-gray-100 { color: #1d222b; }
+.dark .border-gray-100 { border-color: #1d222b; }
+.dark .bg-gray-200 { background-color: #272d38; }
+.dark .text-gray-200 { color: #272d38; }
+.dark .border-gray-200 { border-color: #272d38; }
+.dark .bg-gray-300 { background-color: #39414f; }
+.dark .text-gray-300 { color: #39414f; }
+.dark .border-gray-300 { border-color: #39414f; }
+.dark .bg-gray-400 { background-color: #6d7787; }
+.dark .text-gray-400 { color: #6d7787; }
+.dark .border-gray-400 { border-color: #6d7787; }
+.dark .bg-gray-500 { background-color: #8b95a5; }
+.dark .text-gray-500 { color: #8b95a5; }
+.dark .border-gray-500 { border-color: #8b95a5; }
+.dark .bg-gray-600 { background-color: #a6b0be; }
+.dark .text-gray-600 { color: #a6b0be; }
+.dark .border-gray-600 { border-color: #a6b0be; }
+.dark .bg-gray-700 { background-color: #c4ccd8; }
+.dark .text-gray-700 { color: #c4ccd8; }
+.dark .border-gray-700 { border-color: #c4ccd8; }
+.dark .bg-gray-800 { background-color: #dde3ec; }
+.dark .text-gray-800 { color: #dde3ec; }
+.dark .border-gray-800 { border-color: #dde3ec; }
+.dark .bg-gray-900 { background-color: #eef2f8; }
+.dark .text-gray-900 { color: #eef2f8; }
+.dark .border-gray-900 { border-color: #eef2f8; }
+.dark .bg-gray-950 { background-color: #f8fafc; }
+.dark .text-gray-950 { color: #f8fafc; }
+.dark .border-gray-950 { border-color: #f8fafc; }
+.dark .bg-zinc-50 { background-color: #18191d; }
+.dark .text-zinc-50 { color: #18191d; }
+.dark .border-zinc-50 { border-color: #18191d; }
+.dark .bg-zinc-100 { background-color: #1e2026; }
+.dark .text-zinc-100 { color: #1e2026; }
+.dark .border-zinc-100 { border-color: #1e2026; }
+.dark .bg-zinc-200 { background-color: #2a2d34; }
+.dark .text-zinc-200 { color: #2a2d34; }
+.dark .border-zinc-200 { border-color: #2a2d34; }
+.dark .bg-zinc-300 { background-color: #3c4048; }
+.dark .text-zinc-300 { color: #3c4048; }
+.dark .border-zinc-300 { border-color: #3c4048; }
+.dark .bg-zinc-400 { background-color: #71757f; }
+.dark .text-zinc-400 { color: #71757f; }
+.dark .border-zinc-400 { border-color: #71757f; }
+.dark .bg-zinc-500 { background-color: #8f939c; }
+.dark .text-zinc-500 { color: #8f939c; }
+.dark .border-zinc-500 { border-color: #8f939c; }
+.dark .bg-zinc-600 { background-color: #abaeb6; }
+.dark .text-zinc-600 { color: #abaeb6; }
+.dark .border-zinc-600 { border-color: #abaeb6; }
+.dark .bg-zinc-700 { background-color: #c8cad0; }
+.dark .text-zinc-700 { color: #c8cad0; }
+.dark .border-zinc-700 { border-color: #c8cad0; }
+.dark .bg-zinc-800 { background-color: #e0e2e6; }
+.dark .text-zinc-800 { color: #e0e2e6; }
+.dark .border-zinc-800 { border-color: #e0e2e6; }
+.dark .bg-zinc-900 { background-color: #f0f1f4; }
+.dark .text-zinc-900 { color: #f0f1f4; }
+.dark .border-zinc-900 { border-color: #f0f1f4; }
+.dark .bg-zinc-950 { background-color: #fafafa; }
+.dark .text-zinc-950 { color: #fafafa; }
+.dark .border-zinc-950 { border-color: #fafafa; }
+.dark .bg-neutral-50 { background-color: #18191b; }
+.dark .text-neutral-50 { color: #18191b; }
+.dark .border-neutral-50 { border-color: #18191b; }
+.dark .bg-neutral-100 { background-color: #1e2023; }
+.dark .text-neutral-100 { color: #1e2023; }
+.dark .border-neutral-100 { border-color: #1e2023; }
+.dark .bg-neutral-200 { background-color: #2a2c30; }
+.dark .text-neutral-200 { color: #2a2c30; }
+.dark .border-neutral-200 { border-color: #2a2c30; }
+.dark .bg-neutral-300 { background-color: #3c3f44; }
+.dark .text-neutral-300 { color: #3c3f44; }
+.dark .border-neutral-300 { border-color: #3c3f44; }
+.dark .bg-neutral-400 { background-color: #71757b; }
+.dark .text-neutral-400 { color: #71757b; }
+.dark .border-neutral-400 { border-color: #71757b; }
+.dark .bg-neutral-500 { background-color: #8f9399; }
+.dark .text-neutral-500 { color: #8f9399; }
+.dark .border-neutral-500 { border-color: #8f9399; }
+.dark .bg-neutral-600 { background-color: #ababb2; }
+.dark .text-neutral-600 { color: #ababb2; }
+.dark .border-neutral-600 { border-color: #ababb2; }
+.dark .bg-neutral-700 { background-color: #c8cacd; }
+.dark .text-neutral-700 { color: #c8cacd; }
+.dark .border-neutral-700 { border-color: #c8cacd; }
+.dark .bg-neutral-800 { background-color: #e0e1e4; }
+.dark .text-neutral-800 { color: #e0e1e4; }
+.dark .border-neutral-800 { border-color: #e0e1e4; }
+.dark .bg-neutral-900 { background-color: #f0f1f2; }
+.dark .text-neutral-900 { color: #f0f1f2; }
+.dark .border-neutral-900 { border-color: #f0f1f2; }
+.dark .bg-neutral-950 { background-color: #fafafa; }
+.dark .text-neutral-950 { color: #fafafa; }
+.dark .border-neutral-950 { border-color: #fafafa; }
