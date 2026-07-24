@@ -34,7 +34,28 @@ import {
   Moon,
   MonitorSmartphone,
   Users,
+  AlertTriangle,
+  Rocket,
+  Wrench,
+  GripVertical,
 } from 'lucide-react'
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+  useSortable,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useTheme, type ThemeMode } from '@/components/ThemeProvider'
 import {
   SIDEBAR_COLOR_PRESETS,
@@ -94,6 +115,7 @@ type SidebarSettingsResponse = {
   sidebar_position?: SidebarPosition
   sidebar_items_config?: Partial<Record<string, Partial<SidebarItemConfig>>>
   sidebar_color?: string | null
+  sidebar_order?: string[] | null
 }
 
 type AvailableIcon = {
@@ -125,6 +147,9 @@ export default function SettingsPage() {
       { key: 'Mail', label: 'Email', Icon: Mail },
       { key: 'Bot', label: 'AI', Icon: Bot },
       { key: 'Users', label: 'Utenti', Icon: Users },
+      { key: 'AlertTriangle', label: 'Alert', Icon: AlertTriangle },
+      { key: 'Rocket', label: 'Sprint', Icon: Rocket },
+      { key: 'Wrench', label: 'Opex', Icon: Wrench },
     ],
     []
   )
@@ -296,6 +321,13 @@ export default function SettingsPage() {
       },
       // {name: 'Assistente AI',         path: '/ai',         defaultIcon: 'Bot',defaultEmoji: '🤖',defaultColor: '#00529F',},
       {
+        name: 'Segnalazioni',
+        path: '/segnalazioni',
+        defaultIcon: 'AlertTriangle',
+        defaultEmoji: '⚠️',
+        defaultColor: '#dc2626',
+      },
+      {
         name: 'Risorse',
         path: '/risorse',
         defaultIcon: 'Users',
@@ -309,6 +341,20 @@ export default function SettingsPage() {
         defaultEmoji: '👥',
         defaultColor: '#00529F',
       },
+      {
+        name: 'Sprint (SN)',
+        path: 'https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=acddf36f2beef2d0bad7f0b16e91bfd1^assignment_group=4ea500b11bee0914efde5421604bcb5d',
+        defaultIcon: 'Rocket',
+        defaultEmoji: '🏃',
+        defaultColor: '#16a34a',
+      },
+      {
+        name: 'Opex (SN)',
+        path: 'https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=c424047b2be236d0bad7f0b16e91bffe^assignment_group=6b47e7723385fa18cf0f7e282e5c7b6d',
+        defaultIcon: 'Wrench',
+        defaultEmoji: '🛠️',
+        defaultColor: '#ea580c',
+      },
     ],
     []
   )
@@ -320,6 +366,7 @@ export default function SettingsPage() {
   const [userId, setUserId] = useState('')
 
   const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [orderedPaths, setOrderedPaths] = useState<string[]>([])
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>('left')
   const [sidebarColor, setSidebarColor] = useState<string>('')
 
@@ -477,6 +524,14 @@ export default function SettingsPage() {
             : allMenuItems.map((m) => m.path)
         )
 
+        // Ordine: voci salvate prima, eventuali nuove voci in coda.
+        const tuttiPath = allMenuItems.map((m) => m.path)
+        const storedOrder = Array.isArray(json?.sidebar_order)
+          ? json!.sidebar_order.filter((path) => tuttiPath.includes(path))
+          : []
+        const mancanti = tuttiPath.filter((path) => !storedOrder.includes(path))
+        setOrderedPaths([...storedOrder, ...mancanti])
+
         setSidebarColor(
           isHexColor(json?.sidebar_color) ? json.sidebar_color : ''
         )
@@ -490,6 +545,7 @@ export default function SettingsPage() {
         setItemsConfig(normalizeStoredConfig(storedItemsConfig, defaultConfig))
       } catch {
         setSelectedPaths(allMenuItems.map((m) => m.path))
+        setOrderedPaths(allMenuItems.map((m) => m.path))
         setSidebarPosition('left')
         setItemsConfig(defaultConfig)
       }
@@ -511,6 +567,24 @@ export default function SettingsPage() {
     )
   }
 
+  const sensorsSidebar = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragEndSidebar = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    setSaveMsg('')
+    setOrderedPaths((prev) => {
+      const from = prev.indexOf(String(active.id))
+      const to = prev.indexOf(String(over.id))
+      if (from < 0 || to < 0) return prev
+      return arrayMove(prev, from, to)
+    })
+  }
+
   const saveSidebar = async () => {
     setSaving(true)
     setSaveMsg('')
@@ -524,6 +598,7 @@ export default function SettingsPage() {
           sidebar_position: sidebarPosition,
           sidebar_items_config: itemsConfig,
           sidebar_color: isHexColor(sidebarColor) ? sidebarColor : null,
+          sidebar_order: orderedPaths,
         }),
       })
 
@@ -840,24 +915,51 @@ export default function SettingsPage() {
 
         <div>
           <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">
-            Pagine visibili e icona
+            Pagine visibili, ordine e icona
           </div>
 
+          <p className="mb-3 text-[11px] font-semibold text-gray-400">
+            Trascina le voci dalla maniglia per riordinarle: l&apos;ordine viene applicato alla sidebar.
+          </p>
+
+          <DndContext
+            sensors={sensorsSidebar}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEndSidebar}
+          >
+            <SortableContext
+              items={orderedPaths}
+              strategy={verticalListSortingStrategy}
+            >
           <div className="grid grid-cols-1 gap-3">
-            {allMenuItems.map((item) => {
+            {orderedPaths
+              .map((path) => allMenuItems.find((m) => m.path === path))
+              .filter((item): item is MenuItem => Boolean(item))
+              .map((item) => {
               const checked = selectedPaths.includes(item.path)
               const currentConfig = itemsConfig[item.path] ?? getItemFallback(item.path)
               const PreviewIcon = getIconComponent(currentConfig.icon)
 
               return (
-                <div
+                <SortableSidebarRow
                   key={`${item.path}-${item.name}`}
-                  className={`rounded-2xl border p-4 transition ${
-                    checked ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-white'
-                  }`}
+                  id={item.path}
+                  checked={checked}
                 >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0">
+                  {({ attributes, listeners }) => (
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      {...attributes}
+                      {...listeners}
+                      className="flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded-lg text-gray-300 hover:bg-gray-100 hover:text-gray-600 active:cursor-grabbing"
+                      title="Trascina per riordinare"
+                      aria-label="Trascina per riordinare"
+                    >
+                      <GripVertical size={16} />
+                    </button>
+
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -878,7 +980,7 @@ export default function SettingsPage() {
                       <button
                         type="button"
                         onClick={() => togglePath(item.path)}
-                        className="text-left min-w-0"
+                        className="min-w-0 flex-1 text-left"
                       >
                         <div className="font-bold text-gray-900 text-sm">{item.name}</div>
                         <div className="text-xs text-gray-400 truncate">{item.path}</div>
@@ -899,10 +1001,13 @@ export default function SettingsPage() {
                       <Check size={16} />
                     </button>
                   </div>
-                </div>
+                  )}
+                </SortableSidebarRow>
               )
             })}
           </div>
+            </SortableContext>
+          </DndContext>
         </div>
       </section>
 
@@ -1088,5 +1193,47 @@ export default function SettingsPage() {
         </div>
       )}
     </AppPage>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Riga trascinabile per l'ordinamento delle voci sidebar             */
+/* ------------------------------------------------------------------ */
+
+function SortableSidebarRow({
+  id,
+  checked,
+  children,
+}: {
+  id: string
+  checked: boolean
+  children: (handleProps: {
+    attributes: React.HTMLAttributes<HTMLElement>
+    listeners: Record<string, unknown> | undefined
+  }) => React.ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 40 : undefined,
+      }}
+      className={`rounded-2xl border p-4 transition ${
+        isDragging ? 'shadow-lg' : ''
+      } ${checked ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-white'}`}
+    >
+      {children({ attributes, listeners })}
+    </div>
   )
 }

@@ -294,7 +294,7 @@ export default function SprintBoardRefactor() {
       }
 
       const { data, error } = await supabase
-        .from("ticket")
+        .from("incident")
         .select("*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)");
 
       if (error) {
@@ -317,7 +317,7 @@ export default function SprintBoardRefactor() {
 
   useRealtimeTable({
     supabase,
-    table: "ticket",
+    table: "incident",
     onChange: async (payload) => {
       if (payload.eventType === "UPDATE") {
         const updatedPatch: Partial<Ticket> = {
@@ -344,7 +344,7 @@ export default function SprintBoardRefactor() {
 
       if (payload.eventType === "INSERT") {
         const { data, error } = await supabase
-          .from("ticket")
+          .from("incident")
           .select(
             "*, clienti:cliente_id(id, nome), profili:assignee(id, nome, nome_completo)"
           )
@@ -407,7 +407,7 @@ export default function SprintBoardRefactor() {
     if (Object.keys(supabasePatch).length === 0) return true;
 
     const { error } = await supabase
-      .from("ticket")
+      .from("incident")
       .update(supabasePatch)
       .eq("id", id);
 
@@ -559,11 +559,6 @@ export default function SprintBoardRefactor() {
     return tickets
         
     .filter((t) => {
-      const isIncTicket =
-        t.n_tag &&
-        t.n_tag.toUpperCase().startsWith("INC");
-
-      if (!isIncTicket) return false;
         const search = searchQuery.toLowerCase();
 
         const matchesSearch =
@@ -847,7 +842,7 @@ export default function SprintBoardRefactor() {
           })
         }
         addLogNoteToDb={async (id, logs) => {
-          await supabase.from("ticket").update({ storia_ticket: logs }).eq("id", id);
+          await supabase.from("incident").update({ storia_ticket: logs }).eq("id", id);
         }}
       />
 

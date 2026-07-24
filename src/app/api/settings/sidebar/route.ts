@@ -19,6 +19,7 @@ type SidebarRequestBody = {
   sidebar_position?: unknown
   sidebar_items_config?: unknown
   sidebar_color?: unknown
+  sidebar_order?: unknown
 }
 
 /** true quando l'errore riguarda una colonna non ancora creata a database. */
@@ -88,13 +89,15 @@ export async function GET() {
   ] = await Promise.all([
     supabase
       .from('user_preferences')
-      .select('sidebar_visible_paths, sidebar_items_config, sidebar_color')
+      .select('sidebar_visible_paths, sidebar_items_config, sidebar_color, sidebar_order')
       .eq('user_id', userId)
       .maybeSingle()
       .then(async (result) => {
         // Se la colonna sidebar_color non è ancora stata creata, la query
         // fallirebbe del tutto: riproviamo senza, per non perdere il resto.
         if (result.error && isMissingColumnError(result.error)) {
+          // Colonne opzionali (sidebar_color/sidebar_order) forse assenti:
+          // ripieghiamo sulle sole colonne sempre presenti.
           const fallback = await supabase
             .from('user_preferences')
             .select('sidebar_visible_paths, sidebar_items_config')
@@ -103,7 +106,9 @@ export async function GET() {
 
           return {
             ...fallback,
-            data: fallback.data ? { ...fallback.data, sidebar_color: null } : null,
+            data: fallback.data
+              ? { ...fallback.data, sidebar_color: null, sidebar_order: null }
+              : null,
           }
         }
 
@@ -128,6 +133,9 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     sidebar_visible_paths: preferencesData?.sidebar_visible_paths ?? null,
+    sidebar_order: Array.isArray(preferencesData?.sidebar_order)
+      ? preferencesData.sidebar_order
+      : null,
     sidebar_position: isValidSidebarPosition(profiloData?.sidebar_position)
       ? profiloData.sidebar_position
       : 'left',
@@ -146,6 +154,10 @@ export async function POST(request: NextRequest) {
 
   const sidebar_visible_paths: string[] = Array.isArray(body.sidebar_visible_paths)
     ? body.sidebar_visible_paths.filter((v: unknown): v is string => typeof v === 'string')
+    : []
+
+  const sidebar_order: string[] = Array.isArray(body.sidebar_order)
+    ? body.sidebar_order.filter((v: unknown): v is string => typeof v === 'string')
     : []
 
   const sidebar_position: SidebarPosition = isValidSidebarPosition(body.sidebar_position)
@@ -168,6 +180,7 @@ export async function POST(request: NextRequest) {
     sidebar_position,
     sidebar_items_config,
     sidebar_color,
+    sidebar_order,
   })
 
   const supabase = createServerClient(
@@ -202,6 +215,7 @@ export async function POST(request: NextRequest) {
         sidebar_visible_paths,
         sidebar_items_config,
         sidebar_color,
+        sidebar_order,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
@@ -223,7 +237,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Colonna assente: salviamo comunque il resto e avvisiamo l'utente.
+    // Colonna assente (sidebar_color e/o sidebar_order): salviamo solo le
+    // colonne sempre presenti e avvisiamo l'utente.
     const senzaColore = await supabase.from('user_preferences').upsert(
       {
         user_id: userId,
@@ -247,8 +262,9 @@ export async function POST(request: NextRequest) {
       sidebar_position,
       sidebar_items_config,
       sidebar_color: null,
+      sidebar_order: null,
       warning:
-        "Colore non salvato: manca la colonna sidebar_color in user_preferences. Esegui supabase/home_dashboard.sql.",
+        "Alcune preferenze (colore/ordine) non salvate: mancano le colonne sidebar_color/sidebar_order in user_preferences. Esegui supabase/home_dashboard.sql.",
     })
   }
 

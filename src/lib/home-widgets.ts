@@ -2,8 +2,13 @@
 // Catalogo dei widget della home + logica derivata (SLA, ticket fermi, carico team).
 
 import {
+  APPLICATIVI_LIST,
+  PRIORITA_LIST,
   PRIORITA_NUMBER_MAP,
   STATO_PROGRESS_MAP,
+  STATO_TICKET_LIST,
+  TICKET_FIELD_LABELS,
+  TIPOLOGIA_TICKET,
 } from "@/components/parametri_ticket/attivita";
 
 /* ------------------------------------------------------------------ */
@@ -24,7 +29,8 @@ export type HomeWidgetId =
   | "prossime_scadenze"
   | "carico_team"
   | "grafico_stati"
-  | "grafico_tempi";
+  | "grafico_tempi"
+  | "ticket_custom";
 
 export type HomeWidgetConfig = {
   id: HomeWidgetId;
@@ -34,7 +40,7 @@ export type HomeWidgetConfig = {
   defaultSize: WidgetSize;
   /** Dimensioni ammesse per questo widget. */
   sizes: WidgetSize[];
-  gruppo: "Operativo" | "Team" | "Analisi";
+  gruppo: "Operativo" | "Team" | "Analisi" | "Personalizzata";
 };
 
 export const WIDGET_CATALOG: HomeWidgetConfig[] = [
@@ -138,16 +144,119 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     sizes: ["md", "lg"],
     gruppo: "Analisi",
   },
+  {
+    id: "ticket_custom",
+    titolo: "Card personalizzata",
+    descrizione:
+      "Scegli quali ticket vedere, come visualizzarli e quali campi mostrare.",
+    defaultSize: "md",
+    sizes: ["sm", "md", "lg"],
+    gruppo: "Personalizzata",
+  },
 ];
 
 export const WIDGET_BY_ID = new Map(
   WIDGET_CATALOG.map((widget) => [widget.id, widget])
 );
 
+/* ------------------------------------------------------------------ */
+/* Card personalizzata: configurazione                                 */
+/* ------------------------------------------------------------------ */
+
+export type ModoVisualizzazione = "lista" | "tabella" | "conteggio";
+
+export type OrdinamentoCard = "priorita" | "recenti" | "vecchi" | "ping";
+
+/** Campi del ticket selezionabili nella card personalizzata. */
+export const CAMPI_TICKET_CARD = [
+  "n_tag",
+  "titolo",
+  "stato",
+  "priorita",
+  "tipo_di_attivita",
+  "tipologia_ticket",
+  "sprint",
+  "applicativo",
+  "percentuale_avanzamento",
+  "cliente",
+  "assegnatario",
+  "data_chiusura_attivita",
+  "rilascio_in_produzione",
+  "ultimo_ping",
+  "note_importanti",
+  "creato_at",
+] as const;
+
+export type CampoTicketCard = (typeof CAMPI_TICKET_CARD)[number];
+
+export function etichettaCampoCard(campo: string): string {
+  if (campo === "cliente") return "Cliente";
+  if (campo === "assegnatario") return "Assegnatario";
+  return (TICKET_FIELD_LABELS as Record<string, string>)[campo] ?? campo;
+}
+
+export type CustomCardConfig = {
+  titolo: string;
+  /** Testo cercato nel titolo del ticket (case-insensitive). */
+  filtroTitolo: string;
+  soloMiei: boolean;
+  soloAperti: boolean;
+  stati: string[];
+  priorita: string[];
+  clienti: string[];
+  applicativi: string[];
+  tipologie: string[];
+  modo: ModoVisualizzazione;
+  ordina: OrdinamentoCard;
+  limite: number;
+  campi: string[];
+};
+
+export function defaultCustomConfig(): CustomCardConfig {
+  return {
+    titolo: "Nuova card",
+    filtroTitolo: "",
+    soloMiei: false,
+    soloAperti: true,
+    stati: [],
+    priorita: [],
+    clienti: [],
+    applicativi: [],
+    tipologie: [],
+    modo: "lista",
+    ordina: "priorita",
+    limite: 15,
+    campi: ["stato", "priorita", "cliente"],
+  };
+}
+
+/** Opzioni offerte nell'editor della card. */
+export const OPZIONI_STATO = [...STATO_TICKET_LIST];
+export const OPZIONI_PRIORITA = [...PRIORITA_LIST];
+export const OPZIONI_APPLICATIVO = APPLICATIVI_LIST.filter((a) => a !== "ALL");
+export const OPZIONI_TIPOLOGIA = [...TIPOLOGIA_TICKET];
+
+export const MODI_VISUALIZZAZIONE: { value: ModoVisualizzazione; label: string }[] = [
+  { value: "lista", label: "Lista" },
+  { value: "tabella", label: "Tabella" },
+  { value: "conteggio", label: "Solo conteggio" },
+];
+
+export const ORDINAMENTI_CARD: { value: OrdinamentoCard; label: string }[] = [
+  { value: "priorita", label: "Priorità" },
+  { value: "recenti", label: "Più recenti" },
+  { value: "vecchi", label: "Più vecchi" },
+  { value: "ping", label: "Ultimo ping" },
+];
+
 export type HomeWidgetLayoutItem = {
+  /** Chiave d'istanza univoca: per le card fisse coincide con l'id. */
+  key: string;
   id: HomeWidgetId;
   size: WidgetSize;
   color?: WidgetColor;
+  /** Presente solo per le card personalizzate. */
+  config?: CustomCardConfig;
 };
 
 /* ------------------------------------------------------------------ */
@@ -227,15 +336,15 @@ export function getWidgetColorClasses(color?: WidgetColor) {
 }
 
 export const DEFAULT_HOME_LAYOUT: HomeWidgetLayoutItem[] = [
-  { id: "attivita_assegnate", size: "md" },
-  { id: "sla_in_scadenza", size: "md" },
-  { id: "ticket_urgenti", size: "md" },
-  { id: "attivita_ferme", size: "md" },
-  { id: "bloccati_business", size: "md" },
-  { id: "ultimo_ping", size: "md" },
-  { id: "note_importanti", size: "md" },
-  { id: "carico_team", size: "lg" },
-  { id: "grafico_stati", size: "md" },
+  { key: "attivita_assegnate", id: "attivita_assegnate", size: "md" },
+  { key: "sla_in_scadenza", id: "sla_in_scadenza", size: "md" },
+  { key: "ticket_urgenti", id: "ticket_urgenti", size: "md" },
+  { key: "attivita_ferme", id: "attivita_ferme", size: "md" },
+  { key: "bloccati_business", id: "bloccati_business", size: "md" },
+  { key: "ultimo_ping", id: "ultimo_ping", size: "md" },
+  { key: "note_importanti", id: "note_importanti", size: "md" },
+  { key: "carico_team", id: "carico_team", size: "lg" },
+  { key: "grafico_stati", id: "grafico_stati", size: "md" },
 ];
 
 /**
@@ -254,6 +363,50 @@ export const SIZE_LABELS: Record<WidgetSize, string> = {
   lg: "Piena",
 };
 
+function normalizeCustomConfig(value: unknown): CustomCardConfig {
+  const base = defaultCustomConfig();
+  if (!value || typeof value !== "object") return base;
+
+  const c = value as Record<string, unknown>;
+  const arr = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+
+  return {
+    titolo: typeof c.titolo === "string" && c.titolo.trim() ? c.titolo : base.titolo,
+    filtroTitolo: typeof c.filtroTitolo === "string" ? c.filtroTitolo : "",
+    soloMiei: c.soloMiei === true,
+    soloAperti: c.soloAperti !== false,
+    stati: arr(c.stati),
+    priorita: arr(c.priorita),
+    clienti: arr(c.clienti),
+    applicativi: arr(c.applicativi),
+    tipologie: arr(c.tipologie),
+    modo:
+      c.modo === "lista" || c.modo === "tabella" || c.modo === "conteggio"
+        ? c.modo
+        : base.modo,
+    ordina:
+      c.ordina === "priorita" ||
+      c.ordina === "recenti" ||
+      c.ordina === "vecchi" ||
+      c.ordina === "ping"
+        ? c.ordina
+        : base.ordina,
+    limite:
+      typeof c.limite === "number" && c.limite > 0 && c.limite <= 100
+        ? Math.round(c.limite)
+        : base.limite,
+    campi: arr(c.campi),
+  };
+}
+
+function nuovaChiave() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /** Valida un layout arrivato dal client o dal database. */
 export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
   if (!Array.isArray(value)) return DEFAULT_HOME_LAYOUT;
@@ -264,33 +417,62 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
 
-    const { id, size, color } = item as {
+    const { id, size, color, key, config } = item as {
       id?: unknown;
       size?: unknown;
       color?: unknown;
+      key?: unknown;
+      config?: unknown;
     };
 
     if (typeof id !== "string") continue;
 
-    const config = WIDGET_BY_ID.get(id as HomeWidgetId);
-    if (!config || seen.has(id)) continue;
+    const widget = WIDGET_BY_ID.get(id as HomeWidgetId);
+    if (!widget) continue;
 
-    seen.add(id);
+    const isCustom = id === "ticket_custom";
+
+    // Le card fisse hanno una sola istanza (chiave = id); le personalizzate
+    // possono ripetersi, ciascuna con la propria chiave.
+    const chiave =
+      isCustom && typeof key === "string" && key
+        ? key
+        : isCustom
+          ? nuovaChiave()
+          : id;
+
+    if (seen.has(chiave)) continue;
+    seen.add(chiave);
 
     layout.push({
-      id: config.id,
+      key: chiave,
+      id: widget.id,
       size:
-        typeof size === "string" && config.sizes.includes(size as WidgetSize)
+        typeof size === "string" && widget.sizes.includes(size as WidgetSize)
           ? (size as WidgetSize)
-          : config.defaultSize,
+          : widget.defaultSize,
       color:
         typeof color === "string" && COLOR_IDS.has(color as WidgetColor)
           ? (color as WidgetColor)
           : DEFAULT_WIDGET_COLOR,
+      ...(isCustom ? { config: normalizeCustomConfig(config) } : {}),
     });
   }
 
   return layout;
+}
+
+/** Crea una nuova istanza di card personalizzata. */
+export function creaCardPersonalizzata(
+  config?: Partial<CustomCardConfig>
+): HomeWidgetLayoutItem {
+  return {
+    key: nuovaChiave(),
+    id: "ticket_custom",
+    size: "md",
+    color: DEFAULT_WIDGET_COLOR,
+    config: { ...defaultCustomConfig(), ...config },
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -692,4 +874,138 @@ export function getTempiRisoluzione(
         chiusi: valori.length,
       };
     });
+}
+
+/* ------------------------------------------------------------------ */
+/* Card personalizzata: filtro, ordinamento e valore dei campi         */
+/* ------------------------------------------------------------------ */
+
+function applicativiDi(ticket: TicketLike): string[] {
+  const a = ticket.applicativo;
+  if (Array.isArray(a)) return a.map((x) => String(x));
+  return a ? [String(a)] : [];
+}
+
+/** Applica filtri e ordinamento di una card personalizzata. */
+export function filtraTicketCard(
+  tickets: TicketLike[],
+  config: CustomCardConfig,
+  userId: string | null
+): TicketLike[] {
+  const titoloCercato = config.filtroTitolo.trim().toLowerCase();
+
+  const filtrati = tickets.filter((ticket) => {
+    if (config.soloMiei && userId && String(ticket.assignee ?? "") !== userId) {
+      return false;
+    }
+
+    if (config.soloAperti && isTicketChiuso(ticket)) return false;
+
+    if (
+      titoloCercato &&
+      !String(ticket.titolo ?? "").toLowerCase().includes(titoloCercato)
+    ) {
+      return false;
+    }
+
+    if (config.stati.length && !config.stati.includes(String(ticket.stato ?? ""))) {
+      return false;
+    }
+
+    if (
+      config.priorita.length &&
+      !config.priorita.includes(String(ticket.priorita ?? ""))
+    ) {
+      return false;
+    }
+
+    if (
+      config.clienti.length &&
+      !config.clienti.includes(String(ticket.clienti?.nome ?? ""))
+    ) {
+      return false;
+    }
+
+    if (
+      config.tipologie.length &&
+      !config.tipologie.includes(String(ticket.tipologia_ticket ?? ""))
+    ) {
+      return false;
+    }
+
+    if (config.applicativi.length) {
+      const apps = applicativiDi(ticket);
+      if (!apps.some((a) => config.applicativi.includes(a))) return false;
+    }
+
+    return true;
+  });
+
+  const ordinati = [...filtrati].sort((a, b) => {
+    switch (config.ordina) {
+      case "recenti":
+        return (
+          new Date(b.creato_at ?? 0).getTime() -
+          new Date(a.creato_at ?? 0).getTime()
+        );
+      case "vecchi":
+        return (
+          new Date(a.creato_at ?? 0).getTime() -
+          new Date(b.creato_at ?? 0).getTime()
+        );
+      case "ping":
+        return (
+          new Date(a.ultimo_ping ?? 0).getTime() -
+          new Date(b.ultimo_ping ?? 0).getTime()
+        );
+      case "priorita":
+      default:
+        return (a.numero_priorita ?? 99) - (b.numero_priorita ?? 99);
+    }
+  });
+
+  return ordinati.slice(0, config.limite || 15);
+}
+
+/** Valore leggibile di un campo per la card personalizzata. */
+export function valoreCampoCard(ticket: TicketLike, campo: string): string {
+  if (campo === "cliente") return ticket.clienti?.nome ?? "—";
+  if (campo === "assegnatario") {
+    return (
+      ticket.profili?.nome_completo ??
+      ticket.assegnatario_profilo?.nome_completo ??
+      "—"
+    );
+  }
+
+  const valore = (ticket as Record<string, unknown>)[campo];
+
+  if (valore === null || valore === undefined || valore === "") return "—";
+  if (typeof valore === "boolean") return valore ? "Sì" : "No";
+  if (Array.isArray(valore)) return valore.join(", ") || "—";
+
+  const testo = String(valore);
+  const campiData = [
+    "data_chiusura_attivita",
+    "rilascio_in_collaudo",
+    "rilascio_in_produzione",
+    "ultimo_ping",
+    "ultimo_controllo_collaudo",
+    "creato_at",
+  ];
+
+  if (campiData.includes(campo)) {
+    const data = new Date(testo);
+    if (!Number.isNaN(data.getTime())) {
+      return data.toLocaleDateString("it-IT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+      });
+    }
+  }
+
+  if (campo === "percentuale_avanzamento") return `${testo}%`;
+
+  return testo;
 }

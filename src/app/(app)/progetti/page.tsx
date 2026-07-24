@@ -24,6 +24,7 @@ import {
   Send,
   Trash2,
   X,
+  Columns3,
 } from "lucide-react";
 import {
   SiGoogletagmanager,
@@ -99,6 +100,32 @@ const STEP_STATUSES_DEFAULT = [
   "Sostituito",
 ] as const;
 
+const SVILUPPO_STATI = ["Sviluppato", "Non Sviluppato", "Sostituito"] as const;
+
+const TABLE_COLUMNS = [
+  { key: "cliente", label: "Cliente" },
+  { key: "applicativo", label: "Applicativo" },
+  { key: "versione", label: "Versione" },
+  { key: "nome_evolutiva", label: "Nome evolutiva" },
+  { key: "numero_change", label: "Numero change" },
+  { key: "documento", label: "Documento" },
+  { key: "sviluppo", label: "Sviluppo" },
+  { key: "step_workflow", label: "Step Workflow" },
+] as const;
+
+type TableColumnKey = (typeof TABLE_COLUMNS)[number]["key"];
+type ColumnVisibility = Record<TableColumnKey, boolean>;
+
+const DEFAULT_COLUMN_VISIBILITY: ColumnVisibility = TABLE_COLUMNS.reduce(
+  (acc, col) => {
+    acc[col.key] = true;
+    return acc;
+  },
+  {} as ColumnVisibility,
+);
+
+const COLUMN_VISIBILITY_STORAGE_KEY = "progetti_operativi_column_visibility";
+
 const STATUS_STYLES: Record<string, string> = {
   "Da Fare": "bg-gray-100 text-gray-600 border border-gray-200",
   "In attesa": "bg-gray-100 text-gray-600 border border-gray-200",
@@ -122,6 +149,8 @@ const STATUS_STYLES: Record<string, string> = {
   "GA4 OK": "bg-green-200 text-green-800 border border-green-300",
   "Non Necessaria": "bg-slate-200 text-slate-600 border border-slate-300",
   Sostituito: "bg-blue-100 text-blue-600 border border-blue-200",
+  Sviluppato: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  "Non Sviluppato": "bg-red-100 text-red-700 border border-red-200",
 };
 
 const STEP_COLUMNS = [
@@ -231,6 +260,13 @@ type SortKey =
 
 type SortDirection = "asc" | "desc";
 
+interface SviluppoVoce {
+  id: string;
+  descrizione: string;
+  stato: string;
+  sostituito_da: string;
+}
+
 interface ClienteRecord {
   id: string;
   nome: string;
@@ -246,6 +282,7 @@ interface OperationalProjectRecord extends StepFields, StepNoteFields {
   numero_change: string | null;
   document_link: string;
   note_generali: string;
+  sviluppo_voci: SviluppoVoce[];
   created_at: string;
   updated_at: string;
 }
@@ -258,6 +295,44 @@ interface FormState extends StepFields, StepNoteFields {
   numero_change: string;
   document_link: string;
   note_generali: string;
+  sviluppo_voci: SviluppoVoce[];
+}
+
+function createSviluppoVoce(): SviluppoVoce {
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `voce_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    descrizione: "",
+    stato: "Non Sviluppato",
+    sostituito_da: "",
+  };
+}
+
+function normalizeSviluppoVoci(voci: SviluppoVoce[]) {
+  return voci
+    .map((voce) => ({
+      id: voce.id,
+      descrizione: voce.descrizione.trim(),
+      stato: voce.stato || "Non Sviluppato",
+      sostituito_da:
+        voce.stato === "Sostituito" ? voce.sostituito_da.trim() : "",
+    }))
+    .filter((voce) => voce.descrizione.length > 0);
+}
+
+function getSviluppoCounts(voci: SviluppoVoce[]) {
+  return voci.reduce(
+    (acc, voce) => {
+      acc.totale += 1;
+      if (voce.stato === "Sviluppato") acc.sviluppati += 1;
+      else if (voce.stato === "Sostituito") acc.sostituiti += 1;
+      else acc.nonSviluppati += 1;
+      return acc;
+    },
+    { totale: 0, sviluppati: 0, nonSviluppati: 0, sostituiti: 0 },
+  );
 }
 
 const EMPTY_FORM: FormState = {
@@ -268,6 +343,7 @@ const EMPTY_FORM: FormState = {
   numero_change: "",
   document_link: "",
   note_generali: "",
+  sviluppo_voci: [],
 
   step_documento_operativo: "Da Fare",
   step_gtm_ga4_coll: [],
@@ -303,11 +379,32 @@ function normalizeUrl(value: string) {
   return `https://${trimmed}`;
 }
 
-function parseVersion(value: string | null | undefined) {
-  if (!value) return 0;
+function parseVersion(value: string | null | undefined): number[] {
+  if (!value) return [0];
   const cleaned = value.replace(",", ".").trim();
-  const n = Number.parseFloat(cleaned);
-  return Number.isNaN(n) ? 0 : n;
+  const parts = cleaned
+    .split(".")
+    .map((part) => {
+      const n = Number.parseInt(part.replace(/[^0-9]/g, ""), 10);
+      return Number.isNaN(n) ? 0 : n;
+    });
+  return parts.length > 0 ? parts : [0];
+}
+
+function compareVersions(
+  a: string | null | undefined,
+  b: string | null | undefined,
+) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  const len = Math.max(pa.length, pb.length);
+
+  for (let i = 0; i < len; i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+
+  return 0;
 }
 
 function getStepBadgeClass(value: string) {
@@ -769,6 +866,99 @@ function SortHeader({
   );
 }
 
+function ColumnVisibilityMenu({
+  visibility,
+  onChange,
+}: {
+  visibility: ColumnVisibility;
+  onChange: (next: ColumnVisibility) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleColumn = (key: TableColumnKey) => {
+    onChange({ ...visibility, [key]: !visibility[key] });
+  };
+
+  const hiddenCount = TABLE_COLUMNS.filter((col) => !visibility[col.key]).length;
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(event.target as Node)) setOpen(false);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <AppButton
+        type="button"
+        variant="secondary"
+        onClick={() => setOpen((prev) => !prev)}
+        className="h-11 inline-flex items-center gap-2"
+        title="Scegli le colonne da mostrare"
+      >
+        <Columns3 size={16} />
+        Colonne
+        {hiddenCount > 0 && (
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-800 px-1 text-[10px] font-bold text-white">
+            {hiddenCount}
+          </span>
+        )}
+      </AppButton>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl p-2">
+          <div className="px-2 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Colonne visibili
+          </div>
+
+          <div className="max-h-72 overflow-auto">
+            {TABLE_COLUMNS.map((col) => (
+              <label
+                key={col.key}
+                className="flex items-center gap-2 rounded-lg px-2 py-2 cursor-pointer hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={visibility[col.key]}
+                  onChange={() => toggleColumn(col.key)}
+                  className="rounded"
+                />
+                <span className="text-xs font-semibold text-slate-700">
+                  {col.label}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-1 border-t border-gray-100 pt-2 px-2">
+            <button
+              type="button"
+              onClick={() => onChange({ ...DEFAULT_COLUMN_VISIBILITY })}
+              className="text-[11px] font-bold text-slate-400 hover:text-slate-600"
+            >
+              Mostra tutte
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectModal({
   isOpen,
   mode,
@@ -796,7 +986,87 @@ function ProjectModal({
   errorMessage: string | null;
   invalidFields: string[];
 }) {
+  const [showStepsAnyway, setShowStepsAnyway] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setShowStepsAnyway(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const isDocumentoSostituito = form.step_documento_operativo === "Sostituito";
+
+  const documentoStepColumn = activeStepColumns.find(
+    (col) => col.key === "step_documento_operativo",
+  );
+
+  const otherStepColumns = activeStepColumns.filter(
+    (col) => col.key !== "step_documento_operativo",
+  );
+
+  const handleSetAllStepsSostituito = () => {
+    const patch = otherStepColumns.reduce((acc, col) => {
+      acc[col.key] = col.mode === "multi" ? ["Sostituito"] : "Sostituito";
+      return acc;
+    }, {} as Partial<StepFields>);
+
+    onChange(patch as Partial<FormState>);
+  };
+
+  const renderStepRow = (col: StepColumn) => (
+    <div
+      key={col.key}
+      className="grid grid-cols-1 lg:grid-cols-[280px_320px_1fr] gap-3 items-start rounded-xl border border-gray-200 bg-white px-4 py-4"
+    >
+      <div className="text-sm font-semibold text-slate-700 pt-2">
+        {col.label}
+      </div>
+
+      <div>
+        {col.mode === "multi" ? (
+          <StepSelectMulti
+            values={
+              Array.isArray(form[col.key]) ? (form[col.key] as string[]) : []
+            }
+            options={col.options}
+            onChange={(values) =>
+              onChange({
+                [col.key]: values,
+              } as Partial<FormState>)
+            }
+          />
+        ) : (
+          <StepSelectSingle
+            value={
+              typeof form[col.key] === "string"
+                ? (form[col.key] as string)
+                : "Da Fare"
+            }
+            options={col.options}
+            onChange={(value) =>
+              onChange({
+                [col.key]: value,
+              } as Partial<FormState>)
+            }
+          />
+        )}
+      </div>
+
+      <div>
+        <textarea
+          value={form[col.noteKey]}
+          onChange={(e) =>
+            onChange({
+              [col.noteKey]: e.target.value,
+            } as Partial<FormState>)
+          }
+          placeholder="Aggiungi note per questo step..."
+          rows={2}
+          className="w-full rounded-xl border border-gray-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none resize-none focus:ring-2 focus:ring-blue-100"
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -968,12 +1238,148 @@ function ProjectModal({
             </div>
           </div>
 
+          <div className="rounded-2xl border border-gray-100 bg-slate-50/60 p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Sviluppo
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Elenca cosa dovrà essere sviluppato in questo documento, con lo stato di ciascuna voce
+                </p>
+              </div>
+
+              <AppButton
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  onChange({
+                    sviluppo_voci: [...form.sviluppo_voci, createSviluppoVoce()],
+                  })
+                }
+                className="inline-flex items-center gap-2 shrink-0"
+              >
+                <Plus size={14} />
+                Aggiungi Sviluppo
+              </AppButton>
+            </div>
+
+            {form.sviluppo_voci.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-sm font-bold text-slate-400">
+                Nessuna voce di sviluppo. Aggiungine una con &quot;Aggiungi Sviluppo&quot;.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {form.sviluppo_voci.map((voce, index) => (
+                  <div
+                    key={voce.id}
+                    className="grid grid-cols-1 lg:grid-cols-[1fr_220px_220px_44px] gap-3 items-start rounded-xl border border-gray-200 bg-white px-4 py-4"
+                  >
+                    <div>
+                      <label className="block mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Cosa dovrà essere sviluppato
+                      </label>
+                      <textarea
+                        value={voce.descrizione}
+                        onChange={(e) =>
+                          onChange({
+                            sviluppo_voci: form.sviluppo_voci.map((v, i) =>
+                              i === index
+                                ? { ...v, descrizione: e.target.value }
+                                : v,
+                            ),
+                          })
+                        }
+                        placeholder="Descrivi questa voce di sviluppo..."
+                        rows={2}
+                        className="w-full rounded-xl border border-gray-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none resize-none focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Stato
+                      </label>
+                      <StepSelectSingle
+                        value={voce.stato}
+                        options={SVILUPPO_STATI}
+                        onChange={(value) =>
+                          onChange({
+                            sviluppo_voci: form.sviluppo_voci.map((v, i) =>
+                              i === index ? { ...v, stato: value } : v,
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      {voce.stato === "Sostituito" && (
+                        <>
+                          <label className="block mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            Sostituito dal documento n°
+                          </label>
+                          <input
+                            value={voce.sostituito_da}
+                            onChange={(e) =>
+                              onChange({
+                                sviluppo_voci: form.sviluppo_voci.map((v, i) =>
+                                  i === index
+                                    ? { ...v, sostituito_da: e.target.value }
+                                    : v,
+                                ),
+                              })
+                            }
+                            placeholder="Es. 12"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                          />
+                        </>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end lg:justify-center pt-6">
+                      <AppButton
+                        type="button"
+                        variant="danger"
+                        onClick={() =>
+                          onChange({
+                            sviluppo_voci: form.sviluppo_voci.filter(
+                              (_, i) => i !== index,
+                            ),
+                          })
+                        }
+                        className="h-9 w-9 p-0 flex items-center justify-center"
+                        title="Rimuovi voce"
+                      >
+                        <Trash2 size={14} />
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div>
-            <div className="mb-4">
-              <h3 className="text-sm font-bold text-slate-700">Workflow</h3>
-              <p className="text-xs text-slate-400">
-                Mostra solo gli step attivi per il cliente selezionato
-              </p>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-700">Workflow</h3>
+                <p className="text-xs text-slate-400">
+                  Mostra solo gli step attivi per il cliente selezionato
+                </p>
+              </div>
+
+              {isDocumentoSostituito && otherStepColumns.length > 0 && (
+                <AppButton
+                  type="button"
+                  variant="secondary"
+                  onClick={handleSetAllStepsSostituito}
+                  className="inline-flex items-center gap-2 shrink-0"
+                >
+                  <Send size={14} />
+                  Imposta tutti gli step su Sostituito
+                </AppButton>
+              )}
             </div>
 
             {!form.cliente_id ? (
@@ -986,62 +1392,32 @@ function ProjectModal({
               </div>
             ) : (
               <div className="space-y-3">
-                {activeStepColumns.map((col) => (
-                  <div
-                    key={col.key}
-                    className="grid grid-cols-1 lg:grid-cols-[280px_320px_1fr] gap-3 items-start rounded-xl border border-gray-200 bg-white px-4 py-4"
-                  >
-                    <div className="text-sm font-semibold text-slate-700 pt-2">
-                      {col.label}
-                    </div>
+                {documentoStepColumn && renderStepRow(documentoStepColumn)}
 
-                    <div>
-                      {col.mode === "multi" ? (
-                        <StepSelectMulti
-                          values={
-                            Array.isArray(form[col.key])
-                              ? (form[col.key] as string[])
-                              : []
-                          }
-                          options={col.options}
-                          onChange={(values) =>
-                            onChange({
-                              [col.key]: values,
-                            } as Partial<FormState>)
-                          }
-                        />
-                      ) : (
-                        <StepSelectSingle
-                          value={
-                            typeof form[col.key] === "string"
-                              ? (form[col.key] as string)
-                              : "Da Fare"
-                          }
-                          options={col.options}
-                          onChange={(value) =>
-                            onChange({
-                              [col.key]: value,
-                            } as Partial<FormState>)
-                          }
-                        />
+                {otherStepColumns.length > 0 &&
+                  (isDocumentoSostituito && !showStepsAnyway ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowStepsAnyway(true)}
+                      className="w-full rounded-xl border border-dashed border-blue-200 bg-blue-50 px-4 py-4 text-center text-xs font-bold text-blue-600 hover:bg-blue-100"
+                    >
+                      Documento sostituito — {otherStepColumns.length} step
+                      nascosti. Mostra comunque
+                    </button>
+                  ) : (
+                    <>
+                      {isDocumentoSostituito && (
+                        <button
+                          type="button"
+                          onClick={() => setShowStepsAnyway(false)}
+                          className="text-[11px] font-bold text-slate-400 hover:text-slate-600"
+                        >
+                          Nascondi step
+                        </button>
                       )}
-                    </div>
-
-                    <div>
-                      <textarea
-                        value={form[col.noteKey]}
-                        onChange={(e) =>
-                          onChange({
-                            [col.noteKey]: e.target.value,
-                          } as Partial<FormState>)
-                        }
-                        placeholder="Aggiungi note per questo step..."
-                        rows={2}
-                        className="w-full rounded-xl border border-gray-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none resize-none focus:ring-2 focus:ring-blue-100"
-                      />
-                    </div>
-                  </div>
-                ))}
+                      {otherStepColumns.map((col) => renderStepRow(col))}
+                    </>
+                  ))}
               </div>
             )}
           </div>
@@ -1089,6 +1465,60 @@ export default function OperationalProjectsPage() {
   const [filterApplicativo, setFilterApplicativo] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(
+    DEFAULT_COLUMN_VISIBILITY,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const stored = window.localStorage.getItem(
+        COLUMN_VISIBILITY_STORAGE_KEY,
+      );
+      if (!stored) return;
+
+      const parsed = JSON.parse(stored);
+      setColumnVisibility({ ...DEFAULT_COLUMN_VISIBILITY, ...parsed });
+    } catch (err) {
+      console.error("Errore lettura preferenze colonne:", err);
+    }
+  }, []);
+
+  const handleColumnVisibilityChange = useCallback(
+    (next: ColumnVisibility) => {
+      setColumnVisibility(next);
+
+      if (typeof window === "undefined") return;
+
+      try {
+        window.localStorage.setItem(
+          COLUMN_VISIBILITY_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      } catch (err) {
+        console.error("Errore salvataggio preferenze colonne:", err);
+      }
+    },
+    [],
+  );
+
+  const [expandedStepRows, setExpandedStepRows] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const toggleExpandedStepRow = useCallback((recordId: string) => {
+    setExpandedStepRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) {
+        next.delete(recordId);
+      } else {
+        next.add(recordId);
+      }
+      return next;
+    });
+  }, []);
 
   const getActiveStepColumns = useCallback(
     (clienteId: string) => {
@@ -1149,6 +1579,14 @@ export default function OperationalProjectsPage() {
       numero_change: item.numero_change || null,
       document_link: item.document_link || "",
       note_generali: item.note_generali || "",
+      sviluppo_voci: Array.isArray(item.sviluppo_voci)
+        ? item.sviluppo_voci.map((voce: any) => ({
+            id: String(voce?.id || createSviluppoVoce().id),
+            descrizione: String(voce?.descrizione || ""),
+            stato: String(voce?.stato || "Non Sviluppato"),
+            sostituito_da: String(voce?.sostituito_da || ""),
+          }))
+        : [],
       created_at: item.created_at,
       updated_at: item.updated_at,
       ...stepValues,
@@ -1178,6 +1616,7 @@ export default function OperationalProjectsPage() {
             numero_change,
             document_link,
             note_generali,
+            sviluppo_voci,
             created_at,
             updated_at,
             step_documento_operativo,
@@ -1285,6 +1724,9 @@ export default function OperationalProjectsPage() {
           row.numero_change || "",
           row.document_link,
           row.note_generali || "",
+          row.sviluppo_voci
+            .map((v) => `${v.descrizione} ${v.sostituito_da}`)
+            .join(" "),
         ]
           .join(" ")
           .toLowerCase()
@@ -1324,7 +1766,7 @@ export default function OperationalProjectsPage() {
           );
           break;
         case "versione":
-          compare = parseVersion(a.versione) - parseVersion(b.versione);
+          compare = compareVersions(a.versione, b.versione);
           break;
         case "nome_evolutiva":
           compare = a.nome_evolutiva.localeCompare(b.nome_evolutiva, "it", {
@@ -1359,10 +1801,8 @@ export default function OperationalProjectsPage() {
       Record<string, OperationalProjectRecord>
     >((acc, r) => {
       const key = `${r.cliente_nome}__${r.applicativo || "NA"}`;
-      const currentVersion = parseVersion(r.versione);
-      const existingVersion = parseVersion(acc[key]?.versione);
 
-      if (!acc[key] || currentVersion > existingVersion) {
+      if (!acc[key] || compareVersions(r.versione, acc[key].versione) > 0) {
         acc[key] = r;
       }
 
@@ -1403,6 +1843,7 @@ export default function OperationalProjectsPage() {
       numero_change: record.numero_change || "",
       document_link: record.document_link,
       note_generali: record.note_generali || "",
+      sviluppo_voci: record.sviluppo_voci.map((voce) => ({ ...voce })),
 
       step_documento_operativo: record.step_documento_operativo,
       step_gtm_ga4_coll: Array.isArray(record.step_gtm_ga4_coll)
@@ -1517,6 +1958,7 @@ export default function OperationalProjectsPage() {
         numero_change: createForm.numero_change.trim() || null,
         document_link: normalizeUrl(createForm.document_link),
         note_generali: createForm.note_generali.trim() || null,
+        sviluppo_voci: normalizeSviluppoVoci(createForm.sviluppo_voci),
         ...getStepPayload(createForm, activeStepColumns),
       };
 
@@ -1533,6 +1975,7 @@ export default function OperationalProjectsPage() {
             numero_change,
             document_link,
             note_generali,
+            sviluppo_voci,
             created_at,
             updated_at,
             step_documento_operativo,
@@ -1616,6 +2059,7 @@ export default function OperationalProjectsPage() {
         numero_change: editForm.numero_change.trim() || null,
         document_link: normalizeUrl(editForm.document_link),
         note_generali: editForm.note_generali.trim() || null,
+        sviluppo_voci: normalizeSviluppoVoci(editForm.sviluppo_voci),
         updated_at: new Date().toISOString(),
         ...getStepPayload(editForm, activeStepColumns),
       };
@@ -1634,6 +2078,7 @@ export default function OperationalProjectsPage() {
             numero_change,
             document_link,
             note_generali,
+            sviluppo_voci,
             created_at,
             updated_at,
             step_documento_operativo,
@@ -1753,14 +2198,21 @@ export default function OperationalProjectsPage() {
       icon={<FileChartColumnIncreasing size={22} />}
       maxWidth="full"
       actions={
-        <AppButton
-          type="button"
-          onClick={openCreateModal}
-          className="h-11 w-11 p-0 flex items-center justify-center"
-          title="Aggiungi progetto"
-        >
-          <Plus size={18} />
-        </AppButton>
+        <div className="flex items-center gap-2">
+          <ColumnVisibilityMenu
+            visibility={columnVisibility}
+            onChange={handleColumnVisibilityChange}
+          />
+
+          <AppButton
+            type="button"
+            onClick={openCreateModal}
+            className="h-11 w-11 p-0 flex items-center justify-center"
+            title="Aggiungi progetto"
+          >
+            <Plus size={18} />
+          </AppButton>
+        </div>
       }
     >
       <div className="space-y-6">
@@ -1874,57 +2326,76 @@ export default function OperationalProjectsPage() {
             <table className="min-w-full text-sm">
               <thead style={{ background: BRAND_BG, color: BRAND }}>
                 <tr>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="Cliente"
-                      sortKey="cliente_nome"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="Applicativo"
-                      sortKey="applicativo"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="Versione"
-                      sortKey="versione"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="Nome evolutiva"
-                      sortKey="nome_evolutiva"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    <SortHeader
-                      label="Numero change"
-                      sortKey="numero_change"
-                      currentSortKey={sortKey}
-                      currentSortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-center text-[10px] font-black uppercase tracking-widest">
-                    Documento
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
-                    Step Workflow
-                  </th>
+                  {columnVisibility.cliente && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      <SortHeader
+                        label="Cliente"
+                        sortKey="cliente_nome"
+                        currentSortKey={sortKey}
+                        currentSortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  {columnVisibility.applicativo && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      <SortHeader
+                        label="Applicativo"
+                        sortKey="applicativo"
+                        currentSortKey={sortKey}
+                        currentSortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  {columnVisibility.versione && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      <SortHeader
+                        label="Versione"
+                        sortKey="versione"
+                        currentSortKey={sortKey}
+                        currentSortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  {columnVisibility.nome_evolutiva && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      <SortHeader
+                        label="Nome evolutiva"
+                        sortKey="nome_evolutiva"
+                        currentSortKey={sortKey}
+                        currentSortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  {columnVisibility.numero_change && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      <SortHeader
+                        label="Numero change"
+                        sortKey="numero_change"
+                        currentSortKey={sortKey}
+                        currentSortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  {columnVisibility.documento && (
+                    <th className="px-4 py-4 text-center text-[10px] font-black uppercase tracking-widest">
+                      Documento
+                    </th>
+                  )}
+                  {columnVisibility.sviluppo && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      Sviluppo
+                    </th>
+                  )}
+                  {columnVisibility.step_workflow && (
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest">
+                      Step Workflow
+                    </th>
+                  )}
                   <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest">
                     <SortHeader
                       label="Azioni"
@@ -1944,53 +2415,152 @@ export default function OperationalProjectsPage() {
                     key={record.id}
                     className="border-t border-gray-100 align-top hover:bg-slate-50"
                   >
-                    <td className="px-4 py-4 font-bold text-slate-700">
-                      {record.cliente_nome}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-slate-700">
-                      {record.applicativo || "—"}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-slate-700">
-                      {record.versione || "—"}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="font-black leading-tight text-slate-800">
-                        {record.nome_evolutiva}
-                      </div>
-                      {record.note_generali && (
-                        <div className="mt-1 max-w-md truncate text-[11px] font-semibold text-slate-400">
-                          {record.note_generali}
+                    {columnVisibility.cliente && (
+                      <td className="px-4 py-4 font-bold text-slate-700">
+                        {record.cliente_nome}
+                      </td>
+                    )}
+                    {columnVisibility.applicativo && (
+                      <td className="px-4 py-4 font-bold text-slate-700">
+                        {record.applicativo || "—"}
+                      </td>
+                    )}
+                    {columnVisibility.versione && (
+                      <td className="px-4 py-4 font-bold text-slate-700">
+                        {record.versione || "—"}
+                      </td>
+                    )}
+                    {columnVisibility.nome_evolutiva && (
+                      <td className="px-4 py-4">
+                        <div className="font-black leading-tight text-slate-800">
+                          {record.nome_evolutiva}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 font-bold text-slate-700">
-                      {record.numero_change || "—"}
-                    </td>
-                    <td className="px-4 py-4 text-center">
-                      <a
-                        href={record.document_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 transition-colors hover:text-[#ffffff]"
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = BRAND;
-                          e.currentTarget.style.borderColor = BRAND;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "white";
-                          e.currentTarget.style.borderColor = "#e5e7eb";
-                        }}
-                        title="Apri documento"
-                      >
-                        <ExternalLink size={16} />
-                      </a>
-                    </td>
-                    <td className="px-4 py-4">
-                      <StepIconsSummary
-                        record={record}
-                        activeColumns={getActiveStepColumns(record.cliente_id)}
-                      />
-                    </td>
+                        {record.note_generali && (
+                          <div className="mt-1 max-w-md truncate text-[11px] font-semibold text-slate-400">
+                            {record.note_generali}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                    {columnVisibility.numero_change && (
+                      <td className="px-4 py-4 font-bold text-slate-700">
+                        {record.numero_change || "—"}
+                      </td>
+                    )}
+                    {columnVisibility.documento && (
+                      <td className="px-4 py-4 text-center">
+                        <a
+                          href={record.document_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white text-slate-600 transition-colors hover:text-[#ffffff]"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = BRAND;
+                            e.currentTarget.style.borderColor = BRAND;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "white";
+                            e.currentTarget.style.borderColor = "#e5e7eb";
+                          }}
+                          title="Apri documento"
+                        >
+                          <ExternalLink size={16} />
+                        </a>
+                      </td>
+                    )}
+                    {columnVisibility.sviluppo && (
+                      <td className="px-4 py-4">
+                        {record.sviluppo_voci.length === 0 ? (
+                          <span className="text-[11px] font-bold text-slate-300">
+                            —
+                          </span>
+                        ) : (
+                          <div
+                            className="flex flex-wrap gap-1.5"
+                            title={record.sviluppo_voci
+                              .map((v) => `${v.stato}: ${v.descrizione}`)
+                              .join("\n")}
+                          >
+                            {(() => {
+                              const counts = getSviluppoCounts(
+                                record.sviluppo_voci,
+                              );
+
+                              return (
+                                <>
+                                  {counts.sviluppati > 0 && (
+                                    <span
+                                      className={`inline-flex px-2 py-1 rounded-[8px] text-[11px] font-bold ${getStepBadgeClass(
+                                        "Sviluppato",
+                                      )}`}
+                                    >
+                                      {counts.sviluppati} Sviluppati
+                                    </span>
+                                  )}
+                                  {counts.nonSviluppati > 0 && (
+                                    <span
+                                      className={`inline-flex px-2 py-1 rounded-[8px] text-[11px] font-bold ${getStepBadgeClass(
+                                        "Non Sviluppato",
+                                      )}`}
+                                    >
+                                      {counts.nonSviluppati} Non Sviluppati
+                                    </span>
+                                  )}
+                                  {counts.sostituiti > 0 && (
+                                    <span
+                                      className={`inline-flex px-2 py-1 rounded-[8px] text-[11px] font-bold ${getStepBadgeClass(
+                                        "Sostituito",
+                                      )}`}
+                                    >
+                                      {counts.sostituiti} Sostituiti
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                    {columnVisibility.step_workflow && (
+                      <td className="px-4 py-4">
+                        {record.step_documento_operativo === "Sostituito" &&
+                        !expandedStepRows.has(record.id) ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandedStepRow(record.id)}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-[8px] text-[11px] font-bold ${getStepBadgeClass(
+                              "Sostituito",
+                            )}`}
+                            title="Documento sostituito — clicca per mostrare gli step"
+                          >
+                            Sostituito
+                          </button>
+                        ) : (
+                          <div className="flex flex-wrap items-start gap-2">
+                            <StepIconsSummary
+                              record={record}
+                              activeColumns={getActiveStepColumns(
+                                record.cliente_id,
+                              )}
+                            />
+                            {record.step_documento_operativo ===
+                              "Sostituito" && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleExpandedStepRow(record.id)
+                                }
+                                className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                                title="Nascondi step"
+                              >
+                                Nascondi
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
                         <AppButton
@@ -2018,7 +2588,10 @@ export default function OperationalProjectsPage() {
                 {sortedRecords.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={
+                        TABLE_COLUMNS.filter((col) => columnVisibility[col.key])
+                          .length + 1
+                      }
                       className="px-4 py-10 text-center font-bold text-slate-400"
                     >
                       Nessun progetto salvato.

@@ -31,8 +31,12 @@ import {
   isTicketAperto,
   isTicketFermo,
   isTicketUrgente,
+  filtraTicketCard,
+  valoreCampoCard,
+  etichettaCampoCard,
   type HomeWidgetId,
   type TicketLike,
+  type CustomCardConfig,
 } from "@/lib/home-widgets";
 
 export type HomeData = {
@@ -640,6 +644,128 @@ function GraficoTempi({ data }: WidgetProps) {
 /* Registro                                                            */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Card personalizzata                                                 */
+/* ------------------------------------------------------------------ */
+
+export function TicketCustom({
+  data,
+  config,
+}: {
+  data: HomeData;
+  config: CustomCardConfig;
+}) {
+  const ticket = useMemo(
+    () => filtraTicketCard(data.tickets, config, data.userId),
+    [data.tickets, data.userId, config]
+  );
+
+  if (config.modo === "conteggio") {
+    return (
+      <div className="flex flex-col items-center justify-center py-6">
+        <span className="text-4xl font-black tracking-tighter text-slate-900">
+          {ticket.length}
+        </span>
+        <span className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+          ticket
+        </span>
+      </div>
+    );
+  }
+
+  if (ticket.length === 0) {
+    return <WidgetEmpty testo="Nessun ticket con questi filtri" />;
+  }
+
+  const campi = config.campi.length > 0 ? config.campi : ["stato"];
+
+  if (config.modo === "tabella") {
+    return (
+      <div className="max-h-[340px] overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-left">
+              <th className="py-2 pr-2 text-[10px] font-black uppercase tracking-tight text-slate-400">
+                Ticket
+              </th>
+              {campi.map((campo) => (
+                <th
+                  key={campo}
+                  className="px-2 py-2 text-[10px] font-black uppercase tracking-tight text-slate-400"
+                >
+                  {etichettaCampoCard(campo)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ticket.map((t) => (
+              <tr
+                key={t.id}
+                className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+              >
+                <td className="py-2 pr-2">
+                  <Link
+                    href={`/ticket/${t.id}`}
+                    className="font-semibold text-[#0150a0] hover:underline"
+                  >
+                    {t.n_tag || t.titolo || "—"}
+                  </Link>
+                </td>
+                {campi.map((campo) => (
+                  <td key={campo} className="px-2 py-2 text-slate-600">
+                    {valoreCampoCard(t, campo)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Modalità lista
+  return (
+    <div className="max-h-[340px] space-y-2 overflow-y-auto pr-1">
+      {ticket.map((t) => (
+        <Link
+          key={t.id}
+          href={`/ticket/${t.id}`}
+          className="block rounded-xl border border-slate-100 px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          <div className="flex items-center gap-2">
+            {t.n_tag && (
+              <span className="text-[10px] font-black uppercase tracking-tight text-slate-400">
+                {t.n_tag}
+              </span>
+            )}
+            <p className="truncate text-[13px] font-semibold text-slate-800">
+              {t.titolo || "—"}
+            </p>
+          </div>
+
+          {campi.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {campi.map((campo) => (
+                <span
+                  key={campo}
+                  className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600"
+                >
+                  <span className="text-slate-400">
+                    {etichettaCampoCard(campo)}:{" "}
+                  </span>
+                  {valoreCampoCard(t, campo)}
+                </span>
+              ))}
+            </div>
+          )}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export const WIDGET_COMPONENTS: Record<
   HomeWidgetId,
   (props: WidgetProps) => React.ReactElement
@@ -656,6 +782,8 @@ export const WIDGET_COMPONENTS: Record<
   carico_team: CaricoTeam,
   grafico_stati: GraficoStati,
   grafico_tempi: GraficoTempi,
+  // Gestita a parte in HomeDashboard: riceve anche la configurazione.
+  ticket_custom: () => <></>,
 };
 
 /** Contatore mostrato nell'intestazione della card. */

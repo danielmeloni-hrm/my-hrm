@@ -195,6 +195,9 @@ export default function CreateAttivitaOrChangePage() {
     link_tag: "",
     stato: "Non Iniziato" as StatoTicket,
     priorita: PRIORITA_LIST[0] as PrioritaTicket,
+    // Campi specifici dell'incident (uno o più valori separati da virgola).
+    eventi: "",
+    parametri: "",
   });
 
   const [cForm, setCForm] = useState({
@@ -373,12 +376,28 @@ export default function CreateAttivitaOrChangePage() {
           throw new Error("Seleziona un cliente valido");
         }
 
+        const isIncident = mode === "incident";
+
+        // Eventi e parametri: uno o più valori separati da virgola → array.
+        const eventiArray = aForm.eventi
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean);
+
+        const parametriArray = aForm.parametri
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean);
+
         const payload = {
           titolo: aForm.titolo.trim(),
           descrizione: aForm.descrizione.trim() || null,
           applicativo: aForm.applicativo.length > 0 ? aForm.applicativo : null,
           tool: aForm.tool || null,
-          tipo_di_attivita: aForm.tipo_di_attivita || null,
+          // Per un incident il tipo di attività è sempre "Incident".
+          tipo_di_attivita: isIncident
+            ? "Incident"
+            : aForm.tipo_di_attivita || null,
           sprint: aForm.sprint || "Sprint",
           assignee: aForm.assignee || user.id,
           cliente_id: aForm.cliente_id,
@@ -391,10 +410,19 @@ export default function CreateAttivitaOrChangePage() {
           utente_id: user.id,
           link_tag: aForm.link_tag.trim() || null,
           stato: aForm.stato || "Non Iniziato",
+          // Gli incident vivono nella tabella dedicata, le attività nei ticket.
+          tipologia_ticket: isIncident ? "Incident" : "Attività",
+          // Solo la tabella incident ha le colonne eventi/parametri.
+          ...(isIncident
+            ? { eventi: eventiArray, parametri: parametriArray }
+            : {}),
         };
 
+        // Gli incident hanno una tabella propria con la stessa struttura.
+        const tabellaDestinazione = isIncident ? "incident" : "ticket";
+
         const { data, error: err } = await supabase
-          .from("ticket")
+          .from(tabellaDestinazione)
           .insert([payload])
           .select("id")
           .single();
@@ -793,6 +821,38 @@ export default function CreateAttivitaOrChangePage() {
     </div>
   </Field>
 </div>
+
+                  {mode === "incident" && (
+                    <>
+                      <Field
+                        label="Evento/i"
+                        hint="Più eventi separati da virgola"
+                      >
+                        <input
+                          value={aForm.eventi}
+                          onChange={(e) =>
+                            setAForm((p) => ({ ...p, eventi: e.target.value }))
+                          }
+                          className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                          placeholder="purchase, add_to_cart"
+                        />
+                      </Field>
+
+                      <Field
+                        label="Parametro/i intaccato/i"
+                        hint="Più parametri separati da virgola"
+                      >
+                        <input
+                          value={aForm.parametri}
+                          onChange={(e) =>
+                            setAForm((p) => ({ ...p, parametri: e.target.value }))
+                          }
+                          className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                          placeholder="transaction_id, value, quantity"
+                        />
+                      </Field>
+                    </>
+                  )}
 
                   <div className="md:col-span-2">
                     <Field label="Descrizione">

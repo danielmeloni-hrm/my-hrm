@@ -21,3 +21,10 @@ alter table public.user_preferences
 
 comment on column public.user_preferences.sidebar_color is
   'Colore di sfondo della sidebar in formato #rrggbb. NULL = colore predefinito.';
+
+-- Ordine personalizzato delle voci della sidebar: array ordinato di path.
+alter table public.user_preferences
+  add column if not exists sidebar_order jsonb;
+
+comment on column public.user_preferences.sidebar_order is
+  'Ordine delle voci della sidebar scelto dall''utente: array di path.';

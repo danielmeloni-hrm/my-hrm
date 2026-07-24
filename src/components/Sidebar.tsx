@@ -28,6 +28,9 @@ import {
   Menu,
   X,
   Users,
+  AlertTriangle,
+  Rocket,
+  Wrench,
 } from 'lucide-react'
 
 import { getSidebarPalette, isHexColor } from '@/lib/sidebar-color'
@@ -58,32 +61,7 @@ type SidebarSettingsResponse = {
   sidebar_position?: SidebarPosition
   sidebar_items_config?: Partial<Record<string, Partial<SidebarItemConfig>>>
   sidebar_color?: string | null
-}
-
-function ServiceTag() {
-  return (
-    <div className="relative w-8 h-8 shrink-0">
-      <Image
-        src="/brand/servicenow-sprint.png"
-        alt="ServiceNow Sprint"
-        fill
-        className="object-contain"
-      />
-    </div>
-  )
-}
-
-function ServiceINC() {
-  return (
-    <div className="relative w-8 h-8 shrink-0">
-      <Image
-        src="/brand/servicenow-opex.png"
-        alt="ServiceNow Opex"
-        fill
-        className="object-contain"
-      />
-    </div>
-  )
+  sidebar_order?: string[] | null
 }
 
 export default function Sidebar() {
@@ -93,6 +71,7 @@ export default function Sidebar() {
   const [position, setPosition] = useState<SidebarPosition>('left')
   const [itemsConfig, setItemsConfig] = useState<SidebarItemsConfig>({})
   const [sidebarColor, setSidebarColor] = useState<string | null>(null)
+  const [orderPaths, setOrderPaths] = useState<string[] | null>(null)
 
   const pathname = usePathname()
   const router = useRouter()
@@ -131,6 +110,9 @@ export default function Sidebar() {
       ClipboardList, Mail,
     Bot,
     Users,
+    AlertTriangle,
+    Rocket,
+    Wrench,
     }),
     []
   )
@@ -251,6 +233,13 @@ export default function Sidebar() {
       },
 //      {name: 'Assistente AI',         path: '/ai',         defaultIcon: 'Bot', defaultEmoji: '🤖',         defaultColor: '#00529F',      },
       {
+        name: 'Segnalazioni',
+        path: '/segnalazioni',
+        defaultIcon: 'AlertTriangle',
+        defaultEmoji: '⚠️',
+        defaultColor: '#dc2626',
+      },
+      {
         name: 'Risorse',
         path: '/risorse',
         defaultIcon: 'Users',
@@ -264,7 +253,20 @@ export default function Sidebar() {
         defaultEmoji: '👥',
         defaultColor: '#00529F',
       },
-      
+      {
+        name: 'Sprint (SN)',
+        path: 'https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=acddf36f2beef2d0bad7f0b16e91bfd1^assignment_group=4ea500b11bee0914efde5421604bcb5d',
+        defaultIcon: 'Rocket',
+        defaultEmoji: '🏃',
+        defaultColor: '#16a34a',
+      },
+      {
+        name: 'Opex (SN)',
+        path: 'https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=c424047b2be236d0bad7f0b16e91bffe^assignment_group=6b47e7723385fa18cf0f7e282e5c7b6d',
+        defaultIcon: 'Wrench',
+        defaultEmoji: '🛠️',
+        defaultColor: '#ea580c',
+      },
     ],
     []
   )
@@ -353,6 +355,11 @@ export default function Sidebar() {
         }
 
         setSidebarColor(isHexColor(j?.sidebar_color) ? j.sidebar_color : null)
+        setOrderPaths(
+          Array.isArray(j?.sidebar_order) && j.sidebar_order.length > 0
+            ? j.sidebar_order
+            : null
+        )
         setItemsConfig(normalizeItemsConfig(j?.sidebar_items_config, defaultConfig))
       } catch {
         setVisiblePaths(null)
@@ -382,16 +389,28 @@ export default function Sidebar() {
   const filteredMenu = useMemo(() => {
     // Le voci nuove (aggiunte dopo il salvataggio delle preferenze utente)
     // sono visibili di default finché l'utente non risalva le impostazioni
-    const NEW_DEFAULT_VISIBLE_PATHS = ['/flussi_operativi', '/home', '/risorse']
+    const NEW_DEFAULT_VISIBLE_PATHS = ['/flussi_operativi', '/home', '/risorse', '/segnalazioni']
 
-    return visiblePaths
+    const visibili = visiblePaths
       ? menuItems.filter(
           (m) =>
             visiblePaths.includes(m.path) ||
             NEW_DEFAULT_VISIBLE_PATHS.includes(m.path)
         )
       : menuItems
-  }, [menuItems, visiblePaths])
+
+    // Ordine personalizzato: le voci note vanno per posizione salvata,
+    // quelle non ancora ordinate restano in coda nell'ordine di default.
+    if (!orderPaths) return visibili
+
+    const posizione = new Map(orderPaths.map((path, i) => [path, i]))
+
+    return [...visibili].sort((a, b) => {
+      const ia = posizione.has(a.path) ? posizione.get(a.path)! : Number.MAX_SAFE_INTEGER
+      const ib = posizione.has(b.path) ? posizione.get(b.path)! : Number.MAX_SAFE_INTEGER
+      return ia - ib
+    })
+  }, [menuItems, visiblePaths, orderPaths])
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
@@ -475,30 +494,6 @@ export default function Sidebar() {
                 </Link>
               )
             })}
-
-            <a
-              href="https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=acddf36f2beef2d0bad7f0b16e91bfd1^assignment_group=4ea500b11bee0914efde5421604bcb5d"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-            >
-              <ServiceTag />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
-                Apri Sprint
-              </div>
-            </a>
-
-            <a
-              href="https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=c424047b2be236d0bad7f0b16e91bffe^assignment_group=6b47e7723385fa18cf0f7e282e5c7b6d"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group relative h-12 w-12 rounded-2xl flex items-center justify-center transition text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-            >
-              <ServiceINC />
-              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black px-2.5 py-1.5 text-[11px] font-bold text-[#ffffff] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
-                Apri Opex
-              </div>
-            </a>
 
             <Link
               href="/settings"
@@ -734,44 +729,6 @@ export default function Sidebar() {
           )
         })}
       </nav>
-
-      <div className={isCollapsed ? 'pt-3 px-3' : 'pt-3 px-3'}>
-          <div className={`grid gap-2 ${isCollapsed ? 'grid-cols-1' : 'grid-cols-2'}`}>
-            <a
-              href="https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=acddf36f2beef2d0bad7f0b16e91bfd1^assignment_group=4ea500b11bee0914efde5421604bcb5d"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="relative group h-16 rounded-2xl overflow-hidden border border-gray-100 bg-white hover:bg-gray-50 transition-all"
-            >
-              <div className="absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:scale-75 group-hover:opacity-20">
-                <ServiceTag />
-              </div>
-
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                <span className="text-[11px] font-black text-gray-800 tracking-wide">
-                  Apri Sprint
-                </span>
-              </div>
-            </a>
-
-            <a
-              href="https://esselunga.service-now.com/rm_story_list.do?sysparm_view=unified_agile_board&sysparm_query=^ORDERBYglobal_rank^sprint=c424047b2be236d0bad7f0b16e91bffe^assignment_group=6b47e7723385fa18cf0f7e282e5c7b6d"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="relative group h-16 rounded-2xl overflow-hidden border border-gray-100 bg-white hover:bg-gray-50 transition-all"
-            >
-              <div className="absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:scale-75 group-hover:opacity-20">
-                <ServiceINC />
-              </div>
-
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                <span className="text-[11px] font-black text-gray-800 tracking-wide">
-                  Apri Opex
-                </span>
-              </div>
-            </a>
-          </div>
-      </div>
 
       <div
         className={`border-t border-gray-50 space-y-2 py-4 ${

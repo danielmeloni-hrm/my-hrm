@@ -9,6 +9,8 @@ import {
   ChevronDown,
   ChevronUp,
   Repeat2,
+  ClipboardList,
+  Zap,
 } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import AppPage from "@/components/ui/AppPage";
@@ -37,6 +39,8 @@ type Ticket = {
   ricorsivo?: boolean | null;
   clienti?: { nome?: string | null } | null;
   profili?: { nome_completo?: string | null } | null;
+  /** Da quale tabella arriva la scheda: attività (ticket) o incident. */
+  _tipo?: "attivita" | "incident";
   [key: string]: any;
 };
 
@@ -97,10 +101,7 @@ export default function TicketsDashboardByAssignee() {
   }, [tickets]);
 
   const refreshTicketsOnly = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("ticket")
-      .select(
-        `
+    const selezione = `
           id,
           titolo,
           stato,
@@ -115,19 +116,49 @@ export default function TicketsDashboardByAssignee() {
           percentuale_avanzamento,
           clienti:cliente_id ( nome ),
           profili:assignee ( nome_completo )
-        `,
-      )
-      .eq("sprint", filterSprint)
-      .not(
-        "stato",
-        "in",
-        '("Completato","Completato - In attesa di chiusura TAG")',
-      )
-      .order("numero_priorita", { ascending: true });
+        `;
 
-    if (!error && data) {
-      setTickets(data as Ticket[]);
+    const query = (tabella: "ticket" | "incident") =>
+      supabase
+        .from(tabella)
+        .select(selezione)
+        .eq("sprint", filterSprint)
+        .not(
+          "stato",
+          "in",
+          '("Completato","Completato - In attesa di chiusura TAG")',
+        )
+        .order("numero_priorita", { ascending: true });
+
+    // Attività (ticket) e incident convivono nella stessa vista.
+    const [ticketRes, incidentRes] = await Promise.all([
+      query("ticket"),
+      query("incident"),
+    ]);
+
+    if (ticketRes.error) {
+      console.error("Errore caricamento ticket:", ticketRes.error);
+      return;
     }
+
+    const attivita = (ticketRes.data ?? []).map((t) => ({
+      ...(t as Ticket),
+      _tipo: "attivita" as const,
+    }));
+
+    // La tabella incident potrebbe non esistere ancora: in tal caso ignoriamo.
+    const incident = incidentRes.error
+      ? []
+      : (incidentRes.data ?? []).map((t) => ({
+          ...(t as Ticket),
+          _tipo: "incident" as const,
+        }));
+
+    const tutti = [...attivita, ...incident].sort(
+      (a, b) => (a.numero_priorita ?? 0) - (b.numero_priorita ?? 0),
+    );
+
+    setTickets(tutti as Ticket[]);
   }, [supabase, filterSprint]);
 
   const fetchAll = useCallback(async () => {
@@ -153,6 +184,14 @@ export default function TicketsDashboardByAssignee() {
   useRealtimeTable({
     supabase,
     table: "ticket",
+    onChange: () => {
+      void refreshTicketsOnly();
+    },
+  });
+
+  useRealtimeTable({
+    supabase,
+    table: "incident",
     onChange: () => {
       void refreshTicketsOnly();
     },
@@ -378,7 +417,8 @@ export default function TicketsDashboardByAssignee() {
     try {
       const updates = ticketsToUpdate.map((t) =>
         supabase
-          .from("ticket")
+          // Ogni scheda viene aggiornata nella sua tabella d'origine.
+          .from(t._tipo === "incident" ? "incident" : "ticket")
           .update({
             assignee: t.assignee ?? null,
             in_lavorazione_ora: t.in_lavorazione_ora ?? false,
@@ -810,9 +850,30 @@ function TicketCard({
         {ticket.titolo || "—"}
       </h3>
 
-      <h4 className="text-[11px] font-bold text-gray-800 leading-tight">
-        {ticket.n_tag || "—"}
-      </h4>
+      <div className="mt-1 flex items-center gap-1.5">
+        {/* Distingue a colpo d'occhio incident e attività */}
+        {ticket._tipo === "incident" ? (
+          <span
+            title="Incident"
+            className="flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tight text-red-600"
+          >
+            <Zap size={10} className="stroke-[2.5]" />
+            Incident
+          </span>
+        ) : (
+          <span
+            title="Attività"
+            className="flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tight text-[#0150a0]"
+          >
+            <ClipboardList size={10} className="stroke-[2.5]" />
+            Attività
+          </span>
+        )}
+
+        <h4 className="text-[11px] font-bold text-gray-800 leading-tight">
+          {ticket.n_tag || "—"}
+        </h4>
+      </div>
 
       <div className="flex items-center gap-1 mt-1 text-gray-400">
         <TriangleAlert size={10} className="text-yellow-500 stroke-[2.5]" />

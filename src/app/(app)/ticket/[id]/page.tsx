@@ -168,6 +168,33 @@ export default function TicketDettaglioPage() {
   const supabase = createClient()
   const { ticketData, handleUpdate, loading, saving, colleghi, clienti } = useTicket(id)
 
+  // Elenco applicativi caricato da database (fallback alla lista statica).
+  const [applicativiDb, setApplicativiDb] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    let annullato = false
+
+    supabase
+      .from('applicativi')
+      .select('nome')
+      .eq('attivo', true)
+      .order('ordine', { ascending: true })
+      .then(({ data, error }) => {
+        if (annullato || error || !data) return
+        setApplicativiDb(data.map((r: { nome: string }) => r.nome))
+      })
+
+    return () => {
+      annullato = true
+    }
+  }, [supabase])
+
+  // Applicativi da mostrare: quelli del DB o la lista predefinita.
+  const applicativiOptions =
+    applicativiDb && applicativiDb.length > 0
+      ? applicativiDb
+      : APPLICATIVI_OPTIONS
+
   /**
    * Stati che chiudono l'attività.
    * Il confronto è sul prefisso: copre sia "Completato" sia le varianti
@@ -654,9 +681,14 @@ const removeSubSubTask = async (
     try {
       setDeleting(true)
 
-      const { error } = await supabase.from('ticket').delete().eq('id', id)
+      // Il record può essere un'attività o un incident: cancelliamo da
+      // entrambe le tabelle, quella sbagliata non trova nulla ed è un no-op.
+      const [ticketDel, incidentDel] = await Promise.all([
+        supabase.from('ticket').delete().eq('id', id),
+        supabase.from('incident').delete().eq('id', id),
+      ])
 
-      if (error) throw error
+      if (ticketDel.error && incidentDel.error) throw ticketDel.error
 
       router.push('/tutti-i-ticket')
       router.refresh()
@@ -1592,7 +1624,7 @@ const removeSubSubTask = async (
                       <span className={ui.label}>Applicativo</span>
 
                       <div className="flex flex-wrap gap-2">
-                        {APPLICATIVI_OPTIONS.map((app) => {
+                        {applicativiOptions.map((app) => {
                           const active = Array.isArray(ticketData.applicativo)
                             ? ticketData.applicativo.includes(app)
                             : false
@@ -1614,6 +1646,55 @@ const removeSubSubTask = async (
                         })}
                       </div>
                     </div>
+
+                    {/* Eventi e parametri: solo per gli incident */}
+                    {isIncident && (
+                      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className={ui.label}>Evento/i</label>
+                          <input
+                            value={
+                              Array.isArray(ticketData.eventi)
+                                ? ticketData.eventi.join(', ')
+                                : ticketData.eventi || ''
+                            }
+                            onChange={(e) =>
+                              handleUpdate(
+                                'eventi',
+                                e.target.value
+                                  .split(',')
+                                  .map((v) => v.trim())
+                                  .filter(Boolean)
+                              )
+                            }
+                            className={ui.field}
+                            placeholder="purchase, add_to_cart"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className={ui.label}>Parametro/i intaccato/i</label>
+                          <input
+                            value={
+                              Array.isArray(ticketData.parametri)
+                                ? ticketData.parametri.join(', ')
+                                : ticketData.parametri || ''
+                            }
+                            onChange={(e) =>
+                              handleUpdate(
+                                'parametri',
+                                e.target.value
+                                  .split(',')
+                                  .map((v) => v.trim())
+                                  .filter(Boolean)
+                              )
+                            }
+                            className={ui.field}
+                            placeholder="transaction_id, value, quantity"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-2">
@@ -1645,18 +1726,25 @@ const removeSubSubTask = async (
 
                     <div className="space-y-2">
                       <label className={ui.label}>Tipo attività</label>
-                      <select
-                        value={ticketData.tipo_di_attivita || ''}
-                        onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
-                        className={ui.select}
-                      >
-                        <option value="">Seleziona tipo</option>
-                        {TIPO_ATTIVITA_OPTIONS.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
+                      {isIncident ? (
+                        // Per un incident il tipo è fisso: "Incident".
+                        <div className={`${ui.field} flex items-center bg-gray-50 font-bold text-gray-600`}>
+                          Incident
+                        </div>
+                      ) : (
+                        <select
+                          value={ticketData.tipo_di_attivita || ''}
+                          onChange={(e) => handleUpdate('tipo_di_attivita', e.target.value)}
+                          className={ui.select}
+                        >
+                          <option value="">Seleziona tipo</option>
+                          {TIPO_ATTIVITA_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </div>
                 )}

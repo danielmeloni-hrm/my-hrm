@@ -26,6 +26,7 @@ import {
   Check,
   GripVertical,
   LayoutGrid,
+  Pencil,
   Plus,
   RotateCcw,
   Settings2,
@@ -39,14 +40,22 @@ import {
   WIDGET_BY_ID,
   WIDGET_CATALOG,
   WIDGET_COLORS,
+  creaCardPersonalizzata,
   getWidgetColorClasses,
   normalizeLayout,
+  type CustomCardConfig,
   type HomeWidgetId,
   type HomeWidgetLayoutItem,
   type WidgetColor,
   type WidgetSize,
 } from "@/lib/home-widgets";
-import { WIDGET_COMPONENTS, getWidgetCount, type HomeData } from "./widgets";
+import {
+  WIDGET_COMPONENTS,
+  TicketCustom,
+  getWidgetCount,
+  type HomeData,
+} from "./widgets";
+import CustomCardEditor from "./CustomCardEditor";
 
 type Props = {
   data: HomeData;
@@ -63,15 +72,17 @@ function WidgetCard({
   onRemove,
   onResize,
   onRecolor,
+  onEditConfig,
 }: {
   item: HomeWidgetLayoutItem;
   data: HomeData;
   editing: boolean;
-  onRemove: (id: HomeWidgetId) => void;
-  onResize: (id: HomeWidgetId, size: WidgetSize) => void;
-  onRecolor: (id: HomeWidgetId, color: WidgetColor) => void;
+  onRemove: (key: string) => void;
+  onResize: (key: string, size: WidgetSize) => void;
+  onRecolor: (key: string, color: WidgetColor) => void;
+  onEditConfig: (key: string) => void;
 }) {
-  const config = WIDGET_BY_ID.get(item.id);
+  const widget = WIDGET_BY_ID.get(item.id);
   const {
     attributes,
     listeners,
@@ -80,12 +91,23 @@ function WidgetCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id, disabled: !editing });
+  } = useSortable({ id: item.key, disabled: !editing });
 
-  if (!config) return null;
+  if (!widget) return null;
 
+  const isCustom = item.id === "ticket_custom";
   const Component = WIDGET_COMPONENTS[item.id];
   const count = getWidgetCount(item.id, data);
+
+  // Titolo/descrizione: le card personalizzate usano la loro configurazione.
+  const titolo = isCustom
+    ? item.config?.titolo || "Card personalizzata"
+    : widget.titolo;
+  const descrizione = isCustom
+    ? `${item.config?.modo ?? "lista"} · ${
+        item.config?.limite ?? 15
+      } ticket`
+    : widget.descrizione;
 
   return (
     <div
@@ -126,10 +148,10 @@ function WidgetCard({
 
             <div className="min-w-0">
               <h2 className="truncate text-[13px] font-black uppercase tracking-tight text-slate-800">
-                {config.titolo}
+                {titolo}
               </h2>
               <p className="truncate text-[10px] font-bold uppercase tracking-tight text-slate-400">
-                {config.descrizione}
+                {descrizione}
               </p>
             </div>
           </div>
@@ -141,10 +163,22 @@ function WidgetCard({
               </span>
             )}
 
+            {editing && isCustom && (
+              <button
+                type="button"
+                onClick={() => onEditConfig(item.key)}
+                onPointerDown={(event) => event.stopPropagation()}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-50 text-slate-400 transition hover:bg-blue-50 hover:text-[#0150a0]"
+                aria-label="Configura card"
+              >
+                <Pencil size={13} />
+              </button>
+            )}
+
             {editing && (
               <button
                 type="button"
-                onClick={() => onRemove(item.id)}
+                onClick={() => onRemove(item.key)}
                 // L'intestazione è la maniglia: fermiamo l'evento per non
                 // avviare un trascinamento quando si clicca la X.
                 onPointerDown={(event) => event.stopPropagation()}
@@ -159,14 +193,14 @@ function WidgetCard({
 
         {editing && (
           <div className="mb-4 space-y-2">
-            {config.sizes.length > 1 && (
+            {widget.sizes.length > 1 && (
               <div className="flex flex-wrap gap-1.5">
-                {config.sizes.map((size) => (
+                {widget.sizes.map((size) => (
                   <button
                     key={size}
                     type="button"
                     onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => onResize(item.id, size)}
+                    onClick={() => onResize(item.key, size)}
                     className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-tight transition ${
                       item.size === size
                         ? "bg-slate-900 text-[#ffffff]"
@@ -186,7 +220,7 @@ function WidgetCard({
                   type="button"
                   title={color.label}
                   onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => onRecolor(item.id, color.id)}
+                  onClick={() => onRecolor(item.key, color.id)}
                   className={`h-5 w-5 rounded-full border transition ${color.swatch} ${
                     (item.color ?? "bianco") === color.id
                       ? "ring-2 ring-slate-900 ring-offset-1"
@@ -200,7 +234,11 @@ function WidgetCard({
         )}
 
         <div className={editing ? "pointer-events-none opacity-60" : ""}>
-          <Component data={data} />
+          {isCustom ? (
+            <TicketCustom data={data} config={item.config!} />
+          ) : (
+            <Component data={data} />
+          )}
         </div>
       </div>
     </div>
@@ -220,6 +258,8 @@ export default function HomeDashboard({ data }: Props) {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /** Chiave della card personalizzata in modifica (null = editor chiuso). */
+  const [editKey, setEditKey] = useState<string | null>(null);
 
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroTipologia, setFiltroTipologia] = useState("");
@@ -331,7 +371,14 @@ export default function HomeDashboard({ data }: Props) {
   }
 
   const disponibili = useMemo(
-    () => WIDGET_CATALOG.filter((widget) => !layout.some((i) => i.id === widget.id)),
+    // Le card fisse spariscono dal catalogo una volta aggiunte;
+    // la card personalizzata resta sempre disponibile (istanze multiple).
+    () =>
+      WIDGET_CATALOG.filter(
+        (widget) =>
+          widget.id === "ticket_custom" ||
+          !layout.some((i) => i.id === widget.id)
+      ),
     [layout]
   );
 
@@ -345,8 +392,8 @@ export default function HomeDashboard({ data }: Props) {
 
     if (!over || active.id === over.id) return;
 
-    const from = layout.findIndex((item) => item.id === active.id);
-    const to = layout.findIndex((item) => item.id === over.id);
+    const from = layout.findIndex((item) => item.key === active.id);
+    const to = layout.findIndex((item) => item.key === over.id);
 
     if (from < 0 || to < 0) return;
 
@@ -354,28 +401,50 @@ export default function HomeDashboard({ data }: Props) {
   }
 
   function addWidget(id: HomeWidgetId) {
-    const config = WIDGET_BY_ID.get(id);
-    if (!config) return;
+    const widget = WIDGET_BY_ID.get(id);
+    if (!widget) return;
 
-    persist([...layout, { id, size: config.defaultSize }]);
+    if (id === "ticket_custom") {
+      // Ogni card personalizzata è una nuova istanza da configurare.
+      const nuova = creaCardPersonalizzata();
+      persist([...layout, nuova]);
+      setCatalogOpen(false);
+      setEditKey(nuova.key);
+      return;
+    }
+
+    persist([...layout, { key: id, id, size: widget.defaultSize }]);
     setCatalogOpen(false);
   }
 
-  function removeWidget(id: HomeWidgetId) {
-    persist(layout.filter((item) => item.id !== id));
+  function removeWidget(key: string) {
+    persist(layout.filter((item) => item.key !== key));
   }
 
-  function resizeWidget(id: HomeWidgetId, size: WidgetSize) {
-    persist(layout.map((item) => (item.id === id ? { ...item, size } : item)));
+  function resizeWidget(key: string, size: WidgetSize) {
+    persist(layout.map((item) => (item.key === key ? { ...item, size } : item)));
   }
 
-  function recolorWidget(id: HomeWidgetId, color: WidgetColor) {
-    persist(layout.map((item) => (item.id === id ? { ...item, color } : item)));
+  function recolorWidget(key: string, color: WidgetColor) {
+    persist(layout.map((item) => (item.key === key ? { ...item, color } : item)));
   }
 
-  const activeConfig = activeId
-    ? WIDGET_BY_ID.get(activeId as HomeWidgetId)
+  function updateCardConfig(key: string, config: CustomCardConfig) {
+    persist(layout.map((item) => (item.key === key ? { ...item, config } : item)));
+  }
+
+  const cardInModifica = editKey
+    ? layout.find((item) => item.key === editKey)
     : null;
+
+  const activeItem = activeId
+    ? layout.find((item) => item.key === activeId)
+    : null;
+  const activeConfig = activeItem ? WIDGET_BY_ID.get(activeItem.id) : null;
+  const activeTitolo =
+    activeItem?.id === "ticket_custom"
+      ? activeItem.config?.titolo || "Card personalizzata"
+      : activeConfig?.titolo;
 
   if (!loaded) {
     return (
@@ -590,34 +659,47 @@ export default function HomeDashboard({ data }: Props) {
           onDragCancel={() => setActiveId(null)}
         >
           <SortableContext
-            items={layout.map((item) => item.id)}
+            items={layout.map((item) => item.key)}
             strategy={rectSortingStrategy}
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-6">
               {layout.map((item) => (
                 <WidgetCard
-                  key={item.id}
+                  key={item.key}
                   item={item}
                   data={datiFiltrati}
                   editing={editing}
                   onRemove={removeWidget}
                   onResize={resizeWidget}
                   onRecolor={recolorWidget}
+                  onEditConfig={setEditKey}
                 />
               ))}
             </div>
           </SortableContext>
 
           <DragOverlay>
-            {activeConfig && (
+            {activeTitolo && (
               <div className="rounded-2xl border border-[#0150a0]/30 bg-white p-5 shadow-2xl">
                 <p className="text-[13px] font-black uppercase tracking-tight text-slate-800">
-                  {activeConfig.titolo}
+                  {activeTitolo}
                 </p>
               </div>
             )}
           </DragOverlay>
         </DndContext>
+      )}
+
+      {cardInModifica && cardInModifica.config && (
+        <CustomCardEditor
+          config={cardInModifica.config}
+          clienti={opzioniCliente}
+          onSave={(config) => {
+            updateCardConfig(cardInModifica.key, config);
+            setEditKey(null);
+          }}
+          onClose={() => setEditKey(null)}
+        />
       )}
     </div>
   );
