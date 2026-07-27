@@ -31,12 +31,22 @@ function toggle(list: string[], value: string): string[] {
     : [...list, value];
 }
 
-export default function CustomCardEditor({ config, onSave, onClose }: Props) {
+export default function CustomCardEditor({
+  config,
+  clienti = [],
+  onSave,
+  onClose,
+}: Props) {
   const [bozza, setBozza] = useState<CustomCardConfig>(config);
 
   function patch(p: Partial<CustomCardConfig>) {
     setBozza((prev) => ({ ...prev, ...p }));
   }
+
+  // L'applicativo ha senso solo per Esselunga: compare se è tra i clienti scelti.
+  const esselungaSelezionata = bozza.clienti.some((c) =>
+    /esselunga/i.test(c)
+  );
 
   return (
     <ModalPortal>
@@ -120,14 +130,36 @@ export default function CustomCardEditor({ config, onSave, onClose }: Props) {
               onToggle={(v) => patch({ tipologie: toggle(bozza.tipologie, v) })}
             />
 
-            <FiltroChip
-              label="Applicativo"
-              opzioni={OPZIONI_APPLICATIVO}
-              selezionati={bozza.applicativi}
-              onToggle={(v) =>
-                patch({ applicativi: toggle(bozza.applicativi, v) })
-              }
-            />
+            {clienti.length > 0 && (
+              <FiltroChip
+                label="Cliente"
+                opzioni={clienti}
+                selezionati={bozza.clienti}
+                onToggle={(v) => {
+                  const prossimi = toggle(bozza.clienti, v);
+                  // Se Esselunga non è più selezionata, azzeriamo gli applicativi.
+                  const ancoraEsselunga = prossimi.some((c) =>
+                    /esselunga/i.test(c)
+                  );
+                  patch({
+                    clienti: prossimi,
+                    applicativi: ancoraEsselunga ? bozza.applicativi : [],
+                  });
+                }}
+              />
+            )}
+
+            {/* Applicativo: solo se è selezionata Esselunga */}
+            {esselungaSelezionata && (
+              <FiltroChip
+                label="Applicativo"
+                opzioni={OPZIONI_APPLICATIVO}
+                selezionati={bozza.applicativi}
+                onToggle={(v) =>
+                  patch({ applicativi: toggle(bozza.applicativi, v) })
+                }
+              />
+            )}
 
             {/* Visualizzazione */}
             <div className="grid gap-4 sm:grid-cols-3">
