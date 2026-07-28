@@ -175,7 +175,7 @@ export function valoreColonnaExport(
     case "numero_ore":
       return Number(ticket.numero_ore ?? 0);
     default:
-      return (ticket as Record<string, unknown>)[colId] as ExcelCell;
+      return (ticket as unknown as Record<string, unknown>)[colId] as ExcelCell;
   }
 }
 
