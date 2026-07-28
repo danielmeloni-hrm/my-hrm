@@ -77,8 +77,8 @@ type TicketRow = Ticket & {
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'n_tag', label: 'N° INC', visible: true, pinned: false },
-  { id: 'inc_padre', label: 'INC Padre', visible: true, pinned: false },
+  { id: 'n_tag', label: 'INC Padre', visible: true, pinned: false },
+  { id: 'inc_figlio', label: 'INC Figlio', visible: true, pinned: false },
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
@@ -108,7 +108,7 @@ const getColWidthValue = (id: string) => {
       return 180;
     case 'n_tag':
       return 130;
-    case 'inc_padre':
+    case 'inc_figlio':
       return 140;
     case 'progress':
       return 150;
@@ -137,7 +137,7 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[180px]';
     case 'n_tag':
       return 'min-w-[130px]';
-    case 'inc_padre':
+    case 'inc_figlio':
       return 'min-w-[140px]';
     case 'ricorsivo':
   return 'min-w-[120px]';
@@ -508,10 +508,10 @@ export default function StoricoTicketPage() {
       const matchesAttivita = selectedAttivita === '' || t.tipo_di_attivita === selectedAttivita;
       const matchesAttenzione =
         !filterAttenzioneBusiness || t.stato === 'Attenzione Business';
-      // INC figlio da aprire: n_tag vuoto ma INC padre valorizzato.
+      // INC figlio da aprire: INC padre (n_tag) presente ma figlio ancora vuoto.
       const matchesIncFiglioMancante =
         !filterIncFiglioMancante ||
-        (!t.n_tag?.trim() && !!t.inc_padre?.trim());
+        (!!t.n_tag?.trim() && !t.inc_figlio?.trim());
       const matchesRicorsivo =
         selectedRicorsivo === ''
           ? true
@@ -1001,23 +1001,23 @@ export default function StoricoTicketPage() {
                             </span>
                           ))}
 
-                        {col.id === 'inc_padre' && (
+                        {col.id === 'inc_figlio' && (
                           <div className="flex items-center gap-1.5">
                             <input
                               className="w-full min-w-[90px] bg-transparent font-mono text-[12px] text-slate-700 outline-none focus:text-blue-600 transition-colors placeholder:text-slate-300"
-                              value={t.inc_padre || ''}
+                              value={t.inc_figlio || ''}
                               placeholder="—"
                               onChange={(e) =>
-                                handleUpdate(t.id, 'inc_padre', e.target.value)
+                                handleUpdate(t.id, 'inc_figlio', e.target.value)
                               }
                             />
-                            {t.inc_padre_link && (
+                            {t.inc_figlio_link && (
                               <a
-                                href={getUrl(t.inc_padre_link)}
+                                href={getUrl(t.inc_figlio_link)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="shrink-0 text-slate-400 hover:text-blue-600 transition-colors"
-                                title="Apri INC padre"
+                                title="Apri INC figlio"
                               >
                                 <ExternalLink size={13} />
                               </a>

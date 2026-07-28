@@ -302,10 +302,20 @@ useEffect(() => {
   useEffect(() => {
     if (!ticketData) return
 
+    // Incident: n_tag = padre, l'INC figlio vive in inc_figlio.
+    // Altri ticket: resta il ticket_collegato (change collegata).
+    const incident = ticketData.tipologia_ticket === 'Incident'
+
     setTempTag(ticketData.n_tag || '')
     setTempLink(ticketData.link_tag || '')
-    setTempTicketCollegato(ticketData.ticket_collegato || '')
-    setTempTicketCollegatoLink(ticketData.ticket_collegato_link || '')
+    setTempTicketCollegato(
+      (incident ? ticketData.inc_figlio : ticketData.ticket_collegato) || ''
+    )
+    setTempTicketCollegatoLink(
+      (incident
+        ? ticketData.inc_figlio_link
+        : ticketData.ticket_collegato_link) || ''
+    )
   }, [ticketData])
 const [openTaskIds, setOpenTaskIds] = useState<Record<string, boolean>>({})
 const toggleTaskAccordion = (taskId: string) => {
@@ -855,22 +865,33 @@ const removeSubSubTask = async (
               </div>
 
               <div>
-                {ticketData.ticket_collegato &&
-                  (ticketData.ticket_collegato_link ? (
+                {(() => {
+                  // Incident → mostra l'INC figlio; altri ticket → change collegata.
+                  const collegato = isIncident
+                    ? ticketData.inc_figlio
+                    : ticketData.ticket_collegato
+                  const collegatoLink = isIncident
+                    ? ticketData.inc_figlio_link
+                    : ticketData.ticket_collegato_link
+
+                  if (!collegato) return null
+
+                  return collegatoLink ? (
                     <a
-                      href={ticketData.ticket_collegato_link}
+                      href={collegatoLink}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full inline-flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-[#0150a0] hover:bg-[#f5f9ff] transition-all"
                     >
-                      <span className="truncate">{ticketData.ticket_collegato}</span>
+                      <span className="truncate">{collegato}</span>
                       <ExternalLink size={14} />
                     </a>
                   ) : (
                     <div className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-semibold text-gray-500">
-                      {ticketData.ticket_collegato}
+                      {collegato}
                     </div>
-                  ))}
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -1693,6 +1714,30 @@ const removeSubSubTask = async (
                             placeholder="transaction_id, value, quantity"
                           />
                         </div>
+
+                        <div className="space-y-2">
+                          <label className={ui.label}>N° INC Figlio</label>
+                          <input
+                            value={ticketData.inc_figlio || ''}
+                            onChange={(e) =>
+                              handleUpdate('inc_figlio', e.target.value)
+                            }
+                            className={ui.field}
+                            placeholder="INC0000000"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className={ui.label}>Link INC Figlio</label>
+                          <input
+                            value={ticketData.inc_figlio_link || ''}
+                            onChange={(e) =>
+                              handleUpdate('inc_figlio_link', e.target.value)
+                            }
+                            className={ui.field}
+                            placeholder="https://..."
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -1869,7 +1914,7 @@ const removeSubSubTask = async (
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-gray-400">
-                    {isIncident ? 'Incident Padre' : 'Change collegata'}
+                    {isIncident ? 'Incident Figlio' : 'Change collegata'}
                   </label>
                   <input
                     type="text"
@@ -1882,7 +1927,7 @@ const removeSubSubTask = async (
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-gray-400">
-                    {isIncident ? 'Link Incident Padre' : 'Link Change collegata'}
+                    {isIncident ? 'Link Incident Figlio' : 'Link Change collegata'}
                   </label>
                   <input
                     type="url"
@@ -1908,8 +1953,16 @@ const removeSubSubTask = async (
                   onClick={async () => {
                     await handleUpdate('n_tag', tempTag)
                     await handleUpdate('link_tag', tempLink)
-                    await handleUpdate('ticket_collegato', tempTicketCollegato)
-                    await handleUpdate('ticket_collegato_link', tempTicketCollegatoLink)
+                    if (isIncident) {
+                      await handleUpdate('inc_figlio', tempTicketCollegato)
+                      await handleUpdate('inc_figlio_link', tempTicketCollegatoLink)
+                    } else {
+                      await handleUpdate('ticket_collegato', tempTicketCollegato)
+                      await handleUpdate(
+                        'ticket_collegato_link',
+                        tempTicketCollegatoLink
+                      )
+                    }
                     setShowTagEditor(false)
                   }}
                   className="px-4 py-2 rounded-lg bg-[#0150a0] text-[#ffffff] text-xs font-black uppercase tracking-widest hover:bg-[#013f82]"

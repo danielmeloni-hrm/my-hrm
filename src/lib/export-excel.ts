@@ -134,10 +134,10 @@ export function valoreColonnaExport(
   switch (colId) {
     case "n_tag":
       return ticket.n_tag ?? "";
-    case "inc_padre":
-      return ticket.inc_padre ?? "";
-    case "inc_padre_link":
-      return ticket.inc_padre_link ?? "";
+    case "inc_figlio":
+      return ticket.inc_figlio ?? "";
+    case "inc_figlio_link":
+      return ticket.inc_figlio_link ?? "";
     case "numero_storia":
       return ticket.numero_storia ?? "";
     case "titolo":

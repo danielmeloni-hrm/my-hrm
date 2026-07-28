@@ -65,9 +65,9 @@ create table if not exists public.incident (
   parametri text[] not null default '{}'::text[],
   data_segnalazione date null default current_date,
   verbalizzazione text null,
-  -- INC padre: si apre a monte, poi si apre l'INC figlio (n_tag).
-  inc_padre text null,
-  inc_padre_link text null,
+  -- Logica invertita: n_tag = INC PADRE, inc_figlio = INC FIGLIO (a valle).
+  inc_figlio text null,
+  inc_figlio_link text null,
   updated_at timestamp with time zone null default now(),
 
   constraint incident_pkey primary key (id),
@@ -103,8 +103,8 @@ create index if not exists idx_incident_eventi
 create index if not exists idx_incident_parametri
   on public.incident using gin (parametri) tablespace pg_default;
 
-create index if not exists idx_incident_inc_padre
-  on public.incident using btree (inc_padre) tablespace pg_default;
+create index if not exists idx_incident_inc_figlio
+  on public.incident using btree (inc_figlio) tablespace pg_default;
 
 -- ------------------------------------------------------------------
 -- Trigger updated_at
