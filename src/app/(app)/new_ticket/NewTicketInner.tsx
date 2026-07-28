@@ -198,6 +198,9 @@ export default function CreateAttivitaOrChangePage() {
     // Campi specifici dell'incident (uno o più valori separati da virgola).
     eventi: "",
     parametri: "",
+    // INC padre: aperto a monte, poi si apre l'INC figlio (n_tag).
+    inc_padre: "",
+    inc_padre_link: "",
   });
 
   const [cForm, setCForm] = useState({
@@ -412,9 +415,14 @@ export default function CreateAttivitaOrChangePage() {
           stato: aForm.stato || "Non Iniziato",
           // Gli incident vivono nella tabella dedicata, le attività nei ticket.
           tipologia_ticket: isIncident ? "Incident" : "Attività",
-          // Solo la tabella incident ha le colonne eventi/parametri.
+          // Solo la tabella incident ha le colonne eventi/parametri e INC padre.
           ...(isIncident
-            ? { eventi: eventiArray, parametri: parametriArray }
+            ? {
+                eventi: eventiArray,
+                parametri: parametriArray,
+                inc_padre: aForm.inc_padre.trim() || null,
+                inc_padre_link: aForm.inc_padre_link.trim() || null,
+              }
             : {}),
         };
 
@@ -663,40 +671,127 @@ export default function CreateAttivitaOrChangePage() {
                     
                   
 
-                  <Field
-                    label={`N° ${mode === "incident" ? "Incident" : "TAG"}`}
-                    hint="ID Ticket"
-                  >
-                    <input
-                      type="text"
-                      value={aForm.n_tag}
-                      placeholder={
-                        mode === "attività"
-                          ? suggestedTag || "Inserisci ID ticket" 
-                          : "Inserisci ID Incident"
-                      }
-                      onChange={(e) => setAForm((p) => ({ ...p, n_tag: e.target.value }))}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none placeholder:text-slate-300"
-                    />
-                  </Field>
-                  <Field
-                        label={`Link ${
-                          mode === "incident"
-                            ? "Incident SN"
-                            : "TAG SN"
-                        }`}
-                        hint="URL Ticket"
-                      >
-                    <input
-                      type="text"
-                      value={aForm.link_tag}
-                      onChange={(e) => setAForm((p) => ({ ...p, link_tag: e.target.value }))}
-                      className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none"
-                      placeholder="https://..."
-                    />
-                  </Field>
-                  
-                  
+                  {/* Incident: catena padre → figlio → evento, in verticale */}
+                  {mode === "incident" && (
+                    <div className="md:col-span-2 space-y-6">
+                      {/* INC Padre (aperto a monte) */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Field label="N° INC Padre" hint="INC aperto a monte">
+                          <input
+                            type="text"
+                            value={aForm.inc_padre}
+                            onChange={(e) =>
+                              setAForm((p) => ({ ...p, inc_padre: e.target.value }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm font-bold outline-none transition-all"
+                            placeholder="INC0000000"
+                          />
+                        </Field>
+
+                        <Field label="Link INC Padre" hint="URL dell'INC padre">
+                          <input
+                            type="text"
+                            value={aForm.inc_padre_link}
+                            onChange={(e) =>
+                              setAForm((p) => ({
+                                ...p,
+                                inc_padre_link: e.target.value,
+                              }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                            placeholder="https://..."
+                          />
+                        </Field>
+                      </div>
+
+                      {/* INC Figlio (il tuo incident) */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Field label="N° Incident Figlio" hint="Il tuo incident">
+                          <input
+                            type="text"
+                            value={aForm.n_tag}
+                            placeholder="Inserisci ID Incident"
+                            onChange={(e) =>
+                              setAForm((p) => ({ ...p, n_tag: e.target.value }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm font-bold outline-none transition-all"
+                          />
+                        </Field>
+
+                        <Field label="Link Incident SN" hint="URL Incident">
+                          <input
+                            type="text"
+                            value={aForm.link_tag}
+                            onChange={(e) =>
+                              setAForm((p) => ({ ...p, link_tag: e.target.value }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                            placeholder="https://..."
+                          />
+                        </Field>
+                      </div>
+
+                      {/* Evento / parametri intaccati */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Field
+                          label="Evento/i"
+                          hint="Più eventi separati da virgola"
+                        >
+                          <input
+                            value={aForm.eventi}
+                            onChange={(e) =>
+                              setAForm((p) => ({ ...p, eventi: e.target.value }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                            placeholder="purchase, add_to_cart"
+                          />
+                        </Field>
+
+                        <Field
+                          label="Parametro/i intaccato/i"
+                          hint="Più parametri separati da virgola"
+                        >
+                          <input
+                            value={aForm.parametri}
+                            onChange={(e) =>
+                              setAForm((p) => ({ ...p, parametri: e.target.value }))
+                            }
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
+                            placeholder="transaction_id, value, quantity"
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Attività: N° TAG e link standard */}
+                  {mode !== "incident" && (
+                    <>
+                      <Field label="N° TAG" hint="ID Ticket">
+                        <input
+                          type="text"
+                          value={aForm.n_tag}
+                          placeholder={suggestedTag || "Inserisci ID ticket"}
+                          onChange={(e) =>
+                            setAForm((p) => ({ ...p, n_tag: e.target.value }))
+                          }
+                          className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none placeholder:text-slate-300"
+                        />
+                      </Field>
+                      <Field label="Link TAG SN" hint="URL Ticket">
+                        <input
+                          type="text"
+                          value={aForm.link_tag}
+                          onChange={(e) =>
+                            setAForm((p) => ({ ...p, link_tag: e.target.value }))
+                          }
+                          className="w-full px-4 py-2 rounded-xl border border-slate-100 bg-slate-50 text-xs font-bold outline-none"
+                          placeholder="https://..."
+                        />
+                      </Field>
+                    </>
+                  )}
+
                   <Field label="Stato Ticket">
                   <select
                     value={aForm.stato}
@@ -821,38 +916,6 @@ export default function CreateAttivitaOrChangePage() {
     </div>
   </Field>
 </div>
-
-                  {mode === "incident" && (
-                    <>
-                      <Field
-                        label="Evento/i"
-                        hint="Più eventi separati da virgola"
-                      >
-                        <input
-                          value={aForm.eventi}
-                          onChange={(e) =>
-                            setAForm((p) => ({ ...p, eventi: e.target.value }))
-                          }
-                          className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
-                          placeholder="purchase, add_to_cart"
-                        />
-                      </Field>
-
-                      <Field
-                        label="Parametro/i intaccato/i"
-                        hint="Più parametri separati da virgola"
-                      >
-                        <input
-                          value={aForm.parametri}
-                          onChange={(e) =>
-                            setAForm((p) => ({ ...p, parametri: e.target.value }))
-                          }
-                          className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-transparent focus:bg-white focus:border-slate-200 text-sm outline-none transition-all"
-                          placeholder="transaction_id, value, quantity"
-                        />
-                      </Field>
-                    </>
-                  )}
 
                   <div className="md:col-span-2">
                     <Field label="Descrizione">

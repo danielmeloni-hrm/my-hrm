@@ -14,10 +14,12 @@ import {
   EyeOff,
   FilterX,
   AlertTriangle,
+  ExternalLink,
   Pin,
   PinOff,
   CheckCircle2,
   CircleOff,
+  Download,
   Repeat,Repeat2,
 } from 'lucide-react';
 import {
@@ -48,6 +50,7 @@ import {
   STATO_TICKET_LIST,
   type Ticket,
 } from '@/components/parametri_ticket/attivita';
+import ExcelExportDialog from '@/components/ui/ExcelExportDialog';
 
 type ColumnConfig = {
   id: string;
@@ -74,7 +77,8 @@ type TicketRow = Ticket & {
 };
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: 'n_tag', label: 'N° Tag', visible: true, pinned: false },
+  { id: 'n_tag', label: 'N° INC', visible: true, pinned: false },
+  { id: 'inc_padre', label: 'INC Padre', visible: true, pinned: false },
   { id: 'numero_storia', label: 'N° Storia', visible: true, pinned: false },
   { id: 'titolo', label: 'Titolo', visible: true, pinned: false },
   { id: 'priorita', label: 'Priorità', visible: true, pinned: false },
@@ -104,6 +108,8 @@ const getColWidthValue = (id: string) => {
       return 180;
     case 'n_tag':
       return 130;
+    case 'inc_padre':
+      return 140;
     case 'progress':
       return 150;
     case 'cliente':
@@ -131,6 +137,8 @@ const getColWidthClass = (id: string) => {
       return 'min-w-[180px]';
     case 'n_tag':
       return 'min-w-[130px]';
+    case 'inc_padre':
+      return 'min-w-[140px]';
     case 'ricorsivo':
   return 'min-w-[120px]';
     case 'progress':
@@ -251,6 +259,7 @@ export default function StoricoTicketPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [showConfig, setShowConfig] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [columnOrder, setColumnOrder] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
 
@@ -260,6 +269,8 @@ export default function StoricoTicketPage() {
   const [selectedSprint, setSelectedSprint] = useState('');
   const [selectedAttivita, setSelectedAttivita] = useState('');
   const [filterAttenzioneBusiness, setFilterAttenzioneBusiness] = useState(false);
+  // INC figlio ancora da aprire: n_tag vuoto ma INC padre presente.
+  const [filterIncFiglioMancante, setFilterIncFiglioMancante] = useState(false);
   const [selectedStato, setSelectedStato] = useState('');
 
   const [listaAssegnatari, setListaAssegnatari] = useState<Profilo[]>([]);
@@ -497,6 +508,10 @@ export default function StoricoTicketPage() {
       const matchesAttivita = selectedAttivita === '' || t.tipo_di_attivita === selectedAttivita;
       const matchesAttenzione =
         !filterAttenzioneBusiness || t.stato === 'Attenzione Business';
+      // INC figlio da aprire: n_tag vuoto ma INC padre valorizzato.
+      const matchesIncFiglioMancante =
+        !filterIncFiglioMancante ||
+        (!t.n_tag?.trim() && !!t.inc_padre?.trim());
       const matchesRicorsivo =
         selectedRicorsivo === ''
           ? true
@@ -509,8 +524,9 @@ export default function StoricoTicketPage() {
         matchesAssegnatario &&
         matchesStato &&
         matchesSprint &&
-        matchesAttivita && 
+        matchesAttivita &&
         matchesRicorsivo  &&
+        matchesIncFiglioMancante &&
         matchesAttenzione
       );
     });
@@ -570,6 +586,7 @@ export default function StoricoTicketPage() {
     selectedStato,
     selectedRicorsivo,
     filterAttenzioneBusiness,
+    filterIncFiglioMancante,
     sortConfig,
   ]);
 
@@ -611,6 +628,7 @@ export default function StoricoTicketPage() {
     setSelectedSprint('');
     setSelectedAttivita('');
     setFilterAttenzioneBusiness(false);
+    setFilterIncFiglioMancante(false);
     setSelectedRicorsivo('');
   };
 
@@ -707,19 +725,6 @@ export default function StoricoTicketPage() {
               </select>
              
               <select
-                className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-28"
-                value={selectedAttivita}
-                onChange={(e) => setSelectedAttivita(e.target.value)}
-              >
-                <option value="">Attività</option>
-                {ATTIVITA_LIST.filter((a) => a !== 'Incident Resolution').map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-
-              <select
                 className="bg-transparent px-2 py-1 text-[10px] font-bold uppercase text-slate-600 outline-none w-32"
                 value={selectedStato}
                 onChange={(e) => setSelectedStato(e.target.value)}
@@ -786,14 +791,28 @@ export default function StoricoTicketPage() {
               Att. Business
             </AppButton>
 
+            <AppButton
+              type="button"
+              variant={filterIncFiglioMancante ? 'primary' : 'secondary'}
+              onClick={() =>
+                setFilterIncFiglioMancante(!filterIncFiglioMancante)
+              }
+              className="gap-2 text-[10px] font-bold uppercase tracking-tight"
+              title="Incident con INC padre presente ma N° INC (figlio) ancora vuoto"
+            >
+              <ExternalLink size={14} />
+              INC figlio da aprire
+            </AppButton>
+
             {(searchTerm ||
               selectedCliente ||
               selectedAssegnatario ||
               selectedSprint ||
               selectedAttivita ||
-              selectedStato || 
-              selectedRicorsivo || 
-              filterAttenzioneBusiness) && (
+              selectedStato ||
+              selectedRicorsivo ||
+              filterAttenzioneBusiness ||
+              filterIncFiglioMancante) && (
               <AppButton
                 type="button"
                 variant="ghost"
@@ -806,6 +825,17 @@ export default function StoricoTicketPage() {
             )}
 
             <div className="w-px h-6 bg-slate-200 mx-1" />
+
+            <AppButton
+              type="button"
+              variant="secondary"
+              onClick={() => setShowExport(true)}
+              className="gap-2 text-[10px] font-bold uppercase tracking-tight"
+              title="Scarica in Excel gli incident filtrati"
+            >
+              <Download size={14} />
+              Excel
+            </AppButton>
 
             <AppButton
               type="button"
@@ -908,8 +938,14 @@ export default function StoricoTicketPage() {
                             }
                           >
                             <option value="">Seleziona...</option>
-                            {ATTIVITA_LIST.map((a) => (
-                              <option key={a} value={a}>
+                            {/* Includiamo il valore dal DB (es. "Incident") anche se
+                                non è tra le opzioni standard, così la colonna lo mostra. */}
+                            {(t.tipo_di_attivita &&
+                            !ATTIVITA_LIST.includes(t.tipo_di_attivita as any)
+                              ? [t.tipo_di_attivita, ...ATTIVITA_LIST]
+                              : ATTIVITA_LIST
+                            ).map((a) => (
+                              <option key={a} value={a as string}>
                                 {a}
                               </option>
                             ))}
@@ -964,6 +1000,30 @@ export default function StoricoTicketPage() {
                               {t.n_tag || '-'}
                             </span>
                           ))}
+
+                        {col.id === 'inc_padre' && (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              className="w-full min-w-[90px] bg-transparent font-mono text-[12px] text-slate-700 outline-none focus:text-blue-600 transition-colors placeholder:text-slate-300"
+                              value={t.inc_padre || ''}
+                              placeholder="—"
+                              onChange={(e) =>
+                                handleUpdate(t.id, 'inc_padre', e.target.value)
+                              }
+                            />
+                            {t.inc_padre_link && (
+                              <a
+                                href={getUrl(t.inc_padre_link)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="shrink-0 text-slate-400 hover:text-blue-600 transition-colors"
+                                title="Apri INC padre"
+                              >
+                                <ExternalLink size={13} />
+                              </a>
+                            )}
+                          </div>
+                        )}
 
                         {col.id === 'applicativo' && (
                           <div className="min-w-[220px]">
@@ -1298,6 +1358,17 @@ export default function StoricoTicketPage() {
             )}
           </div>
       </AppCard>
+
+      {showExport && (
+        <ExcelExportDialog
+          columns={columnOrder.map((c) => ({ id: c.id, label: c.label }))}
+          tickets={filteredTickets}
+          filenameBase="incident"
+          sheetName="Incident"
+          defaultSelected={visibleColumns.map((c) => c.id)}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </AppPage>
   );
 }

@@ -325,6 +325,9 @@ export interface Ticket {
   note?: string | null;
   storia_ticket?: string[] | null;
   link_tag?: string | null;
+  // Incident: INC padre aperto a monte (l'INC figlio è n_tag).
+  inc_padre?: string | null;
+  inc_padre_link?: string | null;
 }
 
 export const DEFAULT_CLIENTE_NAME = [

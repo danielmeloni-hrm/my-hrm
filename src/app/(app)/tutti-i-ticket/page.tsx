@@ -18,6 +18,7 @@ import {
   PinOff,
   CheckCircle2,
   CircleOff,
+  Download,
   Repeat,Repeat2,
 } from 'lucide-react';
 import {
@@ -48,6 +49,7 @@ import {
   STATO_TICKET_LIST,
   type Ticket,
 } from '@/components/parametri_ticket/attivita';
+import ExcelExportDialog from '@/components/ui/ExcelExportDialog';
 
 type ColumnConfig = {
   id: string;
@@ -251,6 +253,7 @@ export default function StoricoTicketPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [showConfig, setShowConfig] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [columnOrder, setColumnOrder] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
 
@@ -826,6 +829,17 @@ export default function StoricoTicketPage() {
 
             <AppButton
               type="button"
+              variant="secondary"
+              onClick={() => setShowExport(true)}
+              className="gap-2 text-[10px] font-bold uppercase tracking-tight"
+              title="Scarica in Excel i ticket filtrati"
+            >
+              <Download size={14} />
+              Excel
+            </AppButton>
+
+            <AppButton
+              type="button"
               variant={showConfig ? 'primary' : 'secondary'}
               onClick={() => setShowConfig(!showConfig)}
               className="h-10 w-10 p-0"
@@ -1315,6 +1329,17 @@ export default function StoricoTicketPage() {
             )}
           </div>
       </AppCard>
+
+      {showExport && (
+        <ExcelExportDialog
+          columns={columnOrder.map((c) => ({ id: c.id, label: c.label }))}
+          tickets={filteredTickets}
+          filenameBase="ticket"
+          sheetName="Ticket"
+          defaultSelected={visibleColumns.map((c) => c.id)}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </AppPage>
   );
 }
