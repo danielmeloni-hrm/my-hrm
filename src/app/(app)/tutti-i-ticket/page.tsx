@@ -972,6 +972,20 @@ export default function StoricoTicketPage() {
                             value={t.stato || ''}
                             onChange={(e) => handleUpdate(t.id, 'stato', e.target.value)}
                           >
+                            {/*
+                              Senza un'opzione corrispondente al valore salvato,
+                              il browser ripiega sulla prima <option> e mostra uno
+                              stato diverso da quello presente a DB.
+                              Placeholder + opzione di fallback rendono sempre
+                              visibile il valore reale del ticket.
+                            */}
+                            <option value="">-</option>
+                            {!!t.stato &&
+                              !STATO_TICKET_LIST.includes(
+                                t.stato as (typeof STATO_TICKET_LIST)[number]
+                              ) && (
+                                <option value={t.stato}>{t.stato}</option>
+                              )}
                             {STATO_TICKET_LIST.map((s) => (
                               <option key={s} value={s}>
                                 {s}

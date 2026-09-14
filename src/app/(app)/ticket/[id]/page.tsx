@@ -37,18 +37,15 @@ import {
   PRIORITA_LIST,
 } from "@/components/parametri_ticket/attivita";
 
-const STATO_OPTIONS = [
-  'Non Iniziato',
-  'In stand-by',
-  'Attività Sospesa',
-  'In lavorazione',
-  'In attesa Sviluppo',
-  'In attesa risposta Sviluppatore',
-  'Attenzione Business',
-  'Attenzione Andrea',
-  'Completato - In attesa di chiusura TAG',
-  'Completato',
-]
+/**
+ * Gli stati arrivano da STATO_TICKET_LIST (@/components/parametri_ticket/attivita),
+ * unica fonte di verità condivisa con "Tutte Attività" e "I miei ticket".
+ * NON reintrodurre una lista locale: valori diversi dalla lista canonica
+ * (es. "Attenzione Andrea" invece di "Attenzione di Andrea") vengono salvati
+ * a DB ma non trovano corrispondenza nelle altre pagine, che mostrano
+ * lo stato sbagliato.
+ */
+const STATO_OPTIONS = STATO_TICKET_LIST
 
 
 const SPRINT_OPTIONS = ['Sprint', 'Opex', 'Backlog', 'Progetto Separato']
