@@ -6,10 +6,10 @@ import AppCard from "@/components/ui/AppCard";
 import MultiSelectCreatable from "@/components/ui/MultiSelectCreatable";
 import { createClient } from "@/lib/supabase";
 import {
-  APPLICATIVI_LIST,
+  STATO_TICKET_LIST,
   TICKET_FIELD_LABELS,
 } from "@/components/parametri_ticket/attivita";
-import { ExternalLink, Loader2, Pencil, Save, Trash2, X } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 
 /**
  * I parametri intaccati corrispondono ai campi del ticket (tag): usiamo
@@ -23,8 +23,8 @@ const PARAMETRI_TICKET = Object.values(TICKET_FIELD_LABELS).sort((a, b) =>
 /* Tipi (allineati alla tabella incident)                             */
 /* ------------------------------------------------------------------ */
 
-/** La colonna incident.stato è testo libero: usiamo questi valori. */
-export type StatoIncident = "Aperto" | "In lavorazione" | "Risolto" | "Chiuso";
+/** Lo stato dell'incident è quello reale del ticket (STATO_TICKET_LIST). */
+export type StatoIncident = string;
 
 type Incident = {
   id: string;
@@ -41,61 +41,26 @@ type Incident = {
   n_tag: string | null;
 };
 
-export const STATI_INCIDENT: { value: StatoIncident; label: string; chip: string }[] = [
-  { value: "Aperto", label: "Aperto", chip: "bg-red-50 text-red-600 border border-red-100" },
-  {
-    value: "In lavorazione",
-    label: "In lavorazione",
-    chip: "bg-amber-50 text-amber-700 border border-amber-100",
-  },
-  {
-    value: "Risolto",
-    label: "Risolto",
-    chip: "bg-emerald-50 text-emerald-700 border border-emerald-100",
-  },
-  {
-    value: "Chiuso",
-    label: "Chiuso",
-    chip: "bg-slate-100 text-slate-500 border border-slate-200",
-  },
-];
-
+/** Colore del chip in base allo stato reale letto dal DB. */
 function chipStato(stato: string | null) {
-  return (
-    STATI_INCIDENT.find((s) => s.value === stato)?.chip ??
-    "bg-slate-100 text-slate-500 border border-slate-200"
-  );
+  const s = (stato ?? "").toLowerCase();
+  if (!s) return "bg-slate-100 text-slate-500 border border-slate-200";
+  if (s.startsWith("completato"))
+    return "bg-emerald-50 text-emerald-700 border border-emerald-100";
+  if (s.includes("cancellato"))
+    return "bg-slate-100 text-slate-500 border border-slate-200";
+  if (s.includes("attenzione"))
+    return "bg-amber-50 text-amber-700 border border-amber-100";
+  if (s.includes("lavorazione"))
+    return "bg-blue-50 text-blue-700 border border-blue-100";
+  if (s.includes("attesa") || s.includes("stand") || s.includes("sospesa"))
+    return "bg-amber-50 text-amber-700 border border-amber-100";
+  return "bg-red-50 text-red-600 border border-red-100";
 }
 
-type Bozza = {
-  cliente_id: string;
-  applicativo: string;
-  eventi: string[];
-  parametri: string[];
-  descrizione: string;
-  data_segnalazione: string;
-  tread_email: string;
-  verbalizzazione: string;
-  stato: StatoIncident;
-};
-
-function bozzaVuota(cliente_id = "", applicativo = ""): Bozza {
-  return {
-    cliente_id,
-    applicativo,
-    eventi: [],
-    parametri: [],
-    descrizione: "",
-    data_segnalazione: new Date().toISOString().slice(0, 10),
-    tread_email: "",
-    verbalizzazione: "",
-    stato: "Aperto",
-  };
-}
-
-function primoApplicativo(app: string[] | null): string {
-  return Array.isArray(app) && app.length > 0 ? app[0] : "";
-}
+/** Stati disponibili, letti dalla lista condivisa dei ticket (DB-aligned). */
+export const STATI_INCIDENT: { value: StatoIncident; label: string; chip: string }[] =
+  STATO_TICKET_LIST.map((s) => ({ value: s, label: s, chip: chipStato(s) }));
 
 /** Dati derivati che il pannello riporta al genitore per popolare la barra filtri condivisa. */
 export type IncidentDati = {
@@ -140,11 +105,6 @@ export default function IncidentPanel({
   const [eventiCatalogo, setEventiCatalogo] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [errore, setErrore] = useState<string | null>(null);
-
-  const [formAperto, setFormAperto] = useState(false);
-  const [inModifica, setInModifica] = useState<string | null>(null);
-  const [bozza, setBozza] = useState<Bozza>(bozzaVuota());
-  const [salvataggio, setSalvataggio] = useState(false);
 
   const clientiById = useMemo(
     () => new Map(clienti.map((c) => [c.id, c.nome])),
@@ -267,295 +227,15 @@ export default function IncidentPanel({
     onDatiChange?.({ opzioniEventi, opzioniParametri, conteggi });
   }, [opzioniEventi, opzioniParametri, conteggi, onDatiChange]);
 
-  /* ------------------------------- azioni ----------------------------- */
-
-  function apriModifica(i: Incident) {
-    setBozza({
-      cliente_id: i.cliente_id ?? "",
-      applicativo: primoApplicativo(i.applicativo),
-      eventi: i.eventi ?? [],
-      parametri: i.parametri ?? [],
-      descrizione: i.descrizione ?? "",
-      data_segnalazione: i.data_segnalazione?.slice(0, 10) ?? "",
-      tread_email: i.tread_email ?? "",
-      verbalizzazione: i.verbalizzazione ?? "",
-      stato: (STATI_INCIDENT.find((s) => s.value === i.stato)?.value ?? "Aperto"),
-    });
-    setInModifica(i.id);
-    setFormAperto(true);
-  }
-
-  function chiudiForm() {
-    setFormAperto(false);
-    setInModifica(null);
-    setBozza(bozzaVuota());
-  }
-
-  /** Registra un evento creato al volo, così resta riutilizzabile. */
-  async function registraEvento(nome: string) {
-    if (eventiCatalogo.some((e) => e.toLowerCase() === nome.toLowerCase())) {
-      return;
-    }
-
-    const { error } = await supabase.from("incident_eventi_catalogo").insert({
-      nome,
-      cliente_id: bozza.cliente_id || null,
-      applicativo: mostraApplicativo ? bozza.applicativo || null : null,
-    });
-
-    if (!error) setEventiCatalogo((prev) => [...prev, nome]);
-  }
-
-  async function salva() {
-    if (bozza.eventi.length === 0) {
-      setErrore("Seleziona almeno un evento.");
-      return;
-    }
-
-    if (!bozza.cliente_id) {
-      setErrore("Cliente non valido per questo incident.");
-      return;
-    }
-
-    setSalvataggio(true);
-    setErrore(null);
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      setErrore("Utente non autenticato.");
-      setSalvataggio(false);
-      return;
-    }
-
-    // titolo non può essere nullo: se manca lo componiamo dagli eventi.
-    const titolo =
-      bozza.descrizione.trim().slice(0, 80) ||
-      bozza.eventi.join(", ").slice(0, 80) ||
-      "Incident";
-
-    const payload: Record<string, any> = {
-      cliente_id: bozza.cliente_id,
-      applicativo:
-        mostraApplicativo && bozza.applicativo ? [bozza.applicativo] : null,
-      eventi: bozza.eventi,
-      parametri: bozza.parametri,
-      descrizione: bozza.descrizione.trim() || null,
-      data_segnalazione:
-        bozza.data_segnalazione || new Date().toISOString().slice(0, 10),
-      tread_email: bozza.tread_email.trim() || null,
-      verbalizzazione: bozza.verbalizzazione.trim() || null,
-      stato: bozza.stato,
-      titolo,
-      tipologia_ticket: "Incident",
-    };
-
-    let risultato;
-
-    if (inModifica) {
-      risultato = await supabase
-        .from("incident")
-        .update(payload)
-        .eq("id", inModifica);
-    } else {
-      // In creazione servono i campi obbligatori della tabella.
-      risultato = await supabase
-        .from("incident")
-        .insert({ ...payload, utente_id: user.id });
-    }
-
-    setSalvataggio(false);
-
-    if (risultato.error) {
-      console.error("Errore salvataggio incident:", risultato.error);
-      setErrore(risultato.error.message);
-      return;
-    }
-
-    chiudiForm();
-    await carica();
-  }
-
-  async function elimina(i: Incident) {
-    if (!confirm("Eliminare questo incident?")) return;
-
-    const { error } = await supabase.from("incident").delete().eq("id", i.id);
-
-    if (error) {
-      setErrore(error.message);
-      return;
-    }
-
-    await carica();
-  }
-
   /* -------------------------------- render ---------------------------- */
+  /* La vista è di sola lettura: gli incident si creano e si modificano   */
+  /* dalla pagina di apertura ticket / dal database incident.             */
 
   return (
     <div className="space-y-6">
       {errore && (
         <AppCard className="border-red-200 bg-red-50">
           <p className="text-sm font-semibold text-red-700">{errore}</p>
-        </AppCard>
-      )}
-
-      {formAperto && (
-        <AppCard className="border-[#0150a0]/30 bg-blue-50/40">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-black text-gray-900">
-              {inModifica ? "Modifica incident" : "Nuovo incident"}
-              {clientiById.get(bozza.cliente_id) && (
-                <span className="ml-2 font-bold text-gray-400">
-                  · {clientiById.get(bozza.cliente_id)}
-                </span>
-              )}
-            </h3>
-
-            <button
-              onClick={chiudiForm}
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-gray-400 hover:bg-gray-100"
-              aria-label="Chiudi"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {mostraApplicativo && (
-              <Campo label="Applicativo">
-                <select
-                  value={bozza.applicativo}
-                  onChange={(e) =>
-                    setBozza((b) => ({ ...b, applicativo: e.target.value }))
-                  }
-                  className={inputClass}
-                >
-                  <option value="">— nessuno —</option>
-                  {APPLICATIVI_LIST.map((app) => (
-                    <option key={app} value={app}>
-                      {app}
-                    </option>
-                  ))}
-                </select>
-              </Campo>
-            )}
-
-            <Campo label="Stato">
-              <select
-                value={bozza.stato}
-                onChange={(e) =>
-                  setBozza((b) => ({
-                    ...b,
-                    stato: e.target.value as StatoIncident,
-                  }))
-                }
-                className={inputClass}
-              >
-                {STATI_INCIDENT.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-
-            <Campo label="Evento/i *" full>
-              <MultiSelectCreatable
-                value={bozza.eventi}
-                onChange={(eventi) => setBozza((b) => ({ ...b, eventi }))}
-                options={opzioniEventi}
-                onCreate={(nome) => registraEvento(nome)}
-                placeholder="Seleziona o crea un evento..."
-              />
-              <p className="mt-1 text-[10px] font-semibold text-gray-400">
-                Puoi selezionare più eventi o digitarne uno nuovo e premere
-                &ldquo;Crea&rdquo;.
-              </p>
-            </Campo>
-
-            <Campo label="Parametro/i intaccato/i" full>
-              <MultiSelectCreatable
-                value={bozza.parametri}
-                onChange={(parametri) => setBozza((b) => ({ ...b, parametri }))}
-                options={opzioniParametri}
-                placeholder="Seleziona un parametro del ticket..."
-              />
-              <p className="mt-1 text-[10px] font-semibold text-gray-400">
-                Puoi selezionare più parametri tra i campi del ticket.
-              </p>
-            </Campo>
-
-            <Campo label="Data segnalazione">
-              <input
-                type="date"
-                value={bozza.data_segnalazione}
-                onChange={(e) =>
-                  setBozza((b) => ({ ...b, data_segnalazione: e.target.value }))
-                }
-                className={inputClass}
-              />
-            </Campo>
-
-            <Campo label="Thread email">
-              <input
-                value={bozza.tread_email}
-                onChange={(e) =>
-                  setBozza((b) => ({ ...b, tread_email: e.target.value }))
-                }
-                placeholder="Link o riferimento al thread"
-                className={inputClass}
-              />
-            </Campo>
-
-            <Campo label="Descrizione / Nota" full>
-              <textarea
-                rows={2}
-                value={bozza.descrizione}
-                onChange={(e) =>
-                  setBozza((b) => ({ ...b, descrizione: e.target.value }))
-                }
-                placeholder="Descrizione dell'incident..."
-                className={`${inputClass} resize-y`}
-              />
-            </Campo>
-
-            <Campo label="Verbalizzazione" full>
-              <textarea
-                rows={2}
-                value={bozza.verbalizzazione}
-                onChange={(e) =>
-                  setBozza((b) => ({ ...b, verbalizzazione: e.target.value }))
-                }
-                placeholder="Esito discusso, decisioni prese..."
-                className={`${inputClass} resize-y`}
-              />
-            </Campo>
-          </div>
-
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              onClick={chiudiForm}
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
-            >
-              Annulla
-            </button>
-
-            <button
-              onClick={salva}
-              disabled={salvataggio}
-              className="flex items-center gap-2 rounded-xl bg-[#0150a0] px-4 py-2 text-sm font-semibold text-[#ffffff] hover:bg-[#014080] disabled:opacity-60"
-            >
-              {salvataggio ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              Salva
-            </button>
-          </div>
         </AppCard>
       )}
 
@@ -603,7 +283,6 @@ export default function IncidentPanel({
                   <th className={thClass}>Descrizione</th>
                   <th className={thClass}>Stato</th>
                   <th className={thClass}>Rif.</th>
-                  <th className={`${thClass} text-right`}>Azioni</th>
                 </tr>
               </thead>
 
@@ -731,26 +410,6 @@ export default function IncidentPanel({
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => apriModifica(i)}
-                          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-[#0150a0]"
-                          aria-label="Modifica"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-
-                        <button
-                          onClick={() => elimina(i)}
-                          className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label="Elimina"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -766,27 +425,5 @@ export default function IncidentPanel({
 /* Helper                                                              */
 /* ------------------------------------------------------------------ */
 
-const inputClass =
-  "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#0150a0]";
-
 const thClass =
   "px-4 py-3 text-[11px] font-black uppercase tracking-widest text-gray-400";
-
-function Campo({
-  label,
-  full,
-  children,
-}: {
-  label: string;
-  full?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={full ? "md:col-span-2" : ""}>
-      <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-gray-400">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}

@@ -1101,7 +1101,7 @@ export default function CreateAttivitaOrChangePage() {
                         const active =
                           app === "ALL"
                             ? allSelected
-                            : mode === "attività"
+                            : isTaskMode
                             ? aForm.applicativo.includes(app)
                             : cForm.applicativo.includes(app);
 
@@ -1113,7 +1113,7 @@ export default function CreateAttivitaOrChangePage() {
                               if (app === "ALL") {
                                 const allApps = APPLICATIVI_LIST.filter((a) => a !== "ALL");
 
-                                if (mode === "attività") {
+                                if (isTaskMode) {
                                   setAForm((p) => ({
                                     ...p,
                                     applicativo: allSelected ? [] : allApps,
@@ -1128,7 +1128,7 @@ export default function CreateAttivitaOrChangePage() {
                                 return;
                               }
 
-                              if (mode === "attività") {
+                              if (isTaskMode) {
                                 setAForm((p) => ({
                                   ...p,
                                   applicativo: p.applicativo.includes(app)

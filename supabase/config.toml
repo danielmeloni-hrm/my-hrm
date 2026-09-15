@@ -1,0 +1,2 @@
+[functions.servicenow-incident]
+verify_jwt = false
