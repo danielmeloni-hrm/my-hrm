@@ -16,19 +16,23 @@ import {
   Inbox,
   Trash2,
   MessageSquare,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import AppPage from '@/components/ui/AppPage'
 import AppCard from '@/components/ui/AppCard'
 import AppButton from '@/components/ui/AppButton'
+import {
+  formatDate,
+  formatDateTime,
+  getStoredEmailText,
+  groupRowsIntoThreads,
+  type MailThreadRow,
+  type ThreadGroup,
+} from '@/lib/mail-thread-utils'
 
 const supabase = createClient()
-
-interface ThreadNote {
-  id: string
-  nota: string
-  created_at: string
-}
 
 interface TicketInfo {
   id: string
@@ -38,175 +42,17 @@ interface TicketInfo {
   assegnato_id: string | null
 }
 
-interface MailThread {
-  id: string
-  n_tag: string
-  topic: string | null
-  subject: string | null
-  data_invio: string
-  contenuto: string
-  created_at: string
-  body_html: string | null
-  from_email: string | null
-  to_emails: any[] | null
-  cc_emails: any[] | null
-  outlook_message_id: string | null
-  internet_message_id: string | null
-  direction: 'inbound' | 'outbound' | null
-  received_at: string | null
-  sent_at: string | null
-  linked_manually: boolean
-  linked_at: string | null
-  link_status: 'auto' | 'manual' | 'unlinked'
-  tread: {
-    type?: string
-    tipo?: string
-    note?: ThreadNote[]
-    [key: string]: any
-  } | null
-  ticket?: TicketInfo | null
-  emails: StoredEmail[] | null 
-}
-interface StoredEmail {
-  html?: string | null
-  text?: string | null
-  index?: number
-  subject?: string | null
-  direction?: 'inbound' | 'outbound' | null
-  from_email?: string | null
-  received_at?: string | null
-  sent_at?: string | null
-  body_preview?: string | null
-  outlook_message_id?: string | null
-  internet_message_id?: string | null
-  [key: string]: any
-}
-
-interface ThreadEmail extends StoredEmail {
-  uniqueId: string
-  parentThreadId: string
-  parentThread: MailThread
-}
-
-interface MailThreadGroup {
-  key: string
-  topic: string
-  n_tag: string
-  ticket: TicketInfo | null
-  rows: MailThread[]
-  linkRows: MailThread[]
-  emails: ThreadEmail[]
-  notes: Array<ThreadNote & { sourceThreadId: string }>
-  lastDate: string
-}
-
-function normalize(value?: string | null) {
-  return (value || '')
-    .toLowerCase()
-    .replace(/^(re|fw|fwd):\s*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function stripHtml(html?: string | null) {
-  if (!html) return ''
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function getThreadTitle(thread: MailThread) {
-  return thread.topic || thread.subject || thread.contenuto || 'Thread senza nome'
-}
-
-function getEmailText(thread: MailThread) {
-  return thread.contenuto || stripHtml(thread.body_html) || thread.subject || ''
-}
-
-function getEmailDate(thread: MailThread) {
-  return (
-    thread.received_at ||
-    thread.sent_at ||
-    thread.data_invio ||
-    thread.created_at ||
-    new Date().toISOString()
-  )
-}
-
-function isThreadLink(thread: MailThread) {
-  return (
-    thread.linked_manually === true ||
-    thread.link_status === 'manual' ||
-    thread.tread?.type === 'thread_link' ||
-    thread.tread?.tipo === 'thread_link'
-  )
-}
-
-function isImportedEmail(thread: MailThread) {
-  return !isThreadLink(thread)
-}
-
-function getAddressLabel(value: any) {
-  if (!value) return "—";
-
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (typeof item === "string") return item;
-        return item?.name || item?.email || "";
-      })
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "object") {
-    return value.name || value.email || "—";
-  }
-
-  return String(value);
-}
-function getStoredEmailDate(email: ThreadEmail) {
-  return (
-    email.received_at ||
-    email.sent_at ||
-    email.parentThread.received_at ||
-    email.parentThread.sent_at ||
-    email.parentThread.data_invio ||
-    email.parentThread.created_at ||
-    new Date().toISOString()
-  )
-}
-
-function getStoredEmailText(email: ThreadEmail) {
-  return (
-    email.text ||
-    email.body_preview ||
-    stripHtml(email.html) ||
-    email.parentThread.contenuto ||
-    stripHtml(email.parentThread.body_html) ||
-    ''
-  )
-}
-
-function getEmailsFromThread(thread: MailThread): ThreadEmail[] {
-  if (!Array.isArray(thread.emails) || thread.emails.length === 0) {
-    return []
-  }
-
-  return thread.emails.map((email, index) => ({
-    ...email,
-    uniqueId: `${thread.id}-${email.outlook_message_id || email.internet_message_id || index}`,
-    parentThreadId: thread.id,
-    parentThread: thread,
-  }))
+/** Thread arricchito con i ticket a cui risulta collegato. */
+interface ThreadGroupConTicket extends ThreadGroup {
+  tickets: TicketInfo[]
 }
 
 export default function MailThreadsPage() {
-  const [threads, setThreads] = useState<MailThread[]>([])
+  const [rows, setRows] = useState<MailThreadRow[]>([])
+  const [ticketMap, setTicketMap] = useState<Map<string, TicketInfo>>(new Map())
   const [openGroupKeys, setOpenGroupKeys] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [errore, setErrore] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
@@ -231,24 +77,34 @@ export default function MailThreadsPage() {
 
   const fetchThreads = async () => {
     setLoading(true)
+    setErrore(null)
 
     const { data: mailData, error: mailError } = await supabase
       .from('mail_threads')
       .select('*')
-      .order('data_invio', { ascending: false })
       .order('created_at', { ascending: false })
 
     if (mailError) {
       console.error('Errore mail_threads:', mailError)
-      setThreads([])
+      setErrore(mailError.message)
+      setRows([])
       setLoading(false)
       return
     }
 
-    const nTags = Array.from(new Set((mailData || []).map((item) => item.n_tag)))
+    const righe = (mailData || []) as MailThreadRow[]
+
+    const nTags = Array.from(
+      new Set(
+        righe
+          .map((row) => (row.n_tag || '').trim())
+          .filter((tag) => tag.length > 0)
+      )
+    )
 
     if (nTags.length === 0) {
-      setThreads([])
+      setRows(righe)
+      setTicketMap(new Map())
       setLoading(false)
       return
     }
@@ -260,7 +116,10 @@ export default function MailThreadsPage() {
 
     if (ticketError) {
       console.error('Errore ticket:', ticketError)
-      setThreads([])
+      setErrore(ticketError.message)
+      // Le mail restano consultabili anche senza i dati del ticket.
+      setRows(righe)
+      setTicketMap(new Map())
       setLoading(false)
       return
     }
@@ -273,45 +132,50 @@ export default function MailThreadsPage() {
       new Set((ticketData || []).map((t) => t.assignee).filter(Boolean))
     )
 
-    const { data: clientiData } =
+    const [clientiRes, profiliRes] = await Promise.all([
       clienteIds.length > 0
-        ? await supabase.from('clienti').select('id, nome').in('id', clienteIds)
-        : { data: [] }
-
-    const { data: profiliData } =
+        ? supabase.from('clienti').select('id, nome').in('id', clienteIds)
+        : Promise.resolve({ data: [], error: null }),
       profiloIds.length > 0
-        ? await supabase.from('profili').select('id, nome').in('id', profiloIds)
-        : { data: [] }
+        ? supabase
+            .from('profili')
+            .select('id, nome, nome_completo')
+            .in('id', profiloIds)
+        : Promise.resolve({ data: [], error: null }),
+    ])
+
+    // Gli errori qui non bloccano la pagina, ma vanno segnalati: prima
+    // venivano ignorati e i nomi risultavano vuoti senza spiegazione.
+    if (clientiRes.error) console.error('Errore clienti:', clientiRes.error)
+    if (profiliRes.error) console.error('Errore profili:', profiliRes.error)
 
     const clientiMap = new Map(
-      (clientiData || []).map((cliente) => [cliente.id, cliente.nome])
+      (clientiRes.data || []).map((cliente) => [cliente.id, cliente.nome])
     )
 
     const profiliMap = new Map(
-      (profiliData || []).map((profilo) => [profilo.id, profilo.nome])
-    )
-
-    const ticketMap = new Map(
-      (ticketData || []).map((ticket) => [
-        ticket.n_tag,
-        {
-          id: ticket.id,
-          n_tag: ticket.n_tag,
-          cliente: clientiMap.get(ticket.cliente_id) || null,
-          assegnato: profiliMap.get(ticket.assignee) || null,
-          assegnato_id: ticket.assignee || null,
-        },
+      (profiliRes.data || []).map((profilo) => [
+        profilo.id,
+        profilo.nome_completo || profilo.nome || null,
       ])
     )
 
-    const mergedThreads = (mailData || [])
-      .map((thread) => ({
-        ...thread,
-        ticket: ticketMap.get(thread.n_tag) || null,
-      }))
-      .filter((thread) => thread.ticket !== null)
+    setTicketMap(
+      new Map(
+        (ticketData || []).map((ticket) => [
+          ticket.n_tag,
+          {
+            id: ticket.id,
+            n_tag: ticket.n_tag,
+            cliente: clientiMap.get(ticket.cliente_id) || null,
+            assegnato: profiliMap.get(ticket.assignee) || null,
+            assegnato_id: ticket.assignee || null,
+          },
+        ])
+      )
+    )
 
-    setThreads(mergedThreads as MailThread[])
+    setRows(righe)
     setLoading(false)
   }
 
@@ -319,140 +183,114 @@ export default function MailThreadsPage() {
     fetchThreads()
   }, [])
 
-  const threadGroups = useMemo<MailThreadGroup[]>(() => {
-    const map = new Map<string, MailThreadGroup>()
-
-    threads.forEach((thread) => {
-      const title = getThreadTitle(thread)
-      const key = `${thread.n_tag}-${normalize(title) || thread.id}`
-      const currentDate = getEmailDate(thread)
-
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          topic: title,
-          n_tag: thread.n_tag,
-          ticket: thread.ticket || null,
-          rows: [],
-          linkRows: [],
-          emails: [],
-          notes: [],
-          lastDate: currentDate,
-        })
-      }
-
-      const group = map.get(key)!
-      group.rows.push(thread)
-
-      if (isThreadLink(thread)) {
-        group.linkRows.push(thread)
-      } else {
-        group.emails.push(...getEmailsFromThread(thread))
-      }
-
-      if (new Date(currentDate).getTime() > new Date(group.lastDate).getTime()) {
-        group.lastDate = currentDate
-      }
-
-      ;(thread.tread?.note || []).forEach((note) => {
-        group.notes.push({
-          ...note,
-          sourceThreadId: thread.id,
-        })
-      })
-    })
-
-    return Array.from(map.values())
-      .map((group) => ({
-        ...group,
-        rows: group.rows.sort(
-          (a, b) => new Date(getEmailDate(a)).getTime() - new Date(getEmailDate(b)).getTime()
-        ),
-        emails: group.emails.sort(
-          (a, b) => new Date(getStoredEmailDate(a)).getTime() - new Date(getStoredEmailDate(b)).getTime()
-        ),
-        linkRows: group.linkRows.sort(
-          (a, b) => new Date(getEmailDate(a)).getTime() - new Date(getEmailDate(b)).getTime()
-        ),
-        notes: group.notes.sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        ),
-      }))
-      .sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime())
-  }, [threads])
+  /**
+   * I thread sono globali: il raggruppamento non passa da n_tag, così lo
+   * stesso thread collegato a più ticket resta una voce sola con l'elenco
+   * dei ticket. I prefissi R:/I:/RE:/FW: sono già tolti dalla chiave.
+   */
+  const threadGroups = useMemo<ThreadGroupConTicket[]>(() => {
+    return groupRowsIntoThreads(rows).map((group) => ({
+      ...group,
+      tickets: group.nTags
+        .map((tag) => ticketMap.get(tag))
+        .filter((ticket): ticket is TicketInfo => Boolean(ticket)),
+    }))
+  }, [rows, ticketMap])
 
   const clienti = useMemo(() => {
-    return Array.from(
-      new Set(threadGroups.map((group) => group.ticket?.cliente).filter(Boolean))
-    ) as string[]
+    const set = new Set<string>()
+
+    for (const group of threadGroups) {
+      for (const ticket of group.tickets) {
+        if (ticket.cliente) set.add(ticket.cliente)
+      }
+    }
+
+    return Array.from(set).sort()
   }, [threadGroups])
 
   const assegnati = useMemo(() => {
-    return Array.from(
-      new Map(
-        threadGroups
-          .filter((group) => group.ticket?.assegnato_id)
-          .map((group) => [
-            group.ticket!.assegnato_id!,
-            group.ticket!.assegnato || 'Senza nome',
-          ])
-      )
-    )
+    const map = new Map<string, string>()
+
+    for (const group of threadGroups) {
+      for (const ticket of group.tickets) {
+        if (ticket.assegnato_id) {
+          map.set(ticket.assegnato_id, ticket.assegnato || 'Senza nome')
+        }
+      }
+    }
+
+    return Array.from(map).sort((a, b) => a[1].localeCompare(b[1]))
   }, [threadGroups])
 
   const filteredGroups = useMemo(() => {
     return threadGroups.filter((group) => {
-      const cliente = group.ticket?.cliente || ''
-      const assegnato = group.ticket?.assegnato || ''
-      const topic = group.topic || ''
-      const groupLastDate = new Date(group.lastDate)
-      const nTag = group.n_tag || ''
-      const noteText = group.notes.map((note) => note.nota).join(' ')
-      const emailText = group.emails
-      .map((email) => {
-        return `${email.subject || ''} ${getStoredEmailText(email)} ${email.from_email || ''}`
-      })
-      .join(' ')
+      const query = search.trim().toLowerCase()
 
-      const query = search.toLowerCase()
+      const testoEmail = group.emails
+        .map(
+          (email) =>
+            `${email.subject || ''} ${getStoredEmailText(email)} ${
+              email.from_email || ''
+            }`
+        )
+        .join(' ')
+
+      const testoNote = group.notes.map((note) => note.nota).join(' ')
+      const clientiGruppo = group.tickets
+        .map((ticket) => ticket.cliente || '')
+        .join(' ')
+      const assegnatiGruppo = group.tickets
+        .map((ticket) => ticket.assegnato || '')
+        .join(' ')
 
       const matchSearch =
-        search.trim() === '' ||
-        emailText.toLowerCase().includes(query) ||
-        noteText.toLowerCase().includes(query) ||
-        nTag.toLowerCase().includes(query) ||
-        cliente.toLowerCase().includes(query) ||
-        assegnato.toLowerCase().includes(query) ||
-        topic.toLowerCase().includes(query)
+        query === '' ||
+        group.nome.toLowerCase().includes(query) ||
+        group.nTags.join(' ').toLowerCase().includes(query) ||
+        testoEmail.toLowerCase().includes(query) ||
+        testoNote.toLowerCase().includes(query) ||
+        clientiGruppo.toLowerCase().includes(query) ||
+        assegnatiGruppo.toLowerCase().includes(query)
 
+      // Un thread passa il filtro se ALMENO UNO dei suoi ticket lo soddisfa.
       const matchCliente =
-        clienteFilter === 'tutti' || cliente === clienteFilter
+        clienteFilter === 'tutti' ||
+        group.tickets.some((ticket) => ticket.cliente === clienteFilter)
 
       const matchAssegnato =
         assegnatoFilter === 'tutti' ||
-        group.ticket?.assegnato_id === assegnatoFilter
+        group.tickets.some((ticket) => ticket.assegnato_id === assegnatoFilter)
 
       const matchOlderThanDate =
         !olderThanDateFilter ||
-        groupLastDate < new Date(`${olderThanDateFilter}T23:59:59`)
+        (group.ultimaMail !== null &&
+          new Date(group.ultimaMail) <
+            new Date(`${olderThanDateFilter}T23:59:59`))
 
       return matchSearch && matchCliente && matchAssegnato && matchOlderThanDate
     })
   }, [threadGroups, search, clienteFilter, assegnatoFilter, olderThanDateFilter])
 
-  const totalEmails = useMemo(() => {
-    return filteredGroups.reduce((total, group) => total + group.emails.length, 0)
-  }, [filteredGroups])
+  const totalEmails = useMemo(
+    () =>
+      filteredGroups.reduce((totale, group) => totale + group.emails.length, 0),
+    [filteredGroups]
+  )
 
-  const totalNotes = useMemo(() => {
-    return filteredGroups.reduce((total, group) => total + group.notes.length, 0)
-  }, [filteredGroups])
+  const totalNotes = useMemo(
+    () =>
+      filteredGroups.reduce((totale, group) => totale + group.notes.length, 0),
+    [filteredGroups]
+  )
 
   const olderThanCount = useMemo(() => {
     if (!olderThanDateFilter) return 0
 
     return threadGroups.filter(
-      (group) => new Date(group.lastDate) < new Date(`${olderThanDateFilter}T23:59:59`)
+      (group) =>
+        group.ultimaMail !== null &&
+        new Date(group.ultimaMail) < new Date(`${olderThanDateFilter}T23:59:59`)
     ).length
   }, [threadGroups, olderThanDateFilter])
 
@@ -465,117 +303,112 @@ export default function MailThreadsPage() {
   }
 
   const deleteRow = async (rowId: string) => {
-    const confirmed = window.confirm('Vuoi eliminare questa email/thread?')
-    if (!confirmed) return
+    const confermato = window.confirm('Vuoi eliminare questa riga?')
+    if (!confermato) return
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('mail_threads')
       .delete()
       .eq('id', rowId)
+      .select('id')
 
     if (error) {
       console.error('Errore eliminazione mail_threads:', error)
+      setErrore(error.message)
       return
     }
 
-    setThreads((prev) => prev.filter((thread) => thread.id !== rowId))
+    if (!data || data.length === 0) {
+      setErrore(
+        'Nessuna riga eliminata: controlla le policy RLS DELETE su mail_threads.'
+      )
+      return
+    }
+
+    setRows((prev) => prev.filter((row) => row.id !== rowId))
   }
 
-  const deleteGroup = async (group: MailThreadGroup) => {
-  const confirmed = window.confirm(
-    `Vuoi eliminare il thread "${group.topic}" e tutte le email/collegamenti associati?`
-  )
+  const deleteGroup = async (group: ThreadGroupConTicket) => {
+    const ids = group.rows.map((row) => row.id).filter(Boolean)
 
-  if (!confirmed) return
+    if (ids.length === 0) return
 
-  const ids = group.rows.map((row) => row.id).filter(Boolean)
+    const elencoTicket = group.nTags.length
+      ? `\n\nIl thread è collegato a: ${group.nTags.join(', ')}.`
+      : ''
 
-  if (ids.length === 0) {
-    console.error("Nessun ID trovato per il thread:", group)
-    return
+    const confermato = window.confirm(
+      `Vuoi eliminare il thread "${group.nome}" con tutte le email e i collegamenti?` +
+        elencoTicket +
+        `\n\nVerranno eliminate ${ids.length} righe. L'operazione non è reversibile.`
+    )
+
+    if (!confermato) return
+
+    const { data, error } = await supabase
+      .from('mail_threads')
+      .delete()
+      .in('id', ids)
+      .select('id')
+
+    if (error) {
+      console.error('Errore eliminazione gruppo thread:', error)
+      setErrore(error.message)
+      return
+    }
+
+    if (!data || data.length === 0) {
+      setErrore(
+        'Nessuna riga eliminata: controlla le policy RLS DELETE su mail_threads.'
+      )
+      return
+    }
+
+    setRows((prev) => prev.filter((row) => !ids.includes(row.id)))
+    setOpenGroupKeys((prev) => prev.filter((key) => key !== group.key))
   }
 
-  const { data, error } = await supabase
-    .from("mail_threads")
-    .delete()
-    .in("id", ids)
-    .select("id")
+  const deleteNote = async (rowId: string, noteId: string) => {
+    const confermato = window.confirm('Vuoi eliminare questa nota?')
+    if (!confermato) return
 
-  if (error) {
-    console.error("Errore eliminazione gruppo thread:", error)
-    alert(`Errore eliminazione: ${error.message}`)
-    return
-  }
+    const riga = rows.find((item) => item.id === rowId)
+    if (!riga) return
 
-  if (!data || data.length === 0) {
-    console.error("Nessuna riga eliminata. Possibile problema RLS o ID non autorizzati:", ids)
-    alert("Nessuna riga eliminata da Supabase. Controlla le policy RLS DELETE su mail_threads.")
-    return
-  }
+    const noteAggiornate =
+      riga.tread?.note?.filter((note) => note.id !== noteId) || []
 
-  setThreads((prev) => prev.filter((thread) => !ids.includes(thread.id)))
-  setOpenGroupKeys((prev) => prev.filter((key) => key !== group.key))
-}
-
-  const deleteNote = async (threadId: string, noteId: string) => {
-    const confirmed = window.confirm('Vuoi eliminare questa nota?')
-    if (!confirmed) return
-
-    const thread = threads.find((item) => item.id === threadId)
-    if (!thread) return
-
-    const updatedNotes =
-      thread.tread?.note?.filter((note) => note.id !== noteId) || []
-
-    const updatedTread = {
-      ...(thread.tread || {}),
-      note: updatedNotes,
+    const treadAggiornato = {
+      ...(riga.tread || {}),
+      note: noteAggiornate,
     }
 
     const { error } = await supabase
       .from('mail_threads')
-      .update({ tread: updatedTread })
-      .eq('id', threadId)
+      .update({ tread: treadAggiornato })
+      .eq('id', rowId)
 
     if (error) {
       console.error('Errore eliminazione nota:', error)
+      setErrore(error.message)
       return
     }
 
-    setThreads((prev) =>
+    setRows((prev) =>
       prev.map((item) =>
-        item.id === threadId ? { ...item, tread: updatedTread } : item
+        item.id === rowId ? { ...item, tread: treadAggiornato } : item
       )
     )
-  }
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('it-IT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    })
-  }
-
-  const formatDateTime = (date: string) => {
-    return new Date(date).toLocaleString('it-IT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
   }
 
   return (
     <AppPage
       title="Storico Thread Mail"
-      subtitle="Consulta tutti i thread salvati e apri ogni conversazione per vedere le email importate."
+      subtitle="Resoconto delle email raggruppate per thread. Un thread è unico anche se collegato a più ticket e anche se Outlook ha aggiunto R:, I:, RE: o FW: all'oggetto."
       icon={<Mail size={20} />}
       maxWidth="full"
       actions={
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      
           <AppCard className="bg-slate-50 px-4 py-3">
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
               Thread
@@ -616,332 +449,398 @@ export default function MailThreadsPage() {
     >
       <AppCard>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
-              />
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+            />
 
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cerca testo, topic, note, n_tag..."
-                className="h-12 w-full rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all placeholder:text-slate-300 focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
-              />
-            </div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cerca testo, thread, note, n_tag..."
+              className="h-12 w-full rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all placeholder:text-slate-300 focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
+            />
+          </div>
 
-            <div className="relative">
-              <Briefcase
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
-              />
+          <div className="relative">
+            <Briefcase
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+            />
 
-              <select
-                value={clienteFilter}
-                onChange={(e) => setClienteFilter(e.target.value)}
-                className="h-12 w-full appearance-none rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
-              >
-                <option value="tutti">Tutti i clienti</option>
-                {clienti.map((cliente) => (
-                  <option key={cliente} value={cliente}>
-                    {cliente}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={clienteFilter}
+              onChange={(e) => setClienteFilter(e.target.value)}
+              className="h-12 w-full appearance-none rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
+            >
+              <option value="tutti">Tutti i clienti</option>
+              {clienti.map((cliente) => (
+                <option key={cliente} value={cliente}>
+                  {cliente}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            <div className="relative">
-              <User
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
-              />
+          <div className="relative">
+            <User
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+            />
 
-              <select
-                value={assegnatoFilter}
-                onChange={(e) => setAssegnatoFilter(e.target.value)}
-                className="h-12 w-full appearance-none rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
-              >
-                <option value="tutti">Tutti gli assegnati</option>
+            <select
+              value={assegnatoFilter}
+              onChange={(e) => setAssegnatoFilter(e.target.value)}
+              className="h-12 w-full appearance-none rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
+            >
+              <option value="tutti">Tutti gli assegnati</option>
 
-                {currentUserId && (
-                  <option value={currentUserId}>I miei ticket</option>
-                )}
+              {currentUserId && (
+                <option value={currentUserId}>I miei ticket</option>
+              )}
 
-                {assegnati.map(([id, nome]) => (
-                  <option key={id} value={id}>
-                    {nome}
-                  </option>
-                ))}
-              </select>
-            </div>
+              {assegnati.map(([id, nome]) => (
+                <option key={id} value={id}>
+                  {nome}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            <div className="relative">
-              <Calendar
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
-              />
+          <div className="relative">
+            <Calendar
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+            />
 
-              <input
-                type="date"
-                value={olderThanDateFilter}
-                onChange={(e) => setOlderThanDateFilter(e.target.value)}
-                className="h-12 w-full rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                title="Mostra solo thread con ultima mail più vecchia della data selezionata"
-              />
-            </div>
+            <input
+              type="date"
+              value={olderThanDateFilter}
+              onChange={(e) => setOlderThanDateFilter(e.target.value)}
+              className="h-12 w-full rounded-2xl border border-transparent bg-slate-50 pl-11 pr-4 text-xs font-bold text-slate-600 outline-none transition-all focus:border-blue-100 focus:bg-white focus:ring-4 focus:ring-blue-50"
+              title="Mostra solo thread con ultima mail più vecchia della data selezionata"
+            />
+          </div>
         </div>
       </AppCard>
 
+      {errore && (
+        <AppCard className="border border-red-100 bg-red-50 p-4 text-xs font-bold text-red-600">
+          {errore}
+        </AppCard>
+      )}
+
       <div className="space-y-4">
-            <div></div>
-          {loading ? (
+        {loading ? (
           <AppCard className="p-10 text-center text-xs font-black uppercase tracking-widest text-slate-400">
             Caricamento thread...
           </AppCard>
-          ) : filteredGroups.length > 0 ? (
-            filteredGroups.map((group) => {
-              const isGroupOpen = openGroupKeys.includes(group.key)
+        ) : filteredGroups.length > 0 ? (
+          filteredGroups.map((group) => {
+            const isGroupOpen = openGroupKeys.includes(group.key)
+            const ultimaEmail = group.emails[group.emails.length - 1]
+            const direzioneUltima =
+              ultimaEmail?.direction === 'outbound' ? 'outbound' : 'inbound'
 
-              return (
+            return (
               <AppCard
                 key={group.key}
                 padded={false}
                 className="overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md"
               >
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => toggleGroup(group.key)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleGroup(group.key)
-                      }
-                    }}
-                    className="w-full cursor-pointer p-5 text-left transition-all hover:bg-slate-50/70"
-                  >
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
-                          {group.ticket?.id ? (
-                            <Link
-                              href={`/ticket/${group.ticket.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 transition-all hover:bg-blue-100"
-                            >
-                              Ticket #{group.n_tag}
-                              <ExternalLink size={10} />
-                            </Link>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                              Ticket #{group.n_tag}
-                            </span>
-                          )}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleGroup(group.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      toggleGroup(group.key)
+                    }
+                  }}
+                  className="w-full cursor-pointer p-5 text-left transition-all hover:bg-slate-50/70"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        {group.nTags.length > 0 ? (
+                          group.nTags.map((tag) => {
+                            const ticket = group.tickets.find(
+                              (item) => item.n_tag === tag
+                            )
 
-                          {group.ticket?.cliente && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-600">
-                              <Briefcase size={11} />
-                              {group.ticket.cliente}
-                            </span>
-                          )}
-
-                          <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600">
-                            <MessageSquare size={11} />
-                            {group.emails.length} email
+                            return ticket?.id ? (
+                              <Link
+                                key={tag}
+                                href={`/ticket/${ticket.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600 transition-all hover:bg-blue-100"
+                              >
+                                Ticket #{tag}
+                                <ExternalLink size={10} />
+                              </Link>
+                            ) : (
+                              <span
+                                key={tag}
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400"
+                                title="Nessun ticket con questo n_tag"
+                              >
+                                Ticket #{tag}
+                              </span>
+                            )
+                          })
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            Nessun ticket collegato
                           </span>
+                        )}
 
-                          {group.notes.length > 0 && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-yellow-100 bg-yellow-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-yellow-600">
-                              <StickyNote size={11} />
-                              {group.notes.length} note
-                            </span>
-                          )}
-
-                          <AppButton
-                            type="button"
-                            variant="danger"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              deleteGroup(group)
-                            }}
-                            className="ml-auto flex h-8 w-8 items-center justify-center rounded-full p-0 shadow-sm"
-                            title="Elimina thread completo da Supabase"
+                        {Array.from(
+                          new Set(
+                            group.tickets
+                              .map((ticket) => ticket.cliente)
+                              .filter(Boolean) as string[]
+                          )
+                        ).map((cliente) => (
+                          <span
+                            key={cliente}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-600"
                           >
-                            <Trash2 size={14} color="white"/>
-                          </AppButton>
-                        </div>
-
-                        <h2 className="text-lg font-black leading-snug text-slate-950">
-                          {group.topic || 'Senza topic'}
-                        </h2>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <span className="rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-500">
-                            Assegnato: {group.ticket?.assegnato || 'N/D'}
+                            <Briefcase size={11} />
+                            {cliente}
                           </span>
-                        </div>
+                        ))}
+
+                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-600">
+                          <MessageSquare size={11} />
+                          {group.emails.length} email
+                        </span>
+
+                        {group.notes.length > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-yellow-100 bg-yellow-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-yellow-600">
+                            <StickyNote size={11} />
+                            {group.notes.length} note
+                          </span>
+                        )}
+
+                        <AppButton
+                          type="button"
+                          variant="danger"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteGroup(group)
+                          }}
+                          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full p-0 shadow-sm"
+                          title="Elimina il thread completo da Supabase"
+                        >
+                          <Trash2 size={14} color="white" />
+                        </AppButton>
                       </div>
 
-                      <div className="flex shrink-0 items-center justify-between gap-3 lg:justify-end">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                          <Calendar size={13} />
-                          Ultima mail: {formatDate(group.lastDate)}
-                        </div>
+                      <h2 className="text-lg font-black leading-snug text-slate-950">
+                        {group.nome}
+                      </h2>
 
-                        <div className="rounded-full bg-slate-100 p-2 text-slate-400">
-                          {isGroupOpen ? (
-                            <ChevronUp size={16} />
-                          ) : (
-                            <ChevronDown size={16} />
-                          )}
-                        </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {Array.from(
+                          new Set(
+                            group.tickets
+                              .map((ticket) => ticket.assegnato)
+                              .filter(Boolean) as string[]
+                          )
+                        ).map((assegnato) => (
+                          <span
+                            key={assegnato}
+                            className="rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-500"
+                          >
+                            Assegnato: {assegnato}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  </div>
 
-                  {isGroupOpen && (
-                    <div className="space-y-5 border-t border-slate-100 bg-slate-50/60 p-5">
-                      <div>
-                        <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-600">
-                          <Mail size={13} />
-                          Email salvate
-                        </div>
-
-                        {group.emails.length > 0 ? (
-                          <div className="space-y-3">
-                            {group.emails.map((email) => {
-  const emailText = getStoredEmailText(email)
-
-  return (
-    <div
-  key={email.uniqueId}
-  className="rounded-2xl border border-slate-200 bg-white p-4"
->
-  <div className="flex flex-wrap items-center gap-2">
-    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-      {email.direction === 'outbound' ? 'Inviata' : 'Ricevuta'}
-    </span>
-
-    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-600">
-      {formatDateTime(getStoredEmailDate(email))}
-    </span>
-
-    {email.from_email && (
-      <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-500">
-        Da: {email.from_email}
-      </span>
-    )}
-  </div>
-
-  <div className="mt-3 text-sm font-black text-slate-900">
-    {email.subject || group.topic}
-  </div>
-
-  <div className="mt-2 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-600">
-    {emailText}
-  </div>
-</div>
-  )
-})}
-                          </div>
+                    <div className="flex shrink-0 items-center justify-between gap-3 lg:justify-end">
+                      <div
+                        className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                          group.ultimaMail
+                            ? 'bg-slate-50 text-slate-500'
+                            : 'bg-slate-50 text-slate-300'
+                        }`}
+                      >
+                        {group.ultimaMail ? (
+                          <>
+                            {direzioneUltima === 'outbound' ? (
+                              <ArrowUpRight size={13} />
+                            ) : (
+                              <ArrowDownLeft size={13} />
+                            )}
+                            Ultima mail{' '}
+                            {direzioneUltima === 'outbound'
+                              ? 'inviata'
+                              : 'ricevuta'}
+                            : {formatDate(group.ultimaMail)}
+                          </>
                         ) : (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs font-black uppercase tracking-widest text-slate-400">
-                            Nessuna email importata per questo thread.
-                          </div>
+                          <>
+                            <Calendar size={13} />
+                            Nessuna mail importata
+                          </>
                         )}
                       </div>
 
-                      {group.linkRows.length > 0 && (
-                        <div>
-                          <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                            <Tag size={13} />
-                            Collegamenti thread
-                          </div>
+                      <div className="rounded-full bg-slate-100 p-2 text-slate-400">
+                        {isGroupOpen ? (
+                          <ChevronUp size={16} />
+                        ) : (
+                          <ChevronDown size={16} />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                          <div className="space-y-2">
-                            {group.linkRows.map((link) => (
-                              <div
-                                key={link.id}
-                                className="relative rounded-2xl border border-slate-200 bg-white p-4 pr-11"
-                              >
-                                <AppButton
-                                  type="button"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    deleteRow(link.id)
-                                  }}
-                                  className="absolute right-3 top-3 h-6 w-6 rounded-full p-0 text-red-400 hover:bg-red-50 hover:text-red-600"
-                                  title="Elimina collegamento"
-                                >
-                                  <Trash2 size={12} />
-                                </AppButton>
+                {isGroupOpen && (
+                  <div className="space-y-5 border-t border-slate-100 bg-slate-50/60 p-5">
+                    <div>
+                      <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-600">
+                        <Mail size={13} />
+                        Email salvate
+                      </div>
 
-                                <div className="text-sm font-black text-slate-800">
-                                  {link.topic || link.subject || link.contenuto}
-                                </div>
+                      {group.emails.length > 0 ? (
+                        <div className="space-y-3">
+                          {group.emails.map((email) => (
+                            <div
+                              key={email.uniqueId}
+                              className="rounded-2xl border border-slate-200 bg-white p-4"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                  {email.direction === 'outbound'
+                                    ? 'Inviata'
+                                    : 'Ricevuta'}
+                                </span>
 
-                                <div className="mt-1 text-xs font-medium text-slate-400">
-                                  Collegato manualmente il{' '}
-                                  {formatDateTime(link.linked_at || link.created_at)}
-                                </div>
+                                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-600">
+                                  {formatDateTime(email.date)}
+                                </span>
+
+                                {email.from_email && (
+                                  <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-500">
+                                    Da: {email.from_email}
+                                  </span>
+                                )}
                               </div>
-                            ))}
-                          </div>
+
+                              <div className="mt-3 text-sm font-black text-slate-900">
+                                {email.subject || group.nome}
+                              </div>
+
+                              <div className="mt-2 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-600">
+                                {getStoredEmailText(email)}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      )}
-
-                      {group.notes.length > 0 && (
-                        <div>
-                          <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-yellow-600">
-                            <StickyNote size={13} />
-                            Note associate
-                          </div>
-
-                          <div className="space-y-3">
-                            {group.notes.map((note) => (
-                              <div
-                                key={note.id}
-                                className="relative rounded-2xl border border-yellow-100 bg-yellow-50 p-4 pr-10"
-                              >
-                                <AppButton
-                                  type="button"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    deleteNote(note.sourceThreadId, note.id)
-                                  }}
-                                  className="absolute right-3 top-3 h-6 w-6 rounded-full p-0 text-red-400 hover:bg-red-100 hover:text-red-600"
-                                  title="Elimina nota"
-                                >
-                                  <Trash2 size={12} />
-                                </AppButton>
-
-                                <div className="mb-2 text-[10px] font-black text-yellow-700">
-                                  {formatDateTime(note.created_at)}
-                                </div>
-
-                                <div className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-700">
-                                  {note.nota}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs font-black uppercase tracking-widest text-slate-400">
+                          Nessuna email importata per questo thread.
                         </div>
                       )}
                     </div>
+
+                    {group.linkRows.length > 0 && (
+                      <div>
+                        <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                          <Tag size={13} />
+                          Collegamenti thread
+                        </div>
+
+                        <div className="space-y-2">
+                          {group.linkRows.map((link) => (
+                            <div
+                              key={link.id}
+                              className="relative rounded-2xl border border-slate-200 bg-white p-4 pr-11"
+                            >
+                              <AppButton
+                                type="button"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteRow(link.id)
+                                }}
+                                className="absolute right-3 top-3 h-6 w-6 rounded-full p-0 text-red-400 hover:bg-red-50 hover:text-red-600"
+                                title="Elimina collegamento"
+                              >
+                                <Trash2 size={12} />
+                              </AppButton>
+
+                              <div className="text-sm font-black text-slate-800">
+                                Ticket #{link.n_tag || 'N/D'}
+                              </div>
+
+                              <div className="mt-1 text-xs font-medium text-slate-400">
+                                Collegato manualmente il{' '}
+                                {formatDateTime(link.linked_at || link.created_at)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {group.notes.length > 0 && (
+                      <div>
+                        <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-yellow-600">
+                          <StickyNote size={13} />
+                          Note associate
+                        </div>
+
+                        <div className="space-y-3">
+                          {group.notes.map((note) => (
+                            <div
+                              key={note.id}
+                              className="relative rounded-2xl border border-yellow-100 bg-yellow-50 p-4 pr-10"
+                            >
+                              <AppButton
+                                type="button"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteNote(note.sourceRowId, note.id)
+                                }}
+                                className="absolute right-3 top-3 h-6 w-6 rounded-full p-0 text-red-400 hover:bg-red-100 hover:text-red-600"
+                                title="Elimina nota"
+                              >
+                                <Trash2 size={12} />
+                              </AppButton>
+
+                              <div className="mb-2 text-[10px] font-black text-yellow-700">
+                                {formatDateTime(note.created_at)}
+                              </div>
+
+                              <div className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-700">
+                                {note.nota}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </AppCard>
             )
           })
-          ) : (
+        ) : (
           <AppCard className="p-12 text-center">
             <Inbox size={32} className="mx-auto text-slate-300" />
             <div className="mt-4 text-sm font-black text-slate-400">
               Nessun thread trovato.
             </div>
           </AppCard>
-          )}
+        )}
       </div>
     </AppPage>
   )

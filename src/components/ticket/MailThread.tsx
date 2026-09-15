@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Mail,
   Calendar,
@@ -12,35 +12,26 @@ import {
   StickyNote,
   Trash2,
   Link2,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
+import {
+  formatDate,
+  formatDateTime,
+  groupRowsIntoThreads,
+  isThreadLinkRow,
+  normalizeThreadName,
+  stripOutlookPrefixes,
+  type MailThreadRow,
+  type ThreadGroup,
+  type ThreadNote,
+} from '@/lib/mail-thread-utils'
 
 interface MailThreadProps {
   ticketData: any
   onUpdate: (field: string, value: any) => Promise<void>
   saving: boolean
-}
-
-interface ThreadNote {
-  id: string
-  nota: string
-  created_at: string
-}
-
-interface MailThreadItem {
-  id: string
-  n_tag: string
-  data_invio: string
-  contenuto: string
-  topic: string | null
-  subject?: string | null
-  created_at: string
-  tread: {
-    tipo?: string
-    nome_thread?: string
-    note?: ThreadNote[]
-    [key: string]: any
-  } | null
 }
 
 export default function MailThread({
@@ -61,206 +52,300 @@ export default function MailThread({
     new Date().toISOString().split('T')[0]
   )
 
-  const [threads, setThreads] = useState<MailThreadItem[]>([])
-  const [openThreadIds, setOpenThreadIds] = useState<string[]>([])
+  const [rows, setRows] = useState<MailThreadRow[]>([])
+  const [openThreadKeys, setOpenThreadKeys] = useState<string[]>([])
   const [loadingThreads, setLoadingThreads] = useState(false)
-  const [isLogOpen, setIsLogOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [showNewThreadForm, setShowNewThreadForm] = useState(false)
+  const [showNoteForm, setShowNoteForm] = useState(false)
+  const [errore, setErrore] = useState<string | null>(null)
 
   const nTag = ticketData?.n_tag
 
-  const fetchThreads = async () => {
-    if (!nTag) return
+  /**
+   * Carica le righe del ticket e, per i thread che hanno un topic, anche le
+   * righe che stanno sotto altri ticket: un thread è globale, quindi la data
+   * dell'ultima mail va calcolata su tutto il thread, non solo sulla parte
+   * agganciata a questo ticket.
+   */
+  const fetchThreads = useCallback(async () => {
+    if (!nTag) {
+      setRows([])
+      return
+    }
 
     setLoadingThreads(true)
+    setErrore(null)
 
-    const { data, error } = await supabase
+    const { data: righeTicket, error: erroreTicket } = await supabase
       .from('mail_threads')
       .select('*')
-      .eq('n_tag', nTag)
-      .order('data_invio', { ascending: false })
-      .order('created_at', { ascending: false })
+      .eq('n_tag', String(nTag))
 
-    if (error) {
-      console.error('Errore fetch threads:', error)
-    } else {
-      const result = data || []
-      setThreads(result)
+    if (erroreTicket) {
+      console.error('Errore fetch thread del ticket:', erroreTicket)
+      setErrore(erroreTicket.message)
+      setRows([])
+      setLoadingThreads(false)
+      return
+    }
 
-      if (result.length > 0 && !threadSelezionato) {
-        setThreadSelezionato(result[0].id)
+    const base = (righeTicket || []) as MailThreadRow[]
+
+    const topics = Array.from(
+      new Set(
+        base
+          .map((row) => (row.topic || '').trim())
+          .filter((topic) => topic.length > 0)
+      )
+    )
+
+    let righeCorrelate: MailThreadRow[] = []
+
+    if (topics.length > 0) {
+      const { data: correlate, error: erroreCorrelate } = await supabase
+        .from('mail_threads')
+        .select('*')
+        .in('topic', topics)
+
+      if (erroreCorrelate) {
+        // Non è un errore bloccante: senza le righe degli altri ticket la
+        // data mostrata resta quella calcolata sul solo ticket corrente.
+        console.error('Errore fetch righe correlate:', erroreCorrelate)
+      } else {
+        righeCorrelate = (correlate || []) as MailThreadRow[]
       }
     }
 
+    const perId = new Map<string, MailThreadRow>()
+    for (const row of [...base, ...righeCorrelate]) {
+      perId.set(row.id, row)
+    }
+
+    setRows(Array.from(perId.values()))
     setLoadingThreads(false)
-  }
+  }, [supabase, nTag])
 
   useEffect(() => {
     fetchThreads()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nTag])
+  }, [fetchThreads])
 
-  const toggleThread = (id: string) => {
-    setOpenThreadIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((threadId) => threadId !== id)
-        : [...prev, id]
+  /** Chiavi dei thread effettivamente agganciati a QUESTO ticket. */
+  const chiaviDelTicket = useMemo(() => {
+    const chiavi = new Set<string>()
+
+    for (const row of rows) {
+      if (String(row.n_tag || '') !== String(nTag)) continue
+
+      const key =
+        normalizeThreadName(row.topic) ||
+        normalizeThreadName(row.subject) ||
+        normalizeThreadName(row.tread?.nome_thread) ||
+        `riga:${row.id}`
+
+      chiavi.add(key)
+    }
+
+    return chiavi
+  }, [rows, nTag])
+
+  const threads = useMemo<ThreadGroup[]>(() => {
+    return groupRowsIntoThreads(rows).filter((group) =>
+      chiaviDelTicket.has(group.key)
+    )
+  }, [rows, chiaviDelTicket])
+
+  /**
+   * Thread selezionato per la nota. È derivato, non sincronizzato con un
+   * effect: se la selezione non esiste più (thread scollegato) si ricade
+   * sul primo disponibile senza un giro di render in più.
+   */
+  const threadSelezionatoEffettivo = useMemo(() => {
+    if (threads.some((thread) => thread.key === threadSelezionato)) {
+      return threadSelezionato
+    }
+
+    return threads[0]?.key ?? ''
+  }, [threads, threadSelezionato])
+
+  const toggleThread = (key: string) => {
+    setOpenThreadKeys((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
     )
   }
 
-  const ultimoPing = useMemo(() => {
-    if (ticketData?.ultimo_ping) return ticketData.ultimo_ping
-    if (threads.length > 0) return threads[0].data_invio
-    return null
-  }, [ticketData?.ultimo_ping, threads])
+  /** Ultima mail fra tutti i thread del ticket. */
+  const ultimaMailDelTicket = useMemo(() => {
+    let ultima: string | null = null
+
+    for (const thread of threads) {
+      if (!thread.ultimaMail) continue
+      if (!ultima || new Date(thread.ultimaMail) > new Date(ultima)) {
+        ultima = thread.ultimaMail
+      }
+    }
+
+    return ultima
+  }, [threads])
 
   const isOverdue = useMemo(() => {
-    if (!ultimoPing) return false
+    const riferimento = ultimaMailDelTicket || ticketData?.ultimo_ping
+    if (!riferimento) return false
 
-    const lastPing = new Date(ultimoPing)
+    const lastPing = new Date(riferimento)
+    if (Number.isNaN(lastPing.getTime())) return false
+
     const today = new Date()
-
     today.setHours(0, 0, 0, 0)
     lastPing.setHours(0, 0, 0, 0)
 
-    const diffTime = today.getTime() - lastPing.getTime()
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+    const diffDays = Math.floor(
+      (today.getTime() - lastPing.getTime()) / (1000 * 60 * 60 * 24)
+    )
 
     return diffDays >= 15
-  }, [ultimoPing])
+  }, [ultimaMailDelTicket, ticketData?.ultimo_ping])
 
-  const emailCount = threads.length
+  const threadCount = threads.length
 
-  const noteCount = useMemo(() => {
-    return threads.reduce((total, thread) => {
-      return total + (thread.tread?.note?.length || 0)
-    }, 0)
-  }, [threads])
-
-  const getThreadTitle = (thread: MailThreadItem) => {
-    return (
-      thread.topic ||
-      thread.subject ||
-      thread.tread?.nome_thread ||
-      thread.contenuto ||
-      'Thread email'
-    )
-  }
+  const noteCount = useMemo(
+    () => threads.reduce((totale, thread) => totale + thread.notes.length, 0),
+    [threads]
+  )
 
   const handleAddClick = () => {
     setIsCollapsed(false)
     setShowNewThreadForm(true)
-    setIsLogOpen(false)
+    setShowNoteForm(false)
 
     setTimeout(() => {
       threadNameRef.current?.focus()
     }, 100)
   }
 
+  /**
+   * Collega un thread al ticket.
+   *
+   * Il thread è globale: se esiste già sotto un altro ticket NON gli si
+   * cambia n_tag (lo si sposterebbe, scollegandolo da dove stava). Si crea
+   * invece una riga di collegamento per questo ticket.
+   */
   const collegaThreadAlTicket = async () => {
-  const nomePulito = nomeThread.trim()
+    const nomePulito = stripOutlookPrefixes(nomeThread) || nomeThread.trim()
+    const chiave = normalizeThreadName(nomeThread)
 
-  if (!nomePulito || !nTag) return
+    if (!nomePulito || !chiave || !nTag) return
 
-  // 1. Cerca un thread già esistente per SUBJECT
-  const { data: existingThread, error: searchError } = await supabase
-    .from('mail_threads')
-    .select('*')
-    .eq('subject', nomePulito)
-    .maybeSingle()
+    setErrore(null)
 
-  if (searchError) {
-    console.error('Errore ricerca thread per subject:', searchError)
-    return
-  }
-
-  // 2. Se lo trova, aggiorna n_tag e topic
-  if (existingThread) {
-    const treadAggiornato = {
-      ...(existingThread.tread || {}),
-      tipo: 'mail',
-      nome_thread:
-        existingThread.tread?.nome_thread ||
-        existingThread.subject ||
-        nomePulito,
-      note: existingThread.tread?.note || [],
-    }
-
-    const { data, error } = await supabase
-      .from('mail_threads')
-      .update({
-        n_tag: String(nTag),
-        topic: nomePulito,
-        contenuto: existingThread.contenuto || nomePulito,
-        data_invio: existingThread.data_invio || dataInvioMail,
-        tread: treadAggiornato,
-      })
-      .eq('id', existingThread.id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Errore aggiornamento thread trovato:', error)
+    // Già collegato a questo ticket? Non si duplica il collegamento.
+    if (chiaviDelTicket.has(chiave)) {
+      setErrore('Questo thread è già collegato al ticket.')
       return
     }
 
-    console.log('Thread esistente collegato al ticket:', data)
+    // Si cercano le righe esistenti del thread per riusarne il nome corretto
+    // e la data dell'ultima mail. Il confronto finale avviene sulla chiave
+    // normalizzata, non sul subject esatto: "R: ..." e "I: ..." sono lo
+    // stesso thread e un confronto esatto non li troverebbe mai.
+    //
+    // Per non scaricare l'intera tabella si pre-filtra a database sul token
+    // più lungo del nome (tipicamente il codice TAG). Il token è solo
+    // alfanumerico, quindi non può rompere la sintassi di or().
+    const tokenRicerca = (nomePulito.match(/[A-Za-z0-9]{4,}/g) || []).sort(
+      (a, b) => b.length - a.length
+    )[0]
 
-    await onUpdate('ultimo_ping', dataInvioMail)
+    const ricerca = tokenRicerca
+      ? supabase
+          .from('mail_threads')
+          .select('*')
+          .or(`topic.ilike.%${tokenRicerca}%,subject.ilike.%${tokenRicerca}%`)
+          .limit(500)
+      : supabase
+          .from('mail_threads')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(500)
 
-    setNomeThread('')
-    setShowNewThreadForm(false)
-    setIsLogOpen(true)
-    setIsCollapsed(false)
+    const { data: candidati, error: erroreRicerca } = await ricerca
 
-    await fetchThreads()
-    return
-  }
+    if (erroreRicerca) {
+      console.error('Errore ricerca thread:', erroreRicerca)
+      setErrore(erroreRicerca.message)
+      return
+    }
 
-  // 3. Se non lo trova, lo crea nuovo
-  const { data, error } = await supabase
-    .from('mail_threads')
-    .insert({
+    const righeThread = ((candidati || []) as MailThreadRow[]).filter((row) => {
+      const key =
+        normalizeThreadName(row.topic) ||
+        normalizeThreadName(row.subject) ||
+        normalizeThreadName(row.tread?.nome_thread)
+
+      return key === chiave
+    })
+
+    const gruppoEsistente = righeThread.length
+      ? groupRowsIntoThreads(righeThread)[0]
+      : null
+
+    const nomeCanonico = gruppoEsistente?.nome || nomePulito
+    const dataCollegamento = new Date().toISOString()
+
+    const { error: erroreInsert } = await supabase.from('mail_threads').insert({
       n_tag: String(nTag),
+      topic: nomeCanonico,
+      subject: nomeCanonico,
+      contenuto: nomeCanonico,
       data_invio: dataInvioMail,
-      contenuto: nomePulito,
-      topic: nomePulito,
-      subject: nomePulito,
-      direction: 'inbound',
+      linked_manually: true,
+      linked_at: dataCollegamento,
+      link_status: 'manual',
       tread: {
+        type: 'thread_link',
         tipo: 'mail',
-        nome_thread: nomePulito,
+        nome_thread: nomeCanonico,
         note: [],
       },
     })
-    .select()
-    .single()
 
-  if (error) {
-    console.error('Errore creazione nuovo thread:', error)
-    return
+    if (erroreInsert) {
+      console.error('Errore collegamento thread:', erroreInsert)
+      setErrore(erroreInsert.message)
+      return
+    }
+
+    // L'ultimo ping segue la mail più recente del thread, se c'è; solo in
+    // mancanza di mail datate si ripiega sulla data scelta a mano.
+    const ultimoPing = gruppoEsistente?.ultimaMail || dataInvioMail
+    await onUpdate('ultimo_ping', ultimoPing)
+
+    setNomeThread('')
+    setShowNewThreadForm(false)
+    setIsCollapsed(false)
+
+    await fetchThreads()
   }
-
-  console.log('Nuovo thread creato e collegato:', data)
-
-  await onUpdate('ultimo_ping', dataInvioMail)
-
-  setNomeThread('')
-  setShowNewThreadForm(false)
-  setIsLogOpen(true)
-  setIsCollapsed(false)
-
-  await fetchThreads()
-}
 
   const aggiungiNotaAlThread = async () => {
     const notaPulita = nuovaNota.trim()
+    if (!notaPulita || !threadSelezionatoEffettivo) return
 
-    if (!notaPulita || !threadSelezionato) return
-
-    const thread = threads.find((item) => item.id === threadSelezionato)
+    const thread = threads.find(
+      (item) => item.key === threadSelezionatoEffettivo
+    )
     if (!thread) return
+
+    // La nota va sulla riga di questo ticket, così resta dove l'utente
+    // la sta scrivendo anche se il thread è condiviso con altri ticket.
+    const rigaBersaglio =
+      thread.rows.find(
+        (row) => String(row.n_tag || '') === String(nTag) && isThreadLinkRow(row)
+      ) ||
+      thread.rows.find((row) => String(row.n_tag || '') === String(nTag)) ||
+      thread.rows[0]
+
+    if (!rigaBersaglio) return
 
     const nuovaNotaObj: ThreadNote = {
       id:
@@ -272,126 +357,112 @@ export default function MailThread({
     }
 
     const treadAggiornato = {
-      ...(thread.tread || {}),
-      tipo: 'mail',
-      nome_thread: thread.tread?.nome_thread || getThreadTitle(thread),
-      note: [...(thread.tread?.note || []), nuovaNotaObj],
+      ...(rigaBersaglio.tread || {}),
+      tipo: rigaBersaglio.tread?.tipo || 'mail',
+      nome_thread: rigaBersaglio.tread?.nome_thread || thread.nome,
+      note: [...(rigaBersaglio.tread?.note || []), nuovaNotaObj],
     }
 
     const { error } = await supabase
       .from('mail_threads')
       .update({ tread: treadAggiornato })
-      .eq('id', threadSelezionato)
+      .eq('id', rigaBersaglio.id)
 
     if (error) {
       console.error('Errore salvataggio nota:', error)
+      setErrore(error.message)
       return
     }
 
     setNuovaNota('')
-    setIsLogOpen(true)
+    setOpenThreadKeys((prev) =>
+      prev.includes(thread.key) ? prev : [...prev, thread.key]
+    )
 
     await fetchThreads()
   }
 
-  const eliminaThread = async (threadId: string) => {
-  const thread = threads.find((item) => item.id === threadId)
-  if (!thread) return
+  /**
+   * Scollega il thread da QUESTO ticket: elimina solo le righe con questo
+   * n_tag. Le mail importate sotto altri ticket non vengono toccate.
+   */
+  const scollegaThread = async (thread: ThreadGroup) => {
+    const idsDelTicket = thread.rows
+      .filter((row) => String(row.n_tag || '') === String(nTag))
+      .map((row) => row.id)
 
-  const topic = thread.topic || thread.subject || thread.contenuto
+    if (idsDelTicket.length === 0) return
 
-  const confirmed = window.confirm(
-    `Vuoi eliminare questo thread e tutte le email collegate?\n\n${topic}`
-  )
+    const confermato = window.confirm(
+      `Vuoi scollegare questo thread dal ticket ${String(nTag)}?\n\n` +
+        `${thread.nome}\n\n` +
+        `Verranno rimosse ${idsDelTicket.length} righe collegate a questo ticket. ` +
+        `Le mail collegate ad altri ticket restano al loro posto.`
+    )
 
-  if (!confirmed) return
+    if (!confermato) return
 
-  let query = supabase
-    .from('mail_threads')
-    .delete()
-    .eq('n_tag', thread.n_tag)
+    const { data, error } = await supabase
+      .from('mail_threads')
+      .delete()
+      .in('id', idsDelTicket)
+      .select('id')
 
-  if (thread.topic) {
-    query = query.eq('topic', thread.topic)
-  } else {
-    query = query.eq('id', threadId)
+    if (error) {
+      console.error('Errore scollegamento thread:', error)
+      setErrore(error.message)
+      return
+    }
+
+    if (!data || data.length === 0) {
+      setErrore(
+        'Nessuna riga eliminata: controlla le policy RLS DELETE su mail_threads.'
+      )
+      return
+    }
+
+    setOpenThreadKeys((prev) => prev.filter((key) => key !== thread.key))
+    await fetchThreads()
   }
 
-  const { error } = await query
+  const eliminaNota = async (rowId: string, noteId: string) => {
+    const confermato = window.confirm('Vuoi eliminare questa nota?')
+    if (!confermato) return
 
-  if (error) {
-    console.error('Errore eliminazione thread:', error)
-    return
-  }
+    const riga = rows.find((item) => item.id === rowId)
+    if (!riga) return
 
-  setThreads((prev) =>
-    prev.filter((item) => {
-      if (thread.topic) {
-        return !(item.n_tag === thread.n_tag && item.topic === thread.topic)
-      }
+    const noteAggiornate =
+      riga.tread?.note?.filter((note) => note.id !== noteId) || []
 
-      return item.id !== threadId
-    })
-  )
-
-  setOpenThreadIds((prev) => prev.filter((id) => id !== threadId))
-
-  if (threadSelezionato === threadId) {
-    const nextThread = threads.find((item) => item.id !== threadId)
-    setThreadSelezionato(nextThread?.id || '')
-  }
-}
-
-  const eliminaNota = async (threadId: string, noteId: string) => {
-    const confirmed = window.confirm('Vuoi eliminare questa nota?')
-    if (!confirmed) return
-
-    const thread = threads.find((item) => item.id === threadId)
-    if (!thread) return
-
-    const updatedNotes =
-      thread.tread?.note?.filter((note) => note.id !== noteId) || []
-
-    const updatedTread = {
-      ...(thread.tread || {}),
-      tipo: 'mail',
-      nome_thread: thread.tread?.nome_thread || getThreadTitle(thread),
-      note: updatedNotes,
+    const treadAggiornato = {
+      ...(riga.tread || {}),
+      note: noteAggiornate,
     }
 
     const { error } = await supabase
       .from('mail_threads')
-      .update({ tread: updatedTread })
-      .eq('id', threadId)
+      .update({ tread: treadAggiornato })
+      .eq('id', rowId)
 
     if (error) {
       console.error('Errore eliminazione nota:', error)
+      setErrore(error.message)
       return
     }
 
-    setThreads((prev) =>
+    setRows((prev) =>
       prev.map((item) =>
-        item.id === threadId ? { ...item, tread: updatedTread } : item
+        item.id === rowId ? { ...item, tread: treadAggiornato } : item
       )
     )
   }
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('it-IT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-    })
-  }
-
-  const formatDateTime = (date: string) => {
-    return new Date(date).toLocaleString('it-IT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+  /** Direzione dell'ultima mail del thread, per l'etichetta inviata/ricevuta. */
+  const direzioneUltimaMail = (thread: ThreadGroup) => {
+    const ultima = thread.emails[thread.emails.length - 1]
+    if (!ultima) return null
+    return ultima.direction === 'outbound' ? 'outbound' : 'inbound'
   }
 
   return (
@@ -424,8 +495,9 @@ export default function MailThread({
                 ? 'bg-red-50 text-red-600 border-red-100'
                 : 'bg-blue-50 text-blue-600 border-blue-100'
             }`}
+            title="Thread collegati"
           >
-            {emailCount}
+            {threadCount}
           </span>
 
           {noteCount > 0 && (
@@ -473,7 +545,13 @@ export default function MailThread({
             : 'max-h-[1400px] opacity-100'
         }`}
       >
-        <div className="px-5 pb-3 space-y-4">
+        <div className="px-5 pb-5 space-y-4">
+          {errore && (
+            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[10px] font-bold text-red-600">
+              {errore}
+            </div>
+          )}
+
           {showNewThreadForm && (
             <div className="border border-blue-100 bg-blue-50/30 rounded-xl p-4">
               <div className="flex justify-between items-center mb-3">
@@ -510,7 +588,7 @@ export default function MailThread({
                       setShowNewThreadForm(false)
                     }
                   }}
-                  placeholder="Nome thread, es. #VRBL #INFO - TAG01551016 - Annotation"
+                  placeholder="Nome thread, es. TAG01588307 -> Proposta accesso degli interessati (GDPR)"
                   className="w-full bg-white rounded-xl px-4 py-3 pr-14 text-[12px] outline-none border border-blue-100"
                 />
 
@@ -530,127 +608,91 @@ export default function MailThread({
               </div>
 
               <div className="mt-2 text-[10px] text-gray-400">
-                Verrà creato un collegamento diretto tra questo ticket{' '}
-                <span className="font-black text-blue-600">{String(nTag)}</span>{' '}
-                e il thread indicato.
+                I prefissi <span className="font-black">R:</span>,{' '}
+                <span className="font-black">I:</span>,{' '}
+                <span className="font-black">RE:</span> e{' '}
+                <span className="font-black">FW:</span> vengono ignorati: se il
+                thread esiste già viene riusato invece di crearne un doppione.
               </div>
             </div>
           )}
 
-          {threads.length > 0 && (
-            <div className="border border-yellow-100 bg-yellow-50/40 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-yellow-600">
-                <StickyNote size={14} />
-                Aggiungi nota a un thread
-              </div>
-
-              <select
-                value={threadSelezionato}
-                onChange={(e) => setThreadSelezionato(e.target.value)}
-                className="w-full bg-white rounded-xl px-3 py-2 mb-3 text-[11px] font-bold text-gray-500 outline-none border border-yellow-100"
-              >
-                {threads.map((thread) => (
-                  <option key={thread.id} value={thread.id}>
-                    {getThreadTitle(thread)}
-                  </option>
-                ))}
-              </select>
-
-              <div className="flex justify-end mb-3">
-                <div className="flex items-center gap-2">
-                  <Calendar size={12} className="text-gray-300" />
-                  <input
-                    type="date"
-                    value={dataNota}
-                    onChange={(e) => setDataNota(e.target.value)}
-                    className="text-[10px] font-black text-gray-400 bg-transparent cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              <div className="relative">
-                <textarea
-                  value={nuovaNota}
-                  onChange={(e) => setNuovaNota(e.target.value)}
-                  placeholder="Scrivi una nota interna da associare al thread selezionato..."
-                  className="w-full bg-white rounded-xl p-4 text-[12px] min-h-[90px] outline-none resize-none border border-yellow-100"
-                />
-
-                <button
-                  type="button"
-                  onClick={aggiungiNotaAlThread}
-                  disabled={
-                    !nuovaNota.trim() ||
-                    !threadSelezionato ||
-                    saving ||
-                    loadingThreads
-                  }
-                  className="absolute bottom-3 right-3 p-2.5 rounded-lg disabled:opacity-50 bg-yellow-500 hover:bg-yellow-600 text-[#ffffff]"
-                >
-                  <Send size={14} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!showNewThreadForm && threads.length === 0 && (
+          {/* Elenco dei thread: nome + data dell'ultima mail. */}
+          {loadingThreads && threads.length === 0 ? (
             <div className="text-[10px] text-gray-300 text-center py-4">
-              Nessun thread collegato. Clicca il pulsante + per collegarne uno.
+              Caricamento thread...
             </div>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setIsLogOpen(!isLogOpen)}
-          className="w-full py-3 text-[9px] font-black text-gray-400 uppercase"
-        >
-          {isLogOpen
-            ? 'Chiudi Log Storico'
-            : `Vedi Thread Collegati (${emailCount})`}
-        </button>
-
-        <div
-          className={`transition-all ${
-            isLogOpen
-              ? 'max-h-[450px] p-5 overflow-y-auto'
-              : 'max-h-0 overflow-hidden'
-          }`}
-        >
-          {threads.length > 0 ? (
-            <div className="space-y-4">
+          ) : threads.length > 0 ? (
+            <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
               {threads.map((thread) => {
-                const isThreadOpen = openThreadIds.includes(thread.id)
-                const title = getThreadTitle(thread)
+                const isOpen = openThreadKeys.includes(thread.key)
+                const direzione = direzioneUltimaMail(thread)
+                const altriTicket = thread.nTags.filter(
+                  (tag) => tag !== String(nTag)
+                )
 
                 return (
-                  <div
-                    key={thread.id}
-                    className="border rounded-xl bg-white overflow-hidden"
-                  >
+                  <div key={thread.key}>
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => toggleThread(thread.id)}
+                      onClick={() => toggleThread(thread.key)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
-                          toggleThread(thread.id)
+                          toggleThread(thread.key)
                         }
                       }}
-                      className="w-full p-4 flex items-center justify-between gap-4 text-left hover:bg-gray-50 transition-all cursor-pointer"
+                      className="flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition-all cursor-pointer"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="mb-2 text-[9px] font-black uppercase tracking-[0.15em] text-blue-600">
-                          {title}
+                        <div className="text-[11px] font-bold text-slate-800 truncate">
+                          {thread.nome}
                         </div>
 
-                        <div className="text-[10px] whitespace-pre-wrap text-gray-600 line-clamp-2">
-                          Collegato al ticket {String(thread.n_tag)}
-                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider ${
+                              thread.ultimaMail
+                                ? 'text-blue-600'
+                                : 'text-gray-300'
+                            }`}
+                          >
+                            {direzione === 'outbound' ? (
+                              <ArrowUpRight size={11} />
+                            ) : (
+                              <ArrowDownLeft size={11} />
+                            )}
+                            {thread.ultimaMail
+                              ? `Ultima mail ${
+                                  direzione === 'outbound'
+                                    ? 'inviata'
+                                    : 'ricevuta'
+                                }: ${formatDate(thread.ultimaMail)}`
+                              : 'Nessuna mail importata'}
+                          </span>
 
-                        <div className="mt-2 text-[9px] font-black text-blue-600 uppercase">
-                          Collegato il: {formatDate(thread.data_invio)}
+                          {thread.emails.length > 0 && (
+                            <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[9px] font-black text-slate-400">
+                              {thread.emails.length} email
+                            </span>
+                          )}
+
+                          {thread.notes.length > 0 && (
+                            <span className="rounded-full bg-yellow-50 px-2 py-0.5 text-[9px] font-black text-yellow-600">
+                              {thread.notes.length} note
+                            </span>
+                          )}
+
+                          {altriTicket.length > 0 && (
+                            <span
+                              className="rounded-full bg-purple-50 px-2 py-0.5 text-[9px] font-black text-purple-600"
+                              title={`Thread condiviso con: ${altriTicket.join(', ')}`}
+                            >
+                              anche su {altriTicket.length} altro
+                              {altriTicket.length > 1 ? 'i' : ''} ticket
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -659,15 +701,15 @@ export default function MailThread({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation()
-                            eliminaThread(thread.id)
+                            scollegaThread(thread)
                           }}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600 transition-all"
-                          title="Elimina collegamento thread"
+                          title="Scollega il thread da questo ticket"
                         >
                           <Trash2 size={13} />
                         </button>
 
-                        {isThreadOpen ? (
+                        {isOpen ? (
                           <ChevronUp size={14} className="text-gray-400" />
                         ) : (
                           <ChevronDown size={14} className="text-gray-400" />
@@ -675,54 +717,45 @@ export default function MailThread({
                       </div>
                     </div>
 
-                    {isThreadOpen && (
-                      <div className="p-4 border-t border-gray-100">
-                        <div className="mb-3 text-[9px] font-black uppercase tracking-[0.15em] text-blue-600">
-                          {title}
-                        </div>
-
-                        <div className="text-[10px] whitespace-pre-wrap text-gray-600">
-                          Thread collegato al ticket {String(thread.n_tag)}.
-                        </div>
-
-                        {thread.tread?.note && thread.tread.note.length > 0 && (
-                          <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
-                            <div className="text-[9px] font-black text-yellow-600 uppercase tracking-[0.15em]">
+                    {isOpen && (
+                      <div className="border-t border-gray-100 bg-gray-50/60 p-4">
+                        {thread.notes.length > 0 ? (
+                          <div className="space-y-2">
+                            <div className="text-[9px] font-black uppercase tracking-[0.15em] text-yellow-600">
                               Note associate
                             </div>
 
-                            {[...thread.tread.note]
-                              .sort(
-                                (a, b) =>
-                                  new Date(a.created_at).getTime() -
-                                  new Date(b.created_at).getTime()
-                              )
-                              .map((note) => (
-                                <div
-                                  key={note.id}
-                                  className="relative bg-yellow-50 border border-yellow-100 rounded-lg p-3 pr-9"
+                            {thread.notes.map((note) => (
+                              <div
+                                key={note.id}
+                                className="relative rounded-lg border border-yellow-100 bg-yellow-50 p-3 pr-9"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    eliminaNota(note.sourceRowId, note.id)
+                                  }}
+                                  className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-red-400 hover:bg-red-100 hover:text-red-600 transition-all"
+                                  title="Elimina nota"
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      eliminaNota(thread.id, note.id)
-                                    }}
-                                    className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-red-400 hover:bg-red-100 hover:text-red-600 transition-all"
-                                    title="Elimina nota"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
+                                  <Trash2 size={12} />
+                                </button>
 
-                                  <div className="text-[9px] font-black text-yellow-600 mb-1">
-                                    {formatDateTime(note.created_at)}
-                                  </div>
-
-                                  <div className="text-[10px] whitespace-pre-wrap text-gray-600">
-                                    {note.nota}
-                                  </div>
+                                <div className="text-[9px] font-black text-yellow-600 mb-1">
+                                  {formatDateTime(note.created_at)}
                                 </div>
-                              ))}
+
+                                <div className="text-[10px] whitespace-pre-wrap text-gray-600">
+                                  {note.nota}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-gray-400">
+                            Nessuna nota su questo thread. Il contenuto delle
+                            mail si consulta nella pagina Email.
                           </div>
                         )}
                       </div>
@@ -732,8 +765,74 @@ export default function MailThread({
               })}
             </div>
           ) : (
-            <div className="text-[10px] text-gray-300 text-center">
-              Nessun thread collegato.
+            !showNewThreadForm && (
+              <div className="text-[10px] text-gray-300 text-center py-4">
+                Nessun thread collegato. Clicca il pulsante + per collegarne uno.
+              </div>
+            )
+          )}
+
+          {threads.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowNoteForm(!showNoteForm)}
+                className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.15em] text-yellow-600 hover:text-yellow-700"
+              >
+                <StickyNote size={13} />
+                {showNoteForm ? 'Chiudi nota' : 'Aggiungi nota a un thread'}
+              </button>
+
+              {showNoteForm && (
+                <div className="mt-3 border border-yellow-100 bg-yellow-50/40 rounded-xl p-4">
+                  <select
+                    value={threadSelezionatoEffettivo}
+                    onChange={(e) => setThreadSelezionato(e.target.value)}
+                    className="w-full bg-white rounded-xl px-3 py-2 mb-3 text-[11px] font-bold text-gray-500 outline-none border border-yellow-100"
+                  >
+                    {threads.map((thread) => (
+                      <option key={thread.key} value={thread.key}>
+                        {thread.nome}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex justify-end mb-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={12} className="text-gray-300" />
+                      <input
+                        type="date"
+                        value={dataNota}
+                        onChange={(e) => setDataNota(e.target.value)}
+                        className="text-[10px] font-black text-gray-400 bg-transparent cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <textarea
+                      value={nuovaNota}
+                      onChange={(e) => setNuovaNota(e.target.value)}
+                      placeholder="Scrivi una nota interna da associare al thread selezionato..."
+                      className="w-full bg-white rounded-xl p-4 text-[12px] min-h-[90px] outline-none resize-none border border-yellow-100"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={aggiungiNotaAlThread}
+                      disabled={
+                        !nuovaNota.trim() ||
+                        !threadSelezionatoEffettivo ||
+                        saving ||
+                        loadingThreads
+                      }
+                      className="absolute bottom-3 right-3 p-2.5 rounded-lg disabled:opacity-50 bg-yellow-500 hover:bg-yellow-600 text-[#ffffff]"
+                    >
+                      <Send size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
