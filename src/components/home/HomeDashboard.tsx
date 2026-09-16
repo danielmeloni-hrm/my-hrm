@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -26,6 +26,7 @@ import {
   Check,
   GripVertical,
   LayoutGrid,
+  Palette,
   Pencil,
   Plus,
   RotateCcw,
@@ -34,21 +35,26 @@ import {
   X,
 } from "lucide-react";
 import {
+  ALTEZZA_RIGA_PX,
+  COLONNE_GRIGLIA,
   DEFAULT_HOME_LAYOUT,
-  SIZE_CLASSES,
-  SIZE_LABELS,
+  DEFAULT_WIDGET_COLOR,
   WIDGET_BY_ID,
   WIDGET_CATALOG,
   WIDGET_COLORS,
+  coloriDellaCard,
   creaCardPersonalizzata,
-  getWidgetColorClasses,
+  limitaAltezza,
+  limitaLarghezza,
   normalizeLayout,
+  normalizzaHex,
+  variabiliColoreCard,
   type CustomCardConfig,
   type HomeWidgetId,
   type HomeWidgetLayoutItem,
   type WidgetColor,
-  type WidgetSize,
 } from "@/lib/home-widgets";
+import { descriviFiltro } from "@/lib/home-filters";
 import {
   WIDGET_COMPONENTS,
   TicketCustom,
@@ -61,6 +67,9 @@ type Props = {
   data: HomeData;
 };
 
+/** Gap della griglia, in pixel, ai vari breakpoint (vedi globals.css). */
+const GAP_DEFAULT = 20;
+
 /* ------------------------------------------------------------------ */
 /* Card widget                                                         */
 /* ------------------------------------------------------------------ */
@@ -70,19 +79,24 @@ function WidgetCard({
   data,
   editing,
   onRemove,
-  onResize,
   onRecolor,
   onEditConfig,
+  onResizeStart,
+  onResizeMove,
+  onResizeEnd,
 }: {
   item: HomeWidgetLayoutItem;
   data: HomeData;
   editing: boolean;
   onRemove: (key: string) => void;
-  onResize: (key: string, size: WidgetSize) => void;
-  onRecolor: (key: string, color: WidgetColor) => void;
+  onRecolor: (key: string, color: WidgetColor, hex?: string) => void;
   onEditConfig: (key: string) => void;
+  onResizeStart: (key: string, event: React.PointerEvent) => void;
+  onResizeMove: (event: React.PointerEvent) => void;
+  onResizeEnd: (event: React.PointerEvent) => void;
 }) {
   const widget = WIDGET_BY_ID.get(item.id);
+  const [pannelloColori, setPannelloColori] = useState(false);
   const {
     attributes,
     listeners,
@@ -98,15 +112,17 @@ function WidgetCard({
   const isCustom = item.id === "ticket_custom";
   const Component = WIDGET_COMPONENTS[item.id];
   const count = getWidgetCount(item.id, data);
+  const coloreAttuale = normalizzaHex(item.colorHex) ?? "";
 
   // Titolo/descrizione: le card personalizzate usano la loro configurazione.
   const titolo = isCustom
     ? item.config?.titolo || "Card personalizzata"
     : widget.titolo;
+
+  const riassuntoFiltri = isCustom ? descriviFiltro(item.config?.filtri) : "";
   const descrizione = isCustom
-    ? `${item.config?.modo ?? "lista"} · ${
-        item.config?.limite ?? 15
-      } ticket`
+    ? riassuntoFiltri ||
+      `${item.config?.modo ?? "lista"} · ${item.config?.limite ?? 15} ticket`
     : widget.descrizione;
 
   return (
@@ -118,20 +134,25 @@ function WidgetCard({
         transform: CSS.Translate.toString(transform),
         transition,
         zIndex: isDragging ? 50 : undefined,
-      }}
-      className={`${SIZE_CLASSES[item.size]} ${isDragging ? "opacity-40" : ""}`}
+        // Su tablet una card larga più di metà griglia occupa due colonne.
+        "--card-col-sm": item.larghezza > COLONNE_GRIGLIA / 2 ? 2 : 1,
+        "--card-col-lg": item.larghezza,
+        "--card-row-lg": item.altezza,
+      } as React.CSSProperties}
+      className={`home-card ${isDragging ? "opacity-40" : ""}`}
     >
       <div
-        className={`flex h-full flex-col rounded-2xl border p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)] sm:p-5 ${getWidgetColorClasses(
-          item.color
-        )} ${editing ? "border-dashed" : ""}`}
+        style={variabiliColoreCard(item) as React.CSSProperties}
+        className={`home-card-surface relative flex h-full min-h-0 flex-col rounded-2xl border p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)] sm:p-5 ${
+          editing ? "border-dashed" : ""
+        }`}
       >
         <div
           // In modalità modifica tutta l'intestazione è la maniglia di trascinamento.
           ref={editing ? setActivatorNodeRef : undefined}
           {...(editing ? attributes : {})}
           {...(editing ? listeners : {})}
-          className={`mb-4 flex items-start justify-between gap-3 ${
+          className={`mb-4 flex shrink-0 items-start justify-between gap-3 ${
             editing
               ? "cursor-grab touch-none select-none active:cursor-grabbing"
               : ""
@@ -150,7 +171,10 @@ function WidgetCard({
               <h2 className="truncate text-[13px] font-black uppercase tracking-tight text-slate-800">
                 {titolo}
               </h2>
-              <p className="truncate text-[10px] font-bold uppercase tracking-tight text-slate-400">
+              <p
+                className="truncate text-[10px] font-bold uppercase tracking-tight text-slate-400"
+                title={descrizione}
+              >
                 {descrizione}
               </p>
             </div>
@@ -161,6 +185,22 @@ function WidgetCard({
               <span className="text-2xl font-black tracking-tighter text-slate-900">
                 {count}
               </span>
+            )}
+
+            {editing && (
+              <button
+                type="button"
+                onClick={() => setPannelloColori((prev) => !prev)}
+                onPointerDown={(event) => event.stopPropagation()}
+                className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
+                  pannelloColori
+                    ? "bg-slate-900 text-[#ffffff]"
+                    : "bg-slate-50 text-slate-400 hover:bg-slate-100"
+                }`}
+                aria-label="Colore della card"
+              >
+                <Palette size={13} />
+              </button>
             )}
 
             {editing && isCustom && (
@@ -191,55 +231,120 @@ function WidgetCard({
           </div>
         </div>
 
-        {editing && (
-          <div className="mb-4 space-y-2">
-            {widget.sizes.length > 1 && (
-              <div className="flex flex-wrap gap-1.5">
-                {widget.sizes.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => onResize(item.key, size)}
-                    className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-tight transition ${
-                      item.size === size
-                        ? "bg-slate-900 text-[#ffffff]"
-                        : "bg-white/70 text-slate-500 hover:bg-white"
-                    }`}
-                  >
-                    {SIZE_LABELS[size]}
-                  </button>
-                ))}
-              </div>
-            )}
-
+        {editing && pannelloColori && (
+          <div
+            className="mb-4 shrink-0 rounded-xl border border-slate-200 bg-white/80 p-3"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
             <div className="flex flex-wrap items-center gap-1.5">
-              {WIDGET_COLORS.map((color) => (
-                <button
-                  key={color.id}
-                  type="button"
-                  title={color.label}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => onRecolor(item.key, color.id)}
-                  className={`h-5 w-5 rounded-full border transition ${color.swatch} ${
-                    (item.color ?? "bianco") === color.id
-                      ? "ring-2 ring-slate-900 ring-offset-1"
-                      : "hover:scale-110"
-                  }`}
-                  aria-label={`Colore ${color.label}`}
-                />
-              ))}
+              {WIDGET_COLORS.map((colore) => {
+                const anteprima = coloriDellaCard({ color: colore.id });
+                const selezionato =
+                  !coloreAttuale &&
+                  (item.color ?? DEFAULT_WIDGET_COLOR) === colore.id;
+
+                return (
+                  <button
+                    key={colore.id}
+                    type="button"
+                    title={colore.label}
+                    onClick={() => onRecolor(item.key, colore.id, undefined)}
+                    style={{
+                      backgroundColor: anteprima.pastiglia,
+                      borderColor: anteprima.bordoChiaro,
+                    }}
+                    className={`h-5 w-5 rounded-full border transition ${
+                      selezionato
+                        ? "ring-2 ring-slate-900 ring-offset-1"
+                        : "hover:scale-110"
+                    }`}
+                    aria-label={`Colore ${colore.label}`}
+                  />
+                );
+              })}
             </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2 text-[10px] font-black uppercase tracking-tight text-slate-500">
+                <input
+                  type="color"
+                  value={coloreAttuale || "#3b82f6"}
+                  onChange={(event) =>
+                    onRecolor(item.key, item.color ?? DEFAULT_WIDGET_COLOR, event.target.value)
+                  }
+                  className="h-6 w-8 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
+                  aria-label="Colore personalizzato"
+                />
+                Colore libero
+              </label>
+
+              {coloreAttuale && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onRecolor(item.key, item.color ?? DEFAULT_WIDGET_COLOR, undefined)
+                  }
+                  className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500 transition hover:bg-slate-200"
+                >
+                  Torna alla palette
+                </button>
+              )}
+            </div>
+
+            <p className="mt-2 text-[10px] font-medium text-slate-400">
+              Il colore scelto viene velato: lo sfondo resta chiaro e il testo
+              leggibile, anche in tema scuro.
+            </p>
           </div>
         )}
 
-        <div className={editing ? "pointer-events-none opacity-60" : ""}>
+        {/* Il contenuto scorre dentro l'altezza scelta, senza sbordare. */}
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto ${
+            editing ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
           {isCustom ? (
             <TicketCustom data={data} config={item.config!} />
           ) : (
             <Component data={data} />
           )}
         </div>
+
+        {editing && (
+          <>
+            <div className="mt-2 hidden shrink-0 items-center justify-end gap-2 text-[10px] font-black uppercase tracking-tight text-slate-400 lg:flex">
+              {item.larghezza}/{COLONNE_GRIGLIA} col · {item.altezza} righe
+            </div>
+
+            {/* Maniglia di ridimensionamento: solo da desktop, dove la
+                griglia a 12 colonne e le righe fisse sono attive. */}
+            <button
+              type="button"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                onResizeStart(item.key, event);
+              }}
+              onPointerMove={onResizeMove}
+              onPointerUp={onResizeEnd}
+              onPointerCancel={onResizeEnd}
+              className="absolute bottom-1 right-1 hidden h-5 w-5 cursor-nwse-resize touch-none items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:flex"
+              aria-label="Ridimensiona card"
+              title="Trascina per cambiare larghezza e altezza"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+                <path
+                  d="M9 1v8H1"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeDasharray="2 2"
+                />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -248,6 +353,16 @@ function WidgetCard({
 /* ------------------------------------------------------------------ */
 /* Dashboard                                                           */
 /* ------------------------------------------------------------------ */
+
+type StatoRidimensiona = {
+  key: string;
+  startX: number;
+  startY: number;
+  larghezza: number;
+  altezza: number;
+  passoColonna: number;
+  passoRiga: number;
+};
 
 export default function HomeDashboard({ data }: Props) {
   const [layout, setLayout] = useState<HomeWidgetLayoutItem[]>(
@@ -260,6 +375,15 @@ export default function HomeDashboard({ data }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   /** Chiave della card personalizzata in modifica (null = editor chiuso). */
   const [editKey, setEditKey] = useState<string | null>(null);
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  const ridimensionaRef = useRef<StatoRidimensiona | null>(null);
+  /** Dimensioni mostrate durante il trascinamento, prima del salvataggio. */
+  const [anteprimaResize, setAnteprimaResize] = useState<{
+    key: string;
+    larghezza: number;
+    altezza: number;
+  } | null>(null);
 
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroTipologia, setFiltroTipologia] = useState("");
@@ -278,6 +402,52 @@ export default function HomeDashboard({ data }: Props) {
     return Array.from(nomi).sort((a, b) => a.localeCompare(b));
   }, [data.tickets]);
 
+  /**
+   * La home carica i ticket con `*, clienti(nome)`: l'embed di `profili` non
+   * c'è, perché `ticket` ha due chiavi esterne verso quella tabella e
+   * PostgREST rifiuta l'embed ambiguo. I profili arrivano quindi come elenco
+   * separato e vanno riattaccati qui, altrimenti il filtro per assegnatario
+   * e la colonna "Assegnatario" delle card restano sempre vuoti.
+   */
+  const profiloPerId = useMemo(() => {
+    const mappa = new Map<string, Record<string, unknown>>();
+
+    for (const profilo of data.profili ?? []) {
+      const id = profilo?.id;
+      if (typeof id === "string") mappa.set(id, profilo);
+    }
+
+    return mappa;
+  }, [data.profili]);
+
+  const datiArricchiti: HomeData = useMemo(() => {
+    if (profiloPerId.size === 0) return data;
+
+    return {
+      ...data,
+      tickets: data.tickets.map((ticket) =>
+        ticket.profili
+          ? ticket
+          : {
+              ...ticket,
+              profili: profiloPerId.get(String(ticket.assignee ?? "")) ?? null,
+            }
+      ),
+    };
+  }, [data, profiloPerId]);
+
+  /** Assegnatari selezionabili nei filtri della card personalizzata. */
+  const opzioniAssegnatario = useMemo(() => {
+    const nomi = new Set<string>();
+
+    for (const profilo of data.profili ?? []) {
+      const nome = profilo?.nome_completo ?? profilo?.nome;
+      if (nome) nomi.add(String(nome));
+    }
+
+    return Array.from(nomi).sort((a, b) => a.localeCompare(b));
+  }, [data.profili]);
+
   const opzioniTipologia = useMemo(() => {
     const tipologie = new Set<string>();
 
@@ -293,12 +463,12 @@ export default function HomeDashboard({ data }: Props) {
     const filtraPerAssegnatario = soloMiei && Boolean(data.userId);
 
     if (!filtroCliente && !filtroTipologia && !filtraPerAssegnatario) {
-      return data;
+      return datiArricchiti;
     }
 
     return {
-      ...data,
-      tickets: data.tickets.filter((ticket) => {
+      ...datiArricchiti,
+      tickets: datiArricchiti.tickets.filter((ticket) => {
         const okAssegnatario =
           !filtraPerAssegnatario ||
           String(ticket.assignee ?? "") === data.userId;
@@ -313,7 +483,7 @@ export default function HomeDashboard({ data }: Props) {
         return okAssegnatario && okCliente && okTipologia;
       }),
     };
-  }, [data, filtroCliente, filtroTipologia, soloMiei]);
+  }, [datiArricchiti, data.userId, filtroCliente, filtroTipologia, soloMiei]);
 
   const filtriAttivi = Boolean(filtroCliente || filtroTipologia || soloMiei);
 
@@ -400,6 +570,94 @@ export default function HomeDashboard({ data }: Props) {
     persist(arrayMove(layout, from, to));
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Ridimensionamento con aggancio alla griglia                       */
+  /* ---------------------------------------------------------------- */
+
+  function iniziaRidimensiona(key: string, event: React.PointerEvent) {
+    const item = layout.find((i) => i.key === key);
+    const griglia = gridRef.current;
+    if (!item || !griglia) return;
+
+    const stile = window.getComputedStyle(griglia);
+    const gapColonne = parseFloat(stile.columnGap) || GAP_DEFAULT;
+    const gapRighe = parseFloat(stile.rowGap) || GAP_DEFAULT;
+
+    // Passo orizzontale = larghezza di una colonna + il gap che la segue.
+    const larghezzaColonna =
+      (griglia.clientWidth - gapColonne * (COLONNE_GRIGLIA - 1)) /
+      COLONNE_GRIGLIA;
+
+    ridimensionaRef.current = {
+      key,
+      startX: event.clientX,
+      startY: event.clientY,
+      larghezza: item.larghezza,
+      altezza: item.altezza,
+      passoColonna: larghezzaColonna + gapColonne,
+      passoRiga: ALTEZZA_RIGA_PX + gapRighe,
+    };
+
+    setAnteprimaResize({
+      key,
+      larghezza: item.larghezza,
+      altezza: item.altezza,
+    });
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function muoviRidimensiona(event: React.PointerEvent) {
+    const stato = ridimensionaRef.current;
+    if (!stato || stato.passoColonna <= 0 || stato.passoRiga <= 0) return;
+
+    const colonne = Math.round(
+      (event.clientX - stato.startX) / stato.passoColonna
+    );
+    const righe = Math.round((event.clientY - stato.startY) / stato.passoRiga);
+
+    setAnteprimaResize({
+      key: stato.key,
+      larghezza: limitaLarghezza(stato.larghezza + colonne),
+      altezza: limitaAltezza(stato.altezza + righe),
+    });
+  }
+
+  function fineRidimensiona(event: React.PointerEvent) {
+    const stato = ridimensionaRef.current;
+    const anteprima = anteprimaResize;
+
+    ridimensionaRef.current = null;
+    setAnteprimaResize(null);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!stato || !anteprima) return;
+
+    // Si salva solo se qualcosa è davvero cambiato: un clic sulla maniglia
+    // non deve generare una scrittura inutile.
+    if (
+      anteprima.larghezza === stato.larghezza &&
+      anteprima.altezza === stato.altezza
+    ) {
+      return;
+    }
+
+    persist(
+      layout.map((item) =>
+        item.key === stato.key
+          ? {
+              ...item,
+              larghezza: anteprima.larghezza,
+              altezza: anteprima.altezza,
+            }
+          : item
+      )
+    );
+  }
+
   function addWidget(id: HomeWidgetId) {
     const widget = WIDGET_BY_ID.get(id);
     if (!widget) return;
@@ -413,7 +671,16 @@ export default function HomeDashboard({ data }: Props) {
       return;
     }
 
-    persist([...layout, { key: id, id, size: widget.defaultSize }]);
+    persist([
+      ...layout,
+      {
+        key: id,
+        id,
+        larghezza: widget.larghezzaDefault,
+        altezza: widget.altezzaDefault,
+        color: DEFAULT_WIDGET_COLOR,
+      },
+    ]);
     setCatalogOpen(false);
   }
 
@@ -421,12 +688,21 @@ export default function HomeDashboard({ data }: Props) {
     persist(layout.filter((item) => item.key !== key));
   }
 
-  function resizeWidget(key: string, size: WidgetSize) {
-    persist(layout.map((item) => (item.key === key ? { ...item, size } : item)));
-  }
+  function recolorWidget(key: string, color: WidgetColor, hex?: string) {
+    const valido = normalizzaHex(hex);
 
-  function recolorWidget(key: string, color: WidgetColor) {
-    persist(layout.map((item) => (item.key === key ? { ...item, color } : item)));
+    persist(
+      layout.map((item) => {
+        if (item.key !== key) return item;
+
+        const aggiornato: HomeWidgetLayoutItem = { ...item, color };
+
+        if (valido) aggiornato.colorHex = valido;
+        else delete aggiornato.colorHex;
+
+        return aggiornato;
+      })
+    );
   }
 
   function updateCardConfig(key: string, config: CustomCardConfig) {
@@ -448,11 +724,18 @@ export default function HomeDashboard({ data }: Props) {
 
   if (!loaded) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-6">
+      <div className="home-grid">
         {[0, 1, 2, 3].map((index) => (
           <div
             key={index}
-            className="h-56 animate-pulse rounded-2xl border border-slate-200/80 bg-white sm:col-span-2 lg:col-span-3"
+            style={
+              {
+                "--card-col-sm": 2,
+                "--card-col-lg": 6,
+                "--card-row-lg": 7,
+              } as React.CSSProperties
+            }
+            className="home-card animate-pulse rounded-2xl border border-slate-200/80 bg-white"
           />
         ))}
       </div>
@@ -595,7 +878,10 @@ export default function HomeDashboard({ data }: Props) {
 
       {editing && (
         <p className="mb-4 text-[11px] font-bold text-slate-400">
-          Trascina una card dall&apos;intestazione per riordinarla.
+          Trascina una card dall&apos;intestazione per riordinarla, oppure
+          l&apos;angolo in basso a destra per cambiarne larghezza e altezza.
+          Le dimensioni valgono da schermo grande: su tablet e telefono le card
+          si adattano da sole.
         </p>
       )}
 
@@ -662,19 +948,34 @@ export default function HomeDashboard({ data }: Props) {
             items={layout.map((item) => item.key)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-6">
-              {layout.map((item) => (
-                <WidgetCard
-                  key={item.key}
-                  item={item}
-                  data={datiFiltrati}
-                  editing={editing}
-                  onRemove={removeWidget}
-                  onResize={resizeWidget}
-                  onRecolor={recolorWidget}
-                  onEditConfig={setEditKey}
-                />
-              ))}
+            <div ref={gridRef} className="home-grid">
+              {layout.map((item) => {
+                // Durante il trascinamento della maniglia si mostrano le
+                // dimensioni in corso, che vengono salvate solo al rilascio.
+                const conAnteprima =
+                  anteprimaResize && anteprimaResize.key === item.key
+                    ? {
+                        ...item,
+                        larghezza: anteprimaResize.larghezza,
+                        altezza: anteprimaResize.altezza,
+                      }
+                    : item;
+
+                return (
+                  <WidgetCard
+                    key={item.key}
+                    item={conAnteprima}
+                    data={datiFiltrati}
+                    editing={editing}
+                    onRemove={removeWidget}
+                    onRecolor={recolorWidget}
+                    onEditConfig={setEditKey}
+                    onResizeStart={iniziaRidimensiona}
+                    onResizeMove={muoviRidimensiona}
+                    onResizeEnd={fineRidimensiona}
+                  />
+                );
+              })}
             </div>
           </SortableContext>
 
@@ -694,6 +995,7 @@ export default function HomeDashboard({ data }: Props) {
         <CustomCardEditor
           config={cardInModifica.config}
           clienti={opzioniCliente}
+          assegnatari={opzioniAssegnatario}
           onSave={(config) => {
             updateCardConfig(cardInModifica.key, config);
             setEditKey(null);

@@ -525,3 +525,66 @@ body {
 .dark .bg-neutral-950 { background-color: #fafafa; }
 .dark .text-neutral-950 { color: #fafafa; }
 .dark .border-neutral-950 { border-color: #fafafa; }
+
+/* ------------------------------------------------------------------ */
+/* Home: griglia con larghezza e altezza regolabili per card           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Su desktop la home è una griglia a 12 colonne con righe da 24px: la
+ * larghezza di una card è il numero di colonne, l'altezza il numero di
+ * righe. Sotto il breakpoint desktop le colonne tornano 1-2 e l'altezza
+ * la detta il contenuto, altrimenti su telefono le card si spezzano.
+ */
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .home-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-rows: 24px;
+  }
+}
+
+.home-card {
+  grid-column: span 1 / span 1;
+}
+
+@media (min-width: 640px) {
+  .home-card {
+    grid-column: span var(--card-col-sm, 2) / span var(--card-col-sm, 2);
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-card {
+    grid-column: span var(--card-col-lg, 6) / span var(--card-col-lg, 6);
+    grid-row: span var(--card-row-lg, 7) / span var(--card-row-lg, 7);
+  }
+}
+
+/*
+ * Superficie colorata della card. Lo sfondo passa da variabili CSS e non
+ * da classi Tailwind, perché il colore è scelto dall'utente e Tailwind
+ * non genera classi dinamiche; il tema scuro sostituisce le variabili.
+ */
+.home-card-surface {
+  background-color: var(--card-bg, #ffffff);
+  border-color: var(--card-border, #e2e8f0);
+}
+
+.dark .home-card-surface {
+  background-color: var(--card-bg-dark, #12161d);
+  border-color: var(--card-border-dark, #252b36);
+}

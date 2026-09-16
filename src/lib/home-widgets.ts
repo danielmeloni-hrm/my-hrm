@@ -10,12 +10,60 @@ import {
   TICKET_FIELD_LABELS,
   TIPOLOGIA_TICKET,
 } from "@/components/parametri_ticket/attivita";
+import {
+  filtroVuoto,
+  migraFiltriLegacy,
+  normalizzaFiltro,
+  valutaFiltro,
+  type FiltroAvanzato,
+} from "@/lib/home-filters";
+
+/* ------------------------------------------------------------------ */
+/* Dimensioni delle card                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Su desktop la home è una griglia a 12 colonne con righe da 24px.
+ * La larghezza di una card è il numero di colonne occupate, l'altezza il
+ * numero di righe: altezza N ≈ N * 24px + (N-1) * 20px di gap.
+ * Sotto il breakpoint desktop la griglia torna a 1-2 colonne e l'altezza
+ * è dettata dal contenuto, altrimenti su telefono le card si spezzano.
+ */
+export const COLONNE_GRIGLIA = 12;
+export const LARGHEZZA_MIN = 2;
+export const ALTEZZA_MIN = 3;
+export const ALTEZZA_MAX = 24;
+
+/** Altezza in pixel di una singola riga della griglia. */
+export const ALTEZZA_RIGA_PX = 24;
+
+/** Vecchie taglie fisse: restano solo per convertire i layout già salvati. */
+export type WidgetSize = "sm" | "md" | "lg";
+
+const LARGHEZZA_DA_SIZE: Record<WidgetSize, number> = {
+  sm: 4,
+  md: 6,
+  lg: 12,
+};
+
+export function limitaLarghezza(valore: number): number {
+  if (!Number.isFinite(valore)) return 6;
+  return Math.min(COLONNE_GRIGLIA, Math.max(LARGHEZZA_MIN, Math.round(valore)));
+}
+
+export function limitaAltezza(valore: number): number {
+  if (!Number.isFinite(valore)) return 7;
+  return Math.min(ALTEZZA_MAX, Math.max(ALTEZZA_MIN, Math.round(valore)));
+}
+
+/** Altezza in pixel corrispondente a un numero di righe, gap compreso. */
+export function altezzaInPixel(altezza: number, gap = 20): number {
+  return altezza * ALTEZZA_RIGA_PX + (altezza - 1) * gap;
+}
 
 /* ------------------------------------------------------------------ */
 /* Catalogo                                                            */
 /* ------------------------------------------------------------------ */
-
-export type WidgetSize = "sm" | "md" | "lg";
 
 export type HomeWidgetId =
   | "attivita_assegnate"
@@ -36,10 +84,10 @@ export type HomeWidgetConfig = {
   id: HomeWidgetId;
   titolo: string;
   descrizione: string;
-  /** Larghezza di default in colonne (griglia a 6 colonne su desktop). */
-  defaultSize: WidgetSize;
-  /** Dimensioni ammesse per questo widget. */
-  sizes: WidgetSize[];
+  /** Colonne occupate alla prima aggiunta (griglia a 12). */
+  larghezzaDefault: number;
+  /** Righe occupate alla prima aggiunta. */
+  altezzaDefault: number;
   gruppo: "Operativo" | "Team" | "Analisi" | "Personalizzata";
 };
 
@@ -48,16 +96,16 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     id: "attivita_assegnate",
     titolo: "Attività assegnate a me",
     descrizione: "I ticket aperti su cui risulti assegnatario.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
     id: "ticket_urgenti",
     titolo: "Ticket urgenti",
     descrizione: "Priorità Alta ancora aperti, ordinati per anzianità.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
@@ -65,16 +113,16 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     titolo: "SLA in scadenza",
     descrizione:
       "Ticket vicini alla soglia SLA o già fuori tempo, in base alla priorità.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
     id: "attivita_ferme",
     titolo: "Attività ferme",
     descrizione: "Nessun aggiornamento da oltre 15 giorni.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
@@ -82,16 +130,16 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     titolo: "Bloccati da Business",
     descrizione:
       "In attesa di una risposta dal business, con i giorni di attesa.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
     id: "ultimo_ping",
     titolo: "Ultimo ping",
     descrizione: "Nessun contatto da oltre 15 giorni o mai pingati.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
@@ -99,8 +147,8 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     titolo: "Note importanti",
     descrizione:
       "Scrivi e consulta le tue note, con filtro per tipo e creazione rapida.",
-    defaultSize: "md",
-    sizes: ["md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 9,
     gruppo: "Operativo",
   },
   {
@@ -108,40 +156,40 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     titolo: "Notifiche importanti",
     descrizione:
       "Escalation, attenzione business e ticket con note importanti.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
     id: "prossime_scadenze",
     titolo: "Prossime scadenze",
     descrizione: "Rilasci in collaudo e produzione dei prossimi 14 giorni.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Operativo",
   },
   {
     id: "carico_team",
     titolo: "Carico di lavoro del team",
     descrizione: "Ticket aperti per assegnatario, con urgenti e fermi.",
-    defaultSize: "lg",
-    sizes: ["md", "lg"],
+    larghezzaDefault: 12,
+    altezzaDefault: 9,
     gruppo: "Team",
   },
   {
     id: "grafico_stati",
     titolo: "Distribuzione per stato",
     descrizione: "Quanti ticket ci sono in ogni stato.",
-    defaultSize: "md",
-    sizes: ["md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 8,
     gruppo: "Analisi",
   },
   {
     id: "grafico_tempi",
     titolo: "Tempi di risoluzione",
     descrizione: "Giorni medi dalla creazione alla chiusura, per mese.",
-    defaultSize: "lg",
-    sizes: ["md", "lg"],
+    larghezzaDefault: 12,
+    altezzaDefault: 8,
     gruppo: "Analisi",
   },
   {
@@ -149,8 +197,8 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     titolo: "Card personalizzata",
     descrizione:
       "Scegli quali ticket vedere, come visualizzarli e quali campi mostrare.",
-    defaultSize: "md",
-    sizes: ["sm", "md", "lg"],
+    larghezzaDefault: 6,
+    altezzaDefault: 7,
     gruppo: "Personalizzata",
   },
 ];
@@ -197,15 +245,10 @@ export function etichettaCampoCard(campo: string): string {
 
 export type CustomCardConfig = {
   titolo: string;
-  /** Testo cercato nel titolo del ticket (case-insensitive). */
-  filtroTitolo: string;
+  /** Filtri avanzati: gruppi di condizioni in AND/OR, inclusione ed esclusione. */
+  filtri: FiltroAvanzato;
   soloMiei: boolean;
   soloAperti: boolean;
-  stati: string[];
-  priorita: string[];
-  clienti: string[];
-  applicativi: string[];
-  tipologie: string[];
   modo: ModoVisualizzazione;
   ordina: OrdinamentoCard;
   limite: number;
@@ -215,14 +258,9 @@ export type CustomCardConfig = {
 export function defaultCustomConfig(): CustomCardConfig {
   return {
     titolo: "Nuova card",
-    filtroTitolo: "",
+    filtri: filtroVuoto(),
     soloMiei: false,
     soloAperti: true,
-    stati: [],
-    priorita: [],
-    clienti: [],
-    applicativi: [],
-    tipologie: [],
     modo: "lista",
     ordina: "priorita",
     limite: 15,
@@ -253,8 +291,14 @@ export type HomeWidgetLayoutItem = {
   /** Chiave d'istanza univoca: per le card fisse coincide con l'id. */
   key: string;
   id: HomeWidgetId;
-  size: WidgetSize;
+  /** Colonne occupate sulla griglia desktop a 12. */
+  larghezza: number;
+  /** Righe occupate sulla griglia desktop. */
+  altezza: number;
+  /** Id della tinta scelta dalla palette. */
   color?: WidgetColor;
+  /** Colore libero in esadecimale; se presente ha la precedenza sulla palette. */
+  colorHex?: string;
   /** Presente solo per le card personalizzate. */
   config?: CustomCardConfig;
 };
@@ -263,105 +307,191 @@ export type HomeWidgetLayoutItem = {
 /* Colori delle card                                                   */
 /* ------------------------------------------------------------------ */
 
-export type WidgetColor =
-  | "bianco"
-  | "grigio"
-  | "blu"
-  | "verde"
-  | "ambra"
-  | "rosso"
-  | "viola";
+export type WidgetColor = string;
 
-export const WIDGET_COLORS: {
-  id: WidgetColor;
+export type PaletteColor = {
+  id: string;
   label: string;
-  /** Classi applicate alla card. */
-  card: string;
-  /** Pastiglia mostrata nel selettore. */
-  swatch: string;
-}[] = [
-  {
-    id: "bianco",
-    label: "Bianco",
-    card: "bg-white border-slate-200/80",
-    swatch: "bg-white border-slate-300",
-  },
-  {
-    id: "grigio",
-    label: "Grigio",
-    card: "bg-slate-50 border-slate-200",
-    swatch: "bg-slate-200 border-slate-300",
-  },
-  {
-    id: "blu",
-    label: "Blu",
-    card: "bg-blue-50/70 border-blue-100",
-    swatch: "bg-blue-200 border-blue-300",
-  },
-  {
-    id: "verde",
-    label: "Verde",
-    card: "bg-emerald-50/70 border-emerald-100",
-    swatch: "bg-emerald-200 border-emerald-300",
-  },
-  {
-    id: "ambra",
-    label: "Ambra",
-    card: "bg-amber-50/70 border-amber-100",
-    swatch: "bg-amber-200 border-amber-300",
-  },
-  {
-    id: "rosso",
-    label: "Rosso",
-    card: "bg-red-50/70 border-red-100",
-    swatch: "bg-red-200 border-red-300",
-  },
-  {
-    id: "viola",
-    label: "Viola",
-    card: "bg-violet-50/70 border-violet-100",
-    swatch: "bg-violet-200 border-violet-300",
-  },
+  /** Tinta di partenza; vuota per il bianco/superficie neutra. */
+  base: string;
+};
+
+/**
+ * La palette elenca solo la tinta di partenza: sfondo e bordo, in chiaro
+ * come in scuro, sono derivati da qui con la stessa formula usata per il
+ * colore libero. Così una tinta scelta a mano si comporta esattamente
+ * come una predefinita e resta sempre leggibile col testo scuro.
+ */
+export const WIDGET_COLORS: PaletteColor[] = [
+  { id: "bianco", label: "Bianco", base: "" },
+  { id: "slate", label: "Grigio", base: "#64748b" },
+  { id: "stone", label: "Sabbia", base: "#78716c" },
+  { id: "red", label: "Rosso", base: "#ef4444" },
+  { id: "orange", label: "Arancio", base: "#f97316" },
+  { id: "amber", label: "Ambra", base: "#f59e0b" },
+  { id: "yellow", label: "Giallo", base: "#eab308" },
+  { id: "lime", label: "Lime", base: "#84cc16" },
+  { id: "green", label: "Verde", base: "#22c55e" },
+  { id: "emerald", label: "Smeraldo", base: "#10b981" },
+  { id: "teal", label: "Verde acqua", base: "#14b8a6" },
+  { id: "cyan", label: "Ciano", base: "#06b6d4" },
+  { id: "sky", label: "Celeste", base: "#0ea5e9" },
+  { id: "blue", label: "Blu", base: "#3b82f6" },
+  { id: "indigo", label: "Indaco", base: "#6366f1" },
+  { id: "violet", label: "Viola", base: "#8b5cf6" },
+  { id: "purple", label: "Porpora", base: "#a855f7" },
+  { id: "fuchsia", label: "Fucsia", base: "#d946ef" },
+  { id: "pink", label: "Rosa", base: "#ec4899" },
+  { id: "rose", label: "Rosa antico", base: "#f43f5e" },
 ];
 
 export const DEFAULT_WIDGET_COLOR: WidgetColor = "bianco";
 
-const COLOR_IDS = new Set(WIDGET_COLORS.map((color) => color.id));
+const COLOR_BY_ID = new Map(WIDGET_COLORS.map((color) => [color.id, color]));
 
-export function getWidgetColorClasses(color?: WidgetColor) {
-  return (
-    WIDGET_COLORS.find((item) => item.id === color)?.card ??
-    WIDGET_COLORS[0].card
-  );
+/** Vecchi identificativi italiani salvati prima della palette estesa. */
+const COLORI_LEGACY: Record<string, string> = {
+  grigio: "slate",
+  blu: "blue",
+  verde: "emerald",
+  ambra: "amber",
+  rosso: "red",
+  viola: "violet",
+};
+
+const HEX_VALIDO = /^#[0-9a-f]{6}$/i;
+
+export function normalizzaHex(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  let hex = value.trim();
+  if (!hex.startsWith("#")) hex = `#${hex}`;
+
+  // Forma corta #abc -> #aabbcc
+  if (/^#[0-9a-f]{3}$/i.test(hex)) {
+    hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+  }
+
+  return HEX_VALIDO.test(hex) ? hex.toLowerCase() : null;
 }
 
-export const DEFAULT_HOME_LAYOUT: HomeWidgetLayoutItem[] = [
-  { key: "attivita_assegnate", id: "attivita_assegnate", size: "md" },
-  { key: "sla_in_scadenza", id: "sla_in_scadenza", size: "md" },
-  { key: "ticket_urgenti", id: "ticket_urgenti", size: "md" },
-  { key: "attivita_ferme", id: "attivita_ferme", size: "md" },
-  { key: "bloccati_business", id: "bloccati_business", size: "md" },
-  { key: "ultimo_ping", id: "ultimo_ping", size: "md" },
-  { key: "note_importanti", id: "note_importanti", size: "md" },
-  { key: "carico_team", id: "carico_team", size: "lg" },
-  { key: "grafico_stati", id: "grafico_stati", size: "md" },
-];
+function hexToRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function rgbToHex(rgb: [number, number, number]): string {
+  return `#${rgb
+    .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+/** Fonde due colori: quota 0 = tutto `a`, quota 1 = tutto `b`. */
+function mescola(a: string, b: string, quota: number): string {
+  const [r1, g1, b1] = hexToRgb(a);
+  const [r2, g2, b2] = hexToRgb(b);
+
+  return rgbToHex([
+    r1 + (r2 - r1) * quota,
+    g1 + (g2 - g1) * quota,
+    b1 + (b2 - b1) * quota,
+  ]);
+}
+
+/** Superfici neutre usate come base della fusione nei due temi. */
+const SUPERFICIE_CHIARA = "#ffffff";
+const SUPERFICIE_SCURA = "#12161d";
+
+export type ColoriCard = {
+  sfondoChiaro: string;
+  bordoChiaro: string;
+  sfondoScuro: string;
+  bordoScuro: string;
+  /** Tinta piena, per la pastiglia del selettore. */
+  pastiglia: string;
+};
 
 /**
- * Classi di griglia responsive.
- * Mobile: 1 colonna · tablet: 2 colonne · desktop: 6 colonne.
+ * Deriva le quattro tinte di una card da un colore di partenza.
+ *
+ * Lo sfondo resta una velatura molto tenue della tinta scelta: in questo
+ * modo il testo scuro della card rimane leggibile qualunque colore venga
+ * scelto, e non serve ricalcolare il colore del testo.
  */
-export const SIZE_CLASSES: Record<WidgetSize, string> = {
-  sm: "col-span-1 sm:col-span-1 lg:col-span-2",
-  md: "col-span-1 sm:col-span-2 lg:col-span-3",
-  lg: "col-span-1 sm:col-span-2 lg:col-span-6",
-};
+export function derivaColoriCard(base: string | null | undefined): ColoriCard {
+  const tinta = normalizzaHex(base ?? "");
 
-export const SIZE_LABELS: Record<WidgetSize, string> = {
-  sm: "Stretta",
-  md: "Media",
-  lg: "Piena",
-};
+  if (!tinta) {
+    return {
+      sfondoChiaro: SUPERFICIE_CHIARA,
+      bordoChiaro: "#e2e8f0",
+      sfondoScuro: SUPERFICIE_SCURA,
+      bordoScuro: "#252b36",
+      pastiglia: SUPERFICIE_CHIARA,
+    };
+  }
+
+  return {
+    sfondoChiaro: mescola(tinta, SUPERFICIE_CHIARA, 0.88),
+    bordoChiaro: mescola(tinta, SUPERFICIE_CHIARA, 0.7),
+    sfondoScuro: mescola(tinta, SUPERFICIE_SCURA, 0.84),
+    bordoScuro: mescola(tinta, SUPERFICIE_SCURA, 0.66),
+    pastiglia: tinta,
+  };
+}
+
+/** Colori effettivi di una card, dando la precedenza al colore libero. */
+export function coloriDellaCard(item: {
+  color?: WidgetColor;
+  colorHex?: string;
+}): ColoriCard {
+  const libero = normalizzaHex(item.colorHex);
+  if (libero) return derivaColoriCard(libero);
+
+  const id = item.color ?? DEFAULT_WIDGET_COLOR;
+  const palette = COLOR_BY_ID.get(COLORI_LEGACY[id] ?? id);
+
+  return derivaColoriCard(palette?.base || null);
+}
+
+/** Variabili CSS da applicare alla card; il tema scuro le usa da globals.css. */
+export function variabiliColoreCard(item: {
+  color?: WidgetColor;
+  colorHex?: string;
+}): Record<string, string> {
+  const colori = coloriDellaCard(item);
+
+  return {
+    "--card-bg": colori.sfondoChiaro,
+    "--card-border": colori.bordoChiaro,
+    "--card-bg-dark": colori.sfondoScuro,
+    "--card-border-dark": colori.bordoScuro,
+  };
+}
+
+export const DEFAULT_HOME_LAYOUT: HomeWidgetLayoutItem[] = WIDGET_CATALOG.filter(
+  (widget) =>
+    [
+      "attivita_assegnate",
+      "sla_in_scadenza",
+      "ticket_urgenti",
+      "attivita_ferme",
+      "bloccati_business",
+      "ultimo_ping",
+      "note_importanti",
+      "carico_team",
+      "grafico_stati",
+    ].includes(widget.id)
+).map((widget) => ({
+  key: widget.id,
+  id: widget.id,
+  larghezza: widget.larghezzaDefault,
+  altezza: widget.altezzaDefault,
+  color: DEFAULT_WIDGET_COLOR,
+}));
 
 function normalizeCustomConfig(value: unknown): CustomCardConfig {
   const base = defaultCustomConfig();
@@ -371,16 +501,25 @@ function normalizeCustomConfig(value: unknown): CustomCardConfig {
   const arr = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
+  // Le card salvate prima dei filtri avanzati hanno gli elenchi piatti:
+  // vengono convertite una volta sola, mantenendo lo stesso risultato.
+  const filtri =
+    c.filtri !== undefined
+      ? normalizzaFiltro(c.filtri)
+      : migraFiltriLegacy({
+          filtroTitolo: c.filtroTitolo,
+          stati: c.stati,
+          priorita: c.priorita,
+          clienti: c.clienti,
+          applicativi: c.applicativi,
+          tipologie: c.tipologie,
+        });
+
   return {
     titolo: typeof c.titolo === "string" && c.titolo.trim() ? c.titolo : base.titolo,
-    filtroTitolo: typeof c.filtroTitolo === "string" ? c.filtroTitolo : "",
+    filtri,
     soloMiei: c.soloMiei === true,
     soloAperti: c.soloAperti !== false,
-    stati: arr(c.stati),
-    priorita: arr(c.priorita),
-    clienti: arr(c.clienti),
-    applicativi: arr(c.applicativi),
-    tipologie: arr(c.tipologie),
     modo:
       c.modo === "lista" || c.modo === "tabella" || c.modo === "conteggio"
         ? c.modo
@@ -396,7 +535,7 @@ function normalizeCustomConfig(value: unknown): CustomCardConfig {
       typeof c.limite === "number" && c.limite > 0 && c.limite <= 100
         ? Math.round(c.limite)
         : base.limite,
-    campi: arr(c.campi),
+    campi: arr(c.campi).length > 0 ? arr(c.campi) : base.campi,
   };
 }
 
@@ -417,13 +556,17 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
 
-    const { id, size, color, key, config } = item as {
-      id?: unknown;
-      size?: unknown;
-      color?: unknown;
-      key?: unknown;
-      config?: unknown;
-    };
+    const { id, size, larghezza, altezza, color, colorHex, key, config } =
+      item as {
+        id?: unknown;
+        size?: unknown;
+        larghezza?: unknown;
+        altezza?: unknown;
+        color?: unknown;
+        colorHex?: unknown;
+        key?: unknown;
+        config?: unknown;
+      };
 
     if (typeof id !== "string") continue;
 
@@ -444,17 +587,31 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
     if (seen.has(chiave)) continue;
     seen.add(chiave);
 
+    // Layout salvati con le vecchie taglie fisse: sm/md/lg diventano
+    // colonne, l'altezza parte da quella di catalogo.
+    const larghezzaSalvata =
+      typeof larghezza === "number"
+        ? larghezza
+        : typeof size === "string" && size in LARGHEZZA_DA_SIZE
+          ? LARGHEZZA_DA_SIZE[size as WidgetSize]
+          : widget.larghezzaDefault;
+
+    const idColore =
+      typeof color === "string"
+        ? (COLORI_LEGACY[color] ?? color)
+        : DEFAULT_WIDGET_COLOR;
+
     layout.push({
       key: chiave,
       id: widget.id,
-      size:
-        typeof size === "string" && widget.sizes.includes(size as WidgetSize)
-          ? (size as WidgetSize)
-          : widget.defaultSize,
-      color:
-        typeof color === "string" && COLOR_IDS.has(color as WidgetColor)
-          ? (color as WidgetColor)
-          : DEFAULT_WIDGET_COLOR,
+      larghezza: limitaLarghezza(larghezzaSalvata),
+      altezza: limitaAltezza(
+        typeof altezza === "number" ? altezza : widget.altezzaDefault
+      ),
+      color: COLOR_BY_ID.has(idColore) ? idColore : DEFAULT_WIDGET_COLOR,
+      ...(normalizzaHex(colorHex)
+        ? { colorHex: normalizzaHex(colorHex) as string }
+        : {}),
       ...(isCustom ? { config: normalizeCustomConfig(config) } : {}),
     });
   }
@@ -466,10 +623,13 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
 export function creaCardPersonalizzata(
   config?: Partial<CustomCardConfig>
 ): HomeWidgetLayoutItem {
+  const widget = WIDGET_BY_ID.get("ticket_custom")!;
+
   return {
     key: nuovaChiave(),
     id: "ticket_custom",
-    size: "md",
+    larghezza: widget.larghezzaDefault,
+    altezza: widget.altezzaDefault,
     color: DEFAULT_WIDGET_COLOR,
     config: { ...defaultCustomConfig(), ...config },
   };
@@ -880,20 +1040,16 @@ export function getTempiRisoluzione(
 /* Card personalizzata: filtro, ordinamento e valore dei campi         */
 /* ------------------------------------------------------------------ */
 
-function applicativiDi(ticket: TicketLike): string[] {
-  const a = ticket.applicativo;
-  if (Array.isArray(a)) return a.map((x) => String(x));
-  return a ? [String(a)] : [];
-}
-
 /** Applica filtri e ordinamento di una card personalizzata. */
 export function filtraTicketCard(
   tickets: TicketLike[],
   config: CustomCardConfig,
   userId: string | null
 ): TicketLike[] {
-  const titoloCercato = config.filtroTitolo.trim().toLowerCase();
-
+  // Calcolato una volta sola: con "ultimi N giorni" ogni condizione
+  // ricalcolerebbe l'ora corrente, e a cavallo della mezzanotte due
+  // ticket identici potrebbero finire uno dentro e uno fuori.
+  const ora = new Date();
   const filtrati = tickets.filter((ticket) => {
     if (config.soloMiei && userId && String(ticket.assignee ?? "") !== userId) {
       return false;
@@ -901,44 +1057,7 @@ export function filtraTicketCard(
 
     if (config.soloAperti && isTicketChiuso(ticket)) return false;
 
-    if (
-      titoloCercato &&
-      !String(ticket.titolo ?? "").toLowerCase().includes(titoloCercato)
-    ) {
-      return false;
-    }
-
-    if (config.stati.length && !config.stati.includes(String(ticket.stato ?? ""))) {
-      return false;
-    }
-
-    if (
-      config.priorita.length &&
-      !config.priorita.includes(String(ticket.priorita ?? ""))
-    ) {
-      return false;
-    }
-
-    if (
-      config.clienti.length &&
-      !config.clienti.includes(String(ticket.clienti?.nome ?? ""))
-    ) {
-      return false;
-    }
-
-    if (
-      config.tipologie.length &&
-      !config.tipologie.includes(String(ticket.tipologia_ticket ?? ""))
-    ) {
-      return false;
-    }
-
-    if (config.applicativi.length) {
-      const apps = applicativiDi(ticket);
-      if (!apps.some((a) => config.applicativi.includes(a))) return false;
-    }
-
-    return true;
+    return valutaFiltro(ticket, config.filtri, ora);
   });
 
   const ordinati = [...filtrati].sort((a, b) => {
