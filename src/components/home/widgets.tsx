@@ -782,8 +782,9 @@ export const WIDGET_COMPONENTS: Record<
   carico_team: CaricoTeam,
   grafico_stati: GraficoStati,
   grafico_tempi: GraficoTempi,
-  // Gestita a parte in HomeDashboard: riceve anche la configurazione.
+  // Gestite a parte in HomeDashboard: ricevono anche la configurazione.
   ticket_custom: () => <></>,
+  nota_singola: () => <></>,
 };
 
 /** Contatore mostrato nell'intestazione della card. */

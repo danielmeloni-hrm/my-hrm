@@ -42,7 +42,9 @@ import {
   WIDGET_BY_ID,
   WIDGET_CATALOG,
   WIDGET_COLORS,
+  WIDGET_MULTIPLI,
   coloriDellaCard,
+  creaCardNota,
   creaCardPersonalizzata,
   limitaAltezza,
   limitaLarghezza,
@@ -51,6 +53,7 @@ import {
   variabiliColoreCard,
   type CustomCardConfig,
   type HomeWidgetId,
+  type NotaCardConfig,
   type HomeWidgetLayoutItem,
   type WidgetColor,
 } from "@/lib/home-widgets";
@@ -62,6 +65,8 @@ import {
   type HomeData,
 } from "./widgets";
 import CustomCardEditor from "./CustomCardEditor";
+import NotaCard from "./NotaCard";
+import NotaCardEditor from "./NotaCardEditor";
 
 type Props = {
   data: HomeData;
@@ -110,20 +115,31 @@ function WidgetCard({
   if (!widget) return null;
 
   const isCustom = item.id === "ticket_custom";
+  const isNota = item.id === "nota_singola";
+  const configurabile = isCustom || isNota;
   const Component = WIDGET_COMPONENTS[item.id];
   const count = getWidgetCount(item.id, data);
   const coloreAttuale = normalizzaHex(item.colorHex) ?? "";
 
-  // Titolo/descrizione: le card personalizzate usano la loro configurazione.
+  // Titolo/descrizione: le card configurabili usano la loro configurazione.
+  const riassuntoFiltri = isCustom ? descriviFiltro(item.config?.filtri) : "";
+
   const titolo = isCustom
     ? item.config?.titolo || "Card personalizzata"
-    : widget.titolo;
+    : isNota
+      ? item.notaConfig?.titolo || widget.titolo
+      : widget.titolo;
 
-  const riassuntoFiltri = isCustom ? descriviFiltro(item.config?.filtri) : "";
   const descrizione = isCustom
     ? riassuntoFiltri ||
       `${item.config?.modo ?? "lista"} · ${item.config?.limite ?? 15} ticket`
-    : widget.descrizione;
+    : isNota
+      ? item.notaConfig?.noteId
+        ? item.notaConfig.soloLettura
+          ? "Nota collegata · sola lettura"
+          : "Nota collegata"
+        : "Nessuna nota scelta"
+      : widget.descrizione;
 
   return (
     <div
@@ -203,7 +219,7 @@ function WidgetCard({
               </button>
             )}
 
-            {editing && isCustom && (
+            {editing && configurabile && (
               <button
                 type="button"
                 onClick={() => onEditConfig(item.key)}
@@ -306,6 +322,8 @@ function WidgetCard({
         >
           {isCustom ? (
             <TicketCustom data={data} config={item.config!} />
+          ) : isNota ? (
+            <NotaCard config={item.notaConfig!} />
           ) : (
             <Component data={data} />
           )}
@@ -546,7 +564,7 @@ export default function HomeDashboard({ data }: Props) {
     () =>
       WIDGET_CATALOG.filter(
         (widget) =>
-          widget.id === "ticket_custom" ||
+          WIDGET_MULTIPLI.has(widget.id) ||
           !layout.some((i) => i.id === widget.id)
       ),
     [layout]
@@ -662,9 +680,11 @@ export default function HomeDashboard({ data }: Props) {
     const widget = WIDGET_BY_ID.get(id);
     if (!widget) return;
 
-    if (id === "ticket_custom") {
-      // Ogni card personalizzata è una nuova istanza da configurare.
-      const nuova = creaCardPersonalizzata();
+    // Le card multiple sono nuove istanze da configurare subito.
+    if (id === "ticket_custom" || id === "nota_singola") {
+      const nuova =
+        id === "ticket_custom" ? creaCardPersonalizzata() : creaCardNota();
+
       persist([...layout, nuova]);
       setCatalogOpen(false);
       setEditKey(nuova.key);
@@ -709,6 +729,12 @@ export default function HomeDashboard({ data }: Props) {
     persist(layout.map((item) => (item.key === key ? { ...item, config } : item)));
   }
 
+  function updateNotaConfig(key: string, notaConfig: NotaCardConfig) {
+    persist(
+      layout.map((item) => (item.key === key ? { ...item, notaConfig } : item))
+    );
+  }
+
   const cardInModifica = editKey
     ? layout.find((item) => item.key === editKey)
     : null;
@@ -720,7 +746,9 @@ export default function HomeDashboard({ data }: Props) {
   const activeTitolo =
     activeItem?.id === "ticket_custom"
       ? activeItem.config?.titolo || "Card personalizzata"
-      : activeConfig?.titolo;
+      : activeItem?.id === "nota_singola"
+        ? activeItem.notaConfig?.titolo || "Nota"
+        : activeConfig?.titolo;
 
   if (!loaded) {
     return (
@@ -991,7 +1019,18 @@ export default function HomeDashboard({ data }: Props) {
         </DndContext>
       )}
 
-      {cardInModifica && cardInModifica.config && (
+      {cardInModifica?.id === "nota_singola" && cardInModifica.notaConfig && (
+        <NotaCardEditor
+          config={cardInModifica.notaConfig}
+          onSave={(notaConfig) => {
+            updateNotaConfig(cardInModifica.key, notaConfig);
+            setEditKey(null);
+          }}
+          onClose={() => setEditKey(null)}
+        />
+      )}
+
+      {cardInModifica?.id === "ticket_custom" && cardInModifica.config && (
         <CustomCardEditor
           config={cardInModifica.config}
           clienti={opzioniCliente}

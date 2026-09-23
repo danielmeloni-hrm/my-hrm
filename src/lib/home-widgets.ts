@@ -78,7 +78,8 @@ export type HomeWidgetId =
   | "carico_team"
   | "grafico_stati"
   | "grafico_tempi"
-  | "ticket_custom";
+  | "ticket_custom"
+  | "nota_singola";
 
 export type HomeWidgetConfig = {
   id: HomeWidgetId;
@@ -89,6 +90,12 @@ export type HomeWidgetConfig = {
   /** Righe occupate alla prima aggiunta. */
   altezzaDefault: number;
   gruppo: "Operativo" | "Team" | "Analisi" | "Personalizzata";
+  /**
+   * Card che ammette più istanze sulla home, ognuna con la propria
+   * configurazione. Le altre restano una sola e spariscono dal catalogo
+   * una volta aggiunte.
+   */
+  multiplo?: boolean;
 };
 
 export const WIDGET_CATALOG: HomeWidgetConfig[] = [
@@ -200,8 +207,24 @@ export const WIDGET_CATALOG: HomeWidgetConfig[] = [
     larghezzaDefault: 6,
     altezzaDefault: 7,
     gruppo: "Personalizzata",
+    multiplo: true,
+  },
+  {
+    id: "nota_singola",
+    titolo: "Nota",
+    descrizione:
+      "Tieni sotto gli occhi una nota del note board, con le sue voci da spuntare.",
+    larghezzaDefault: 4,
+    altezzaDefault: 8,
+    gruppo: "Personalizzata",
+    multiplo: true,
   },
 ];
+
+/** Id delle card che possono comparire più volte sulla home. */
+export const WIDGET_MULTIPLI = new Set<HomeWidgetId>(
+  WIDGET_CATALOG.filter((widget) => widget.multiplo).map((widget) => widget.id)
+);
 
 export const WIDGET_BY_ID = new Map(
   WIDGET_CATALOG.map((widget) => [widget.id, widget])
@@ -287,6 +310,36 @@ export const ORDINAMENTI_CARD: { value: OrdinamentoCard; label: string }[] = [
   { value: "ping", label: "Ultimo ping" },
 ];
 
+/* ------------------------------------------------------------------ */
+/* Card legata a una nota                                              */
+/* ------------------------------------------------------------------ */
+
+export type NotaCardConfig = {
+  /** Id della nota in editor_notes; null finché non se ne sceglie una. */
+  noteId: string | null;
+  /** Titolo della card; vuoto = si usa il nome della nota. */
+  titolo: string;
+  /** Sola lettura: la card mostra la nota ma non la lascia modificare. */
+  soloLettura: boolean;
+};
+
+export function defaultNotaConfig(): NotaCardConfig {
+  return { noteId: null, titolo: "", soloLettura: false };
+}
+
+function normalizeNotaConfig(value: unknown): NotaCardConfig {
+  const base = defaultNotaConfig();
+  if (!value || typeof value !== "object") return base;
+
+  const c = value as Record<string, unknown>;
+
+  return {
+    noteId: typeof c.noteId === "string" && c.noteId ? c.noteId : null,
+    titolo: typeof c.titolo === "string" ? c.titolo : "",
+    soloLettura: c.soloLettura === true,
+  };
+}
+
 export type HomeWidgetLayoutItem = {
   /** Chiave d'istanza univoca: per le card fisse coincide con l'id. */
   key: string;
@@ -299,8 +352,10 @@ export type HomeWidgetLayoutItem = {
   color?: WidgetColor;
   /** Colore libero in esadecimale; se presente ha la precedenza sulla palette. */
   colorHex?: string;
-  /** Presente solo per le card personalizzate. */
+  /** Presente solo per le card personalizzate sui ticket. */
   config?: CustomCardConfig;
+  /** Presente solo per le card legate a una nota. */
+  notaConfig?: NotaCardConfig;
 };
 
 /* ------------------------------------------------------------------ */
@@ -574,13 +629,15 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
     if (!widget) continue;
 
     const isCustom = id === "ticket_custom";
+    const isNota = id === "nota_singola";
+    const isMultiplo = WIDGET_MULTIPLI.has(widget.id);
 
-    // Le card fisse hanno una sola istanza (chiave = id); le personalizzate
+    // Le card fisse hanno una sola istanza (chiave = id); quelle multiple
     // possono ripetersi, ciascuna con la propria chiave.
     const chiave =
-      isCustom && typeof key === "string" && key
+      isMultiplo && typeof key === "string" && key
         ? key
-        : isCustom
+        : isMultiplo
           ? nuovaChiave()
           : id;
 
@@ -613,10 +670,33 @@ export function normalizeLayout(value: unknown): HomeWidgetLayoutItem[] {
         ? { colorHex: normalizzaHex(colorHex) as string }
         : {}),
       ...(isCustom ? { config: normalizeCustomConfig(config) } : {}),
+      ...(isNota
+        ? {
+            notaConfig: normalizeNotaConfig(
+              (item as { notaConfig?: unknown }).notaConfig
+            ),
+          }
+        : {}),
     });
   }
 
   return layout;
+}
+
+/** Crea una nuova istanza di card legata a una nota. */
+export function creaCardNota(
+  config?: Partial<NotaCardConfig>
+): HomeWidgetLayoutItem {
+  const widget = WIDGET_BY_ID.get("nota_singola")!;
+
+  return {
+    key: nuovaChiave(),
+    id: "nota_singola",
+    larghezza: widget.larghezzaDefault,
+    altezza: widget.altezzaDefault,
+    color: DEFAULT_WIDGET_COLOR,
+    notaConfig: { ...defaultNotaConfig(), ...config },
+  };
 }
 
 /** Crea una nuova istanza di card personalizzata. */
