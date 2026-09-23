@@ -92,21 +92,38 @@ export default function MailThread({
 
     const base = (righeTicket || []) as MailThreadRow[]
 
-    const topics = Array.from(
+    // Per ritrovare le righe dello stesso thread sotto altri ticket non
+    // basta confrontare il topic: una riga può avere solo il subject, e
+    // Outlook ci antepone R:/I:/RE:. Si pre-filtra allora sul token più
+    // lungo del nome (tipicamente il codice TAG), che è alfanumerico e
+    // quindi non rompe la sintassi di or(), e il confronto vero avviene
+    // poi sulla chiave normalizzata in groupRowsIntoThreads.
+    const token = Array.from(
       new Set(
         base
-          .map((row) => (row.topic || '').trim())
-          .filter((topic) => topic.length > 0)
+          .map((row) =>
+            stripOutlookPrefixes(
+              row.topic || row.subject || row.tread?.nome_thread || ''
+            )
+          )
+          .flatMap((nome) => nome.match(/[A-Za-z0-9]{4,}/g) || [])
       )
     )
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 10)
 
     let righeCorrelate: MailThreadRow[] = []
 
-    if (topics.length > 0) {
+    if (token.length > 0) {
+      const filtro = token
+        .flatMap((t) => [`topic.ilike.%${t}%`, `subject.ilike.%${t}%`])
+        .join(',')
+
       const { data: correlate, error: erroreCorrelate } = await supabase
         .from('mail_threads')
         .select('*')
-        .in('topic', topics)
+        .or(filtro)
+        .limit(500)
 
       if (erroreCorrelate) {
         // Non è un errore bloccante: senza le righe degli altri ticket la
