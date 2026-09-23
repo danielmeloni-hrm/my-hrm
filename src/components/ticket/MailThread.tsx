@@ -174,22 +174,81 @@ export default function MailThread({
     )
   }
 
-  /** Ultima mail fra tutti i thread del ticket. */
+  /**
+   * Ultima mail del ticket: la più recente fra TUTTI i thread collegati,
+   * non quella del primo thread. Con più thread è l'unico dato che dice
+   * davvero da quanto il ticket è fermo.
+   */
   const ultimaMailDelTicket = useMemo(() => {
-    let ultima: string | null = null
+    let migliore: {
+      data: string
+      direzione: 'inbound' | 'outbound'
+      thread: string
+    } | null = null
 
     for (const thread of threads) {
-      if (!thread.ultimaMail) continue
-      if (!ultima || new Date(thread.ultimaMail) > new Date(ultima)) {
-        ultima = thread.ultimaMail
+      const ultima = thread.emails[thread.emails.length - 1]
+      if (!thread.ultimaMail || !ultima) continue
+
+      if (
+        !migliore ||
+        new Date(thread.ultimaMail).getTime() >
+          new Date(migliore.data).getTime()
+      ) {
+        migliore = {
+          data: thread.ultimaMail,
+          direzione: ultima.direction === 'outbound' ? 'outbound' : 'inbound',
+          thread: thread.nome,
+        }
       }
     }
 
-    return ultima
+    return migliore
   }, [threads])
 
+  /**
+   * Riallineamento di ticket.ultimo_ping.
+   *
+   * Le mail vengono inserite in mail_threads da un flusso esterno, che non
+   * tocca la tabella ticket: all'arrivo di una mail ultimo_ping restava al
+   * valore vecchio. Il rimedio strutturale è il trigger in
+   * supabase/ultimo_ping_da_mail.sql; questo è la rete di sicurezza per le
+   * righe già a database e per le mail arrivate prima del trigger.
+   *
+   * Si muove solo in avanti e una volta sola per montaggio, così un ping
+   * registrato a mano (una telefonata) non viene mai arretrato e non si
+   * innesca un ciclo di scritture.
+   */
+  const pingRiallineato = useRef(false)
+
+  useEffect(() => {
+    pingRiallineato.current = false
+  }, [nTag])
+
+  useEffect(() => {
+    if (pingRiallineato.current || loadingThreads) return
+
+    const ultima = ultimaMailDelTicket?.data
+    if (!ultima) return
+
+    const attuale = ticketData?.ultimo_ping
+      ? new Date(ticketData.ultimo_ping).getTime()
+      : 0
+
+    const nuova = new Date(ultima).getTime()
+    if (Number.isNaN(nuova) || nuova <= attuale) return
+
+    pingRiallineato.current = true
+    void onUpdate('ultimo_ping', ultima)
+  }, [
+    ultimaMailDelTicket,
+    ticketData?.ultimo_ping,
+    loadingThreads,
+    onUpdate,
+  ])
+
   const isOverdue = useMemo(() => {
-    const riferimento = ultimaMailDelTicket || ticketData?.ultimo_ping
+    const riferimento = ultimaMailDelTicket?.data || ticketData?.ultimo_ping
     if (!riferimento) return false
 
     const lastPing = new Date(riferimento)
@@ -503,6 +562,34 @@ export default function MailThread({
           {noteCount > 0 && (
             <span className="text-[10px] font-black px-2 py-0.5 rounded-full border bg-yellow-50 text-yellow-600 border-yellow-100">
               {noteCount} note
+            </span>
+          )}
+
+          {/* Ultima mail su tutti i thread collegati, non solo sul primo. */}
+          {ultimaMailDelTicket && (
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                isOverdue
+                  ? 'bg-red-50 text-red-600 border-red-100'
+                  : 'bg-slate-50 text-slate-500 border-slate-100'
+              }`}
+              title={
+                threadCount > 1
+                  ? `Mail più recente fra i ${threadCount} thread collegati, dal thread "${ultimaMailDelTicket.thread}"`
+                  : ultimaMailDelTicket.thread
+              }
+            >
+              {ultimaMailDelTicket.direzione === 'outbound' ? (
+                <ArrowUpRight size={11} />
+              ) : (
+                <ArrowDownLeft size={11} />
+              )}
+              Ultima mail {formatDate(ultimaMailDelTicket.data)}
+              {threadCount > 1 && (
+                <span className="font-bold text-slate-400">
+                  · su {threadCount} thread
+                </span>
+              )}
             </span>
           )}
         </div>
