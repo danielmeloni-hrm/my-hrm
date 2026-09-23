@@ -27,6 +27,12 @@
 --    data_invio è scelta a mano al momento del collegamento. Servono
 --    però a sapere QUALI ticket sono attaccati al thread.
 --
+--  * COLLEGARE un thread a un ticket porta subito quel ticket alla data
+--    dell'ultima mail già presente nel thread. Senza questo passaggio,
+--    il ticket collegato DOPO l'arrivo della mail resterebbe indietro
+--    per sempre: la mail è già passata e non tornerà a scatenare il
+--    trigger.
+--
 --  * I ticket collegati si riconoscono dalla CHIAVE NORMALIZZATA del
 --    thread, non dall'uguaglianza esatta del topic: Outlook antepone
 --    all'oggetto R:, I:, RE:, FW: e un confronto esatto lascerebbe
@@ -98,6 +104,79 @@ create index if not exists mail_threads_chiave_thread_idx
   );
 
 -- ------------------------------------------------------------------
+-- Data di una riga come mail
+-- ------------------------------------------------------------------
+
+/**
+ * Data della mail di una riga: le colonne tipizzate più le date dentro
+ * l'array jsonb `emails`, dove il flusso esterno mette i messaggi.
+ * I cast possono fallire su valori scritti male: in quel caso si
+ * ripiega sulle sole colonne tipizzate invece di bloccare l'insert.
+ */
+create or replace function public.data_mail_riga(
+  p_received_at timestamptz,
+  p_sent_at timestamptz,
+  p_data_invio text,
+  p_emails jsonb
+)
+returns timestamptz
+language plpgsql
+immutable
+as $$
+declare
+  v_data timestamptz;
+begin
+  begin
+    select max(d) into v_data
+    from (
+      select p_received_at as d
+      union all
+      select p_sent_at
+      union all
+      select nullif(btrim(p_data_invio), '')::timestamptz
+      union all
+      select greatest(
+        nullif(btrim(e ->> 'received_at'), '')::timestamptz,
+        nullif(btrim(e ->> 'sent_at'), '')::timestamptz
+      )
+      from jsonb_array_elements(
+        case when jsonb_typeof(p_emails) = 'array' then p_emails
+             else '[]'::jsonb end
+      ) as e
+    ) as date_candidate;
+  exception
+    when others then
+      v_data := greatest(p_received_at, p_sent_at);
+  end;
+
+  return v_data;
+end;
+$$;
+
+/** Data dell'ultima mail già presente in un thread. */
+create or replace function public.ultima_mail_del_thread(p_chiave text)
+returns timestamptz
+language sql
+stable
+as $$
+  select max(
+    public.data_mail_riga(
+      m.received_at, m.sent_at, m.data_invio::text, m.emails
+    )
+  )
+  from public.mail_threads m
+  where p_chiave is not null
+    and public.chiave_thread(m.topic, m.subject, m.tread ->> 'nome_thread') = p_chiave
+    and not coalesce(m.linked_manually, false)
+    and coalesce(m.link_status, '') <> 'manual'
+    and coalesce(m.tread ->> 'type', '') <> 'thread_link'
+    and coalesce(m.tread ->> 'tipo', '') <> 'thread_link'
+    and public.data_mail_riga(
+          m.received_at, m.sent_at, m.data_invio::text, m.emails
+        ) <= now() + interval '1 day';
+$$;
+
+-- ------------------------------------------------------------------
 -- Trigger
 -- ------------------------------------------------------------------
 
@@ -110,43 +189,47 @@ as $$
 declare
   v_data timestamptz;
   v_chiave text;
+  v_e_collegamento boolean;
 begin
-  -- Riga di solo collegamento: non è una mail ricevuta o inviata.
-  if coalesce(new.linked_manually, false)
-     or new.link_status = 'manual'
-     or new.tread ->> 'type' = 'thread_link'
-     or new.tread ->> 'tipo' = 'thread_link' then
+  v_chiave := public.chiave_thread(
+    new.topic,
+    new.subject,
+    new.tread ->> 'nome_thread'
+  );
+
+  v_e_collegamento :=
+    coalesce(new.linked_manually, false)
+    or new.link_status = 'manual'
+    or new.tread ->> 'type' = 'thread_link'
+    or new.tread ->> 'tipo' = 'thread_link';
+
+  -- Riga di collegamento: non è una mail, ma aggancia un ticket a un
+  -- thread che può già avere mail. Quel ticket va portato subito alla
+  -- data dell'ultima mail del thread, altrimenti resta indietro per
+  -- sempre: la mail è già passata e non riscatena il trigger.
+  if v_e_collegamento then
+    if new.n_tag is null or v_chiave is null then
+      return new;
+    end if;
+
+    v_data := public.ultima_mail_del_thread(v_chiave);
+
+    if v_data is null then
+      return new;
+    end if;
+
+    update public.ticket t
+    set ultimo_ping = v_data
+    where t.n_tag = new.n_tag
+      and (t.ultimo_ping is null or t.ultimo_ping < v_data);
+
     return new;
   end if;
 
-  -- Data della mail: le colonne della riga più le date dentro l'array
-  -- jsonb `emails`, che è dove il flusso esterno mette i messaggi.
-  -- I cast possono fallire su valori scritti male: in quel caso si
-  -- ripiega sulle sole colonne tipizzate invece di bloccare l'insert.
-  begin
-    select max(d) into v_data
-    from (
-      select new.received_at as d
-      union all
-      select new.sent_at
-      union all
-      select nullif(btrim(new.data_invio::text), '')::timestamptz
-      union all
-      select greatest(
-        nullif(btrim(e ->> 'received_at'), '')::timestamptz,
-        nullif(btrim(e ->> 'sent_at'), '')::timestamptz
-      )
-      from jsonb_array_elements(
-        case
-          when jsonb_typeof(new.emails) = 'array' then new.emails
-          else '[]'::jsonb
-        end
-      ) as e
-    ) as date_candidate;
-  exception
-    when others then
-      v_data := greatest(new.received_at, new.sent_at);
-  end;
+  -- Riga di mail.
+  v_data := public.data_mail_riga(
+    new.received_at, new.sent_at, new.data_invio::text, new.emails
+  );
 
   if v_data is null then
     return new;
@@ -157,12 +240,6 @@ begin
   if v_data > now() + interval '1 day' then
     return new;
   end if;
-
-  v_chiave := public.chiave_thread(
-    new.topic,
-    new.subject,
-    new.tread ->> 'nome_thread'
-  );
 
   -- Il thread è globale: si aggiornano TUTTI i ticket agganciati a
   -- questo thread, riconosciuti dalla chiave normalizzata, più quello
@@ -193,7 +270,8 @@ drop trigger if exists trg_ultimo_ping_da_mail on public.mail_threads;
 
 create trigger trg_ultimo_ping_da_mail
   after insert or update of
-    received_at, sent_at, data_invio, emails, topic, subject, n_tag
+    received_at, sent_at, data_invio, emails, topic, subject, n_tag,
+    linked_manually, link_status, tread
   on public.mail_threads
   for each row
   execute function public.aggiorna_ultimo_ping_da_mail();
@@ -212,19 +290,8 @@ with riga_mail as (
   select
     m.n_tag,
     public.chiave_thread(m.topic, m.subject, m.tread ->> 'nome_thread') as chiave,
-    greatest(
-      m.received_at,
-      m.sent_at,
-      (
-        select max(greatest(
-          nullif(btrim(e ->> 'received_at'), '')::timestamptz,
-          nullif(btrim(e ->> 'sent_at'), '')::timestamptz
-        ))
-        from jsonb_array_elements(
-          case when jsonb_typeof(m.emails) = 'array' then m.emails
-               else '[]'::jsonb end
-        ) as e
-      )
+    public.data_mail_riga(
+      m.received_at, m.sent_at, m.data_invio::text, m.emails
     ) as data_mail
   from public.mail_threads m
   where not coalesce(m.linked_manually, false)

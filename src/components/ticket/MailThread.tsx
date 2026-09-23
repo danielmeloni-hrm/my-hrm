@@ -242,8 +242,80 @@ export default function MailThread({
     pingRiallineato.current = false
   }, [nTag])
 
+  /**
+   * Allinea gli ALTRI ticket collegati ai thread di questo ticket.
+   *
+   * Un thread è globale: la sua ultima mail vale per tutti i ticket a cui
+   * è agganciato. Ogni ticket riceve però la data del thread che condivide,
+   * non il massimo di questo ticket: un ticket che condivide un solo thread
+   * non deve ereditare la data di un thread che non ha.
+   */
+  const allineaAltriTicket = useCallback(async () => {
+    const perTag = new Map<string, string>()
+
+    for (const thread of threads) {
+      if (!thread.ultimaMail) continue
+
+      for (const tag of thread.nTags) {
+        if (!tag || tag === String(nTag)) continue
+
+        const corrente = perTag.get(tag)
+        if (
+          !corrente ||
+          new Date(thread.ultimaMail).getTime() > new Date(corrente).getTime()
+        ) {
+          perTag.set(tag, thread.ultimaMail)
+        }
+      }
+    }
+
+    if (perTag.size === 0) return
+
+    const { data: altri, error } = await supabase
+      .from('ticket')
+      .select('id, n_tag, ultimo_ping')
+      .in('n_tag', Array.from(perTag.keys()))
+
+    if (error || !altri) {
+      if (error) console.error('Errore lettura ticket collegati:', error)
+      return
+    }
+
+    // Si scrive solo dove serve, e solo in avanti.
+    for (const ticket of altri) {
+      const attesa = perTag.get(String(ticket.n_tag))
+      if (!attesa) continue
+
+      const attuale = ticket.ultimo_ping
+        ? new Date(ticket.ultimo_ping).getTime()
+        : 0
+
+      if (new Date(attesa).getTime() <= attuale) continue
+
+      const { error: erroreUpdate } = await supabase
+        .from('ticket')
+        .update({ ultimo_ping: attesa })
+        .eq('id', ticket.id)
+
+      if (erroreUpdate) {
+        console.error(
+          'Errore allineamento ultimo_ping del ticket collegato:',
+          erroreUpdate
+        )
+      }
+    }
+  }, [supabase, threads, nTag])
+
   useEffect(() => {
     if (pingRiallineato.current || loadingThreads) return
+    if (threads.length === 0) return
+
+    pingRiallineato.current = true
+
+    // Gli altri ticket del thread vanno allineati in ogni caso, anche se
+    // questo ticket è già aggiornato: il collegamento può essere stato
+    // aggiunto dopo l'arrivo della mail.
+    void allineaAltriTicket()
 
     const ultima = ultimaMailDelTicket?.data
     if (!ultima) return
@@ -255,13 +327,14 @@ export default function MailThread({
     const nuova = new Date(ultima).getTime()
     if (Number.isNaN(nuova) || nuova <= attuale) return
 
-    pingRiallineato.current = true
     void onUpdate('ultimo_ping', ultima)
   }, [
+    threads,
     ultimaMailDelTicket,
     ticketData?.ultimo_ping,
     loadingThreads,
     onUpdate,
+    allineaAltriTicket,
   ])
 
   const isOverdue = useMemo(() => {
